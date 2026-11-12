@@ -129,7 +129,7 @@
 
 {#snippet boardCard(it: WorkspaceItem)}{@render card(it, true)}{/snippet}
 
-<div class="flex h-full flex-col">
+<div class="flex min-h-full flex-col">
   <!-- Barre de l'espace -->
   <div class="flex flex-wrap items-center gap-3 px-6 pt-4 pb-3">
     <h2 class="text-sm font-semibold tracking-wide text-muted uppercase">
@@ -173,7 +173,7 @@
     </div>
   {:else if settings.workspaceView === "board"}
     <!-- Vue tableau : grille libre -->
-    <div class="flex-1 px-4 pb-6">
+    <div class="flex flex-1 flex-col px-4 pb-6">
       <Board {items} card={boardCard} onlayout={layout} ondropids={onadd} />
     </div>
   {:else}

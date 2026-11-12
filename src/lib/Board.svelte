@@ -98,22 +98,74 @@
   }
 
   // ----- Arrivée depuis le panneau (glisser natif) -----
+  // Un aperçu montre où la carte arrivera : la place libre la plus proche du curseur.
+  // On ne dépose jamais sur une carte existante (rien n'est poussé) ; le tableau garde
+  // toujours de l'espace libre sous les cartes (`DROP_ROWS`) pour en ajouter en bas.
+  const DROP_ROWS = DEFAULT.h + 2;
+  let gridEl: HTMLElement | undefined = $state();
+  let ghost = $state<{ x: number; y: number } | null>(null);
+
+  /** Case sous le curseur (coordonnées écran), carte centrée horizontalement. */
+  function cellAt(e: DragEvent): { x: number; y: number } | null {
+    if (!grid || !gridEl) return null;
+    const box = gridEl.getBoundingClientRect();
+    const colW = box.width / 12;
+    const rowH = grid.getCellHeight(true);
+    if (colW <= 0 || rowH <= 0) return null;
+    return {
+      x: Math.floor((e.clientX - box.left) / colW) - Math.floor(DEFAULT.w / 2),
+      y: Math.max(0, Math.floor((e.clientY - box.top) / rowH)),
+    };
+  }
+
+  /** Place libre la plus proche de `want` pour une carte de taille DEFAULT. */
+  function nearestFree(want: { x: number; y: number }): { x: number; y: number } {
+    const g = grid!;
+    const maxX = 12 - DEFAULT.w;
+    const tx = Math.max(0, Math.min(maxX, want.x));
+    let best = { x: tx, y: g.getRow() };
+    let bestD = Infinity;
+    for (let y = 0; y <= g.getRow(); y++) {
+      for (let x = 0; x <= maxX; x++) {
+        // Distance pondérée : on préfère rester sur la même ligne que monter/descendre
+        const d = Math.abs(x - tx) + 1.5 * Math.abs(y - want.y);
+        if (d < bestD && g.isAreaEmpty(x, y, DEFAULT.w, DEFAULT.h)) {
+          bestD = d;
+          best = { x, y };
+        }
+      }
+    }
+    return best;
+  }
+
   function dragOver(e: DragEvent) {
     if (!e.dataTransfer?.types.includes(DRAG_MIME)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
     hover = true;
+    const want = cellAt(e);
+    if (!want) return;
+    const at = nearestFree(want);
+    if (ghost?.x !== at.x || ghost?.y !== at.y) ghost = at;
+  }
+  function dragLeave(e: DragEvent) {
+    // Ignore les passages d'un élément enfant à un autre
+    if (e.currentTarget instanceof Node && e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+    hover = false;
+    ghost = null;
   }
   function drop(e: DragEvent) {
+    const at = ghost;
     hover = false;
+    ghost = null;
     ui.draggingFromPanel = false;
     const raw = e.dataTransfer?.getData(DRAG_MIME);
     if (!raw || !grid) return;
     e.preventDefault();
     try {
       const ids = (JSON.parse(raw) as unknown[]).filter((x): x is number => typeof x === "number");
-      const cell = grid.getCellFromPixel({ left: e.clientX, top: e.clientY }, false);
-      ondropids(ids, { x: Math.max(0, Math.min(12 - DEFAULT.w, cell.x)), y: Math.max(0, cell.y) });
+      const want = cellAt(e);
+      ondropids(ids, at ?? (want ? nearestFree(want) : { x: 0, y: grid.getRow() }));
     } catch {
       /* données d'un autre glisser : ignorées */
     }
@@ -124,13 +176,14 @@
   role="region"
   aria-label="Tableau des cartes"
   ondragover={dragOver}
-  ondragleave={() => (hover = false)}
+  ondragleave={dragLeave}
   ondrop={drop}
-  class="board rounded-xl transition
-    {ui.draggingFromPanel ? 'outline-2 outline-offset-4 outline-dashed' : ''}
+  class="board relative flex-1 rounded-xl transition
+    {ui.draggingFromPanel ? 'dragging-in outline-2 outline-offset-4 outline-dashed' : ''}
     {hover ? 'outline-accent bg-accent/5' : 'outline-line'}"
+  style:padding-bottom="{DROP_ROWS * 40}px"
 >
-  <div class="grid-stack" {@attach setupGrid}>
+  <div class="grid-stack" bind:this={gridEl} {@attach setupGrid}>
     {#each items as item (item.achievement_id)}
       <div class="grid-stack-item" data-id={item.achievement_id} {@attach (el) => setupItem(el, () => item)}>
         <div class="grid-stack-item-content">
@@ -139,9 +192,35 @@
       </div>
     {/each}
   </div>
+  {#if ghost}
+    <!-- Aperçu de la place d'arrivée -->
+    <div
+      class="ghost pointer-events-none absolute"
+      style:left="calc({ghost.x} * 100% / 12)"
+      style:top="{ghost.y * 40}px"
+      style:width="calc({DEFAULT.w} * 100% / 12)"
+      style:height="{DEFAULT.h * 40}px"
+    ></div>
+  {/if}
 </div>
 
 <style>
+  /* Pendant une arrivée depuis le panneau, les cartes (et leurs vidéos) ne captent
+     pas le glisser : c'est le tableau qui le reçoit, même au-dessus d'une carte. */
+  .board.dragging-in :global(.grid-stack-item) {
+    pointer-events: none;
+  }
+  .ghost {
+    padding: 6px;
+  }
+  .ghost::before {
+    content: "";
+    display: block;
+    height: 100%;
+    border: 2px dashed var(--color-accent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  }
   /* Contenu de la case : la carte la remplit entièrement */
   .board :global(.grid-stack-item-content) {
     overflow: visible !important;
