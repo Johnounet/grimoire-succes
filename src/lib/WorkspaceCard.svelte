@@ -1,6 +1,8 @@
 <script lang="ts">
   // Carte d'un succès dans l'espace de travail : repliable, déplaçable par sa poignée.
   import { dragHandle } from "svelte-dnd-action";
+  import BlockList from "./blocks/BlockList.svelte";
+  import { blocksOf, createBlock, imageFrom, saveBlock, uploadImage } from "./blocks/store.svelte";
   import CopyId from "./CopyId.svelte";
   import { rarityText } from "./filters";
   import { columns, type AchievementRow, type Column } from "./library";
@@ -12,6 +14,7 @@
     spoiler,
     animate,
     compact,
+    imagesDir,
     ontoggle,
     onreveal,
     oncollapse,
@@ -25,6 +28,7 @@
     animate: boolean;
     /** Vue colonnes : pas de sélecteur de colonne (on déplace la carte). */
     compact: boolean;
+    imagesDir: string;
     ontoggle: () => void;
     onreveal: () => void;
     oncollapse: () => void;
@@ -34,12 +38,31 @@
 
   const icon = $derived(a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url));
   const label = $derived(spoiler ? "succès caché" : a.name);
+  const blockCount = $derived(blocksOf(a.id).length);
+
+  /** Ctrl+V d'une capture n'importe où sur la carte (hors champ de texte) : nouveau bloc image. */
+  async function paste(e: ClipboardEvent) {
+    const target = e.target as HTMLElement;
+    if (target.closest("input, textarea, [contenteditable]")) return;
+    const file = imageFrom(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    const b = await createBlock(a.id, "image");
+    if (!b || b.kind !== "image") return;
+    try {
+      (b.data as { file: string | null }).file = await uploadImage(file);
+      saveBlock(b);
+    } catch {
+      /* le bloc reste vide : l'utilisateur peut réessayer */
+    }
+  }
 </script>
 
 <article
   class="rounded-xl border bg-panel transition-colors
     {a.unlocked ? 'border-ok/30' : 'border-line'}"
   aria-label={label}
+  onpaste={paste}
 >
   <header class="flex items-center gap-2 p-2.5">
     <span
@@ -88,9 +111,10 @@
           {a.name}
         </div>
       {/if}
-      {#if a.rarity != null}
-        <div class="text-xs font-semibold {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</div>
-      {/if}
+      <div class="flex items-center gap-2 text-xs">
+        {#if a.rarity != null}<span class="font-semibold {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
+        {#if collapsed && blockCount > 0}<span class="text-muted">· {blockCount} bloc{blockCount > 1 ? "s" : ""}</span>{/if}
+      </div>
     </div>
 
     <button
@@ -105,7 +129,7 @@
     <button
       onclick={onremove}
       aria-label="Retirer de l'espace de travail"
-      title="Retirer de l'espace de travail"
+      title="Retirer de l'espace de travail (ses blocs sont conservés)"
       class="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-raised hover:text-danger"
     >
       ✕
@@ -137,10 +161,7 @@
         {/if}
       </div>
 
-      <!-- Les blocs de guide (vidéo, image, texte, liste, compteur, chrono) arrivent à l'étape 6 -->
-      <div class="rounded-lg border border-dashed border-line px-3 py-2 text-xs text-muted">
-        Bientôt ici : vos vidéos, images, notes, listes, compteurs et chronos.
-      </div>
+      <BlockList achievementId={a.id} {imagesDir} />
     </div>
   {/if}
 </article>

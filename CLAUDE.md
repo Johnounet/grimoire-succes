@@ -40,6 +40,10 @@ npm run check          # vérification des types Svelte/TS
 
 - [x] Étape 5 — Espace de travail : validé sous Windows (2026-11-12) ; reste Linux. **Point ouvert** : l'utilisateur n'est pas convaincu par la vue colonnes (à faire / en cours / fait). Le SPEC prévoit de garder la vue la plus réussie si l'une déçoit : en reparler une fois les blocs (étape 6) en place, sans la supprimer d'ici là
 
+- [x] Étape 6 — Blocs : validé sous Windows (2026-11-12), YouTube compris ; reste Linux (lecture vidéo dépendante de GStreamer)
+
+**Blocs** : table `blocks` (migration v3) rattachée au succès, pas à l'espace de travail. État et enregistrement différé (400 ms) dans `src/lib/blocks/store.svelte.ts` ; `flushBlocks()` au changement de jeu et à la fermeture (`onCloseRequested`, d'où la permission `core:window:allow-destroy`). Images dans `images/blocks/`, envoyées en binaire brut (`image_save`), orphelines supprimées au démarrage. Réordonnancement des blocs en glisser HTML natif : **ne pas utiliser `dragHandle` de svelte-dnd-action pour des zones imbriquées** (état de poignée global, la carte parente se mettrait à glisser aussi).
+
 **Interface simulée** : `npm run dev` puis ouvrir http://localhost:1420 dans un navigateur. Hors de Tauri et en dev seulement, `src/dev-mock.ts` remplace le cœur Rust par des données factices (absent des versions compilées). Penser à y ajouter chaque nouvelle commande Tauri.
 
 **Glisser-déposer** : réordonnancement des cartes par `svelte-dnd-action` (`dragHandleZone`, `useCursorForDetection: true` indispensable entre colonnes) ; arrivée depuis le panneau par glisser HTML natif, d'où `dragDropEnabled: false` dans `tauri.conf.json`.

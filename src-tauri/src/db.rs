@@ -63,6 +63,21 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX workspace_items_by_game ON workspace_items (appid, position);
     "#,
+    // v3 : blocs des guides, rattachés à un succès (survivent au retrait de l'espace de travail)
+    r#"
+    CREATE TABLE blocks (
+        id             INTEGER PRIMARY KEY,
+        achievement_id INTEGER NOT NULL REFERENCES achievements(id) ON DELETE CASCADE,
+        appid          INTEGER NOT NULL REFERENCES games(appid) ON DELETE CASCADE,
+        kind           TEXT    NOT NULL CHECK (kind IN ('video', 'image', 'text', 'list', 'counter', 'timer')),
+        position       INTEGER NOT NULL,
+        data           TEXT    NOT NULL DEFAULT '{}',  -- JSON, forme selon `kind` (voir SPEC)
+        created_at     INTEGER NOT NULL,
+        updated_at     INTEGER NOT NULL
+    );
+    CREATE INDEX blocks_by_achievement ON blocks (achievement_id, position);
+    CREATE INDEX blocks_by_game ON blocks (appid);
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -394,6 +409,117 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
     tx.commit()
 }
 
+// ---------- Blocs ----------
+
+pub const BLOCK_KINDS: &[&str] = &["video", "image", "text", "list", "counter", "timer"];
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Block {
+    pub id: i64,
+    pub achievement_id: i64,
+    pub kind: String,
+    pub position: i64,
+    pub data: serde_json::Value,
+}
+
+fn block_row(r: &rusqlite::Row) -> rusqlite::Result<Block> {
+    let raw: String = r.get(4)?;
+    Ok(Block {
+        id: r.get(0)?,
+        achievement_id: r.get(1)?,
+        kind: r.get(2)?,
+        position: r.get(3)?,
+        data: serde_json::from_str(&raw).unwrap_or(serde_json::Value::Object(Default::default())),
+    })
+}
+
+/// Tous les blocs d'un jeu, groupés par succès puis dans l'ordre.
+pub fn list_blocks(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Block>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, achievement_id, kind, position, data FROM blocks
+         WHERE appid = ?1 ORDER BY achievement_id, position",
+    )?;
+    let rows = stmt.query_map([appid], block_row)?;
+    rows.collect()
+}
+
+/// Crée un bloc sous un succès, à la fin ou à `position` (les suivants sont décalés).
+pub fn create_block(
+    conn: &mut Connection,
+    achievement_id: i64,
+    kind: &str,
+    data: &serde_json::Value,
+    position: Option<i64>,
+) -> rusqlite::Result<Block> {
+    if !BLOCK_KINDS.contains(&kind) {
+        return Err(rusqlite::Error::InvalidParameterName(format!("type de bloc inconnu : {kind}")));
+    }
+    let tx = conn.transaction()?;
+    let appid: u32 = tx.query_row("SELECT appid FROM achievements WHERE id = ?1", [achievement_id], |r| r.get(0))?;
+    let end: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(position) + 1, 0) FROM blocks WHERE achievement_id = ?1",
+        [achievement_id],
+        |r| r.get(0),
+    )?;
+    let pos = position.map(|p| p.clamp(0, end)).unwrap_or(end);
+    tx.execute(
+        "UPDATE blocks SET position = position + 1 WHERE achievement_id = ?1 AND position >= ?2",
+        params![achievement_id, pos],
+    )?;
+    let t = now();
+    tx.execute(
+        "INSERT INTO blocks (achievement_id, appid, kind, position, data, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![achievement_id, appid, kind, pos, data.to_string(), t],
+    )?;
+    let id = tx.last_insert_rowid();
+    let block = tx.query_row(
+        "SELECT id, achievement_id, kind, position, data FROM blocks WHERE id = ?1",
+        [id],
+        block_row,
+    )?;
+    tx.commit()?;
+    Ok(block)
+}
+
+pub fn update_block(conn: &Connection, id: i64, data: &serde_json::Value) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE blocks SET data = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, data.to_string(), now()],
+    )?;
+    Ok(())
+}
+
+pub fn delete_block(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM blocks WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+/// Nouvel ordre des blocs d'un succès. Les blocs d'autres succès sont ignorés.
+pub fn reorder_blocks(conn: &mut Connection, achievement_id: i64, ids: &[i64]) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare("UPDATE blocks SET position = ?3 WHERE id = ?1 AND achievement_id = ?2")?;
+        for (pos, id) in ids.iter().enumerate() {
+            stmt.execute(params![id, achievement_id, pos as i64])?;
+        }
+    }
+    tx.commit()
+}
+
+/// Fichiers d'images encore utilisés par au moins un bloc (chemins relatifs à `images/`).
+pub fn referenced_block_images(conn: &Connection) -> rusqlite::Result<std::collections::HashSet<String>> {
+    let mut stmt = conn.prepare("SELECT json_extract(data, '$.file') FROM blocks WHERE kind = 'image'")?;
+    let rows = stmt.query_map([], |r| r.get::<_, Option<String>>(0))?;
+    let mut out = std::collections::HashSet::new();
+    for f in rows {
+        if let Some(f) = f? {
+            out.insert(f);
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,6 +627,40 @@ mod tests {
         delete_game(&conn, 620).unwrap();
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM workspace_items", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn blocs() {
+        use serde_json::json;
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None), ach("B", None)]), "P", None).unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+
+        let t = create_block(&mut conn, ids[0], "text", &json!({"markdown": "**coffre**"}), None).unwrap();
+        let c = create_block(&mut conn, ids[0], "counter", &json!({"value": 3, "goal": 50, "step": 1}), None).unwrap();
+        // Duplication / annulation : insertion au milieu
+        let i = create_block(&mut conn, ids[0], "image", &json!({"file": "blocks/x.png"}), Some(1)).unwrap();
+        assert!(create_block(&mut conn, ids[0], "pas-un-type", &json!({}), None).is_err());
+
+        let order = |conn: &Connection| list_blocks(conn, 620).unwrap().iter().map(|b| b.id).collect::<Vec<_>>();
+        assert_eq!(order(&conn), vec![t.id, i.id, c.id]);
+
+        update_block(&conn, c.id, &json!({"value": 4, "goal": 50, "step": 1})).unwrap();
+        reorder_blocks(&mut conn, ids[0], &[c.id, t.id, i.id]).unwrap();
+        let list = list_blocks(&conn, 620).unwrap();
+        assert_eq!(list.iter().map(|b| b.id).collect::<Vec<_>>(), vec![c.id, t.id, i.id]);
+        assert_eq!(list[0].data["value"], 4);
+        assert!(referenced_block_images(&conn).unwrap().contains("blocks/x.png"));
+
+        // Actualisation et retrait de l'espace : les blocs restent
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("B", None)]), "P", None).unwrap();
+        save_workspace(&mut conn, 620, &[]).unwrap();
+        assert_eq!(list_blocks(&conn, 620).unwrap().len(), 3);
+
+        delete_block(&conn, i.id).unwrap();
+        assert!(referenced_block_images(&conn).unwrap().is_empty());
+        delete_game(&conn, 620).unwrap();
+        assert!(list_blocks(&conn, 620).unwrap().is_empty());
     }
 
     #[test]

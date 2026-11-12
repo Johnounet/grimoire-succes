@@ -2,6 +2,7 @@
   import { api, heroUrl, percent, sourceLabel, type AchievementRow, type GameSummary } from "./library";
   import { SvelteSet } from "svelte/reactivity";
   import AchievementList from "./AchievementList.svelte";
+  import { blocks, loadBlocks } from "./blocks/store.svelte";
   import type { Column, WorkspaceItem } from "./library";
   import ProgressRing from "./ProgressRing.svelte";
   import { setPanelOpen, settings } from "./settings.svelte";
@@ -9,10 +10,12 @@
 
   let {
     game,
+    imagesDir,
     onchanged,
     ondeleted,
   }: {
     game: GameSummary;
+    imagesDir: string;
     onchanged: (g: GameSummary) => void;
     ondeleted: (appid: number) => void;
   } = $props();
@@ -50,6 +53,7 @@
     const appid = appidKey;
     revealed.clear();
     workspace = [];
+    loadBlocks(appid);
     api.workspaceList(appid).then((w) => {
       if (appid === game.appid) workspace = w;
     });
@@ -153,12 +157,12 @@
     </div>
   </header>
 
-  {#if confirmDelete || error}
+  {#if confirmDelete || error || blocks.error}
     <div class="space-y-2 px-6 pt-3">
       {#if confirmDelete}
         <div class="flex flex-wrap items-center gap-3 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm">
           <span class="flex-1">
-            Supprimer « {game.name} » de la bibliothèque ? Ses succès et son espace de travail seront effacés.
+            Supprimer « {game.name} » de la bibliothèque ? Ses succès, son espace de travail et ses guides seront effacés.
             <span class="text-muted">(L'export des guides avant suppression arrivera avec les guides.)</span>
           </span>
           <button onclick={() => (confirmDelete = false)} class="rounded-md px-3 py-1 hover:bg-raised">Annuler</button>
@@ -167,6 +171,12 @@
       {/if}
       {#if error}
         <p class="rounded-lg bg-danger/10 p-3 text-sm text-danger">{error}</p>
+      {/if}
+      {#if blocks.error}
+        <p class="flex items-center gap-3 rounded-lg bg-danger/10 p-3 text-sm text-danger">
+          <span class="flex-1">{blocks.error}</span>
+          <button onclick={() => (blocks.error = "")} class="text-muted hover:text-fg" aria-label="Fermer">✕</button>
+        </p>
       {/if}
     </div>
   {/if}
@@ -178,6 +188,7 @@
         items={workspace}
         {byId}
         {revealed}
+        {imagesDir}
         ontoggle={toggle}
         onchange={saveWorkspace}
         onadd={addToWorkspace}

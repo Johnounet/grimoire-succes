@@ -15,7 +15,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+    pub(crate) fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
         // Une écriture interrompue par un panic n'invalide pas la connexion SQLite
         self.db.lock().unwrap_or_else(|e| e.into_inner())
     }

@@ -29,6 +29,16 @@ const achievements = [
 
 let workspace: { achievement_id: number; column: string; collapsed: boolean }[] = [];
 const settings = new Map<string, string>();
+type MockBlock = { id: number; achievement_id: number; kind: string; position: number; data: unknown };
+let blocks: MockBlock[] = [];
+let nextBlockId = 1;
+
+function renumber(achievementId: number) {
+  blocks
+    .filter((b) => b.achievement_id === achievementId)
+    .sort((a, b) => a.position - b.position)
+    .forEach((b, i) => (b.position = i));
+}
 
 const summary = () => ({
   appid: 620,
@@ -67,6 +77,39 @@ export function installMock() {
         workspace = args.items as typeof workspace;
         console.info("[mock] workspace_save", JSON.stringify(workspace));
         return null;
+      case "blocks_list":
+        return [...blocks].sort((a, b) => a.achievement_id - b.achievement_id || a.position - b.position);
+      case "block_create": {
+        const achievementId = args.achievementId as number;
+        const mine = blocks.filter((b) => b.achievement_id === achievementId);
+        const pos = (args.position as number | null) ?? mine.length;
+        mine.filter((b) => b.position >= pos).forEach((b) => b.position++);
+        const b = { id: nextBlockId++, achievement_id: achievementId, kind: args.kind as string, position: pos, data: args.data };
+        blocks.push(b);
+        console.info("[mock] block_create", b.kind, b.id);
+        return structuredClone(b);
+      }
+      case "block_update": {
+        const b = blocks.find((x) => x.id === args.id);
+        if (b) b.data = args.data;
+        console.info("[mock] block_update", args.id, JSON.stringify(args.data));
+        return null;
+      }
+      case "block_delete": {
+        const b = blocks.find((x) => x.id === args.id);
+        blocks = blocks.filter((x) => x.id !== args.id);
+        if (b) renumber(b.achievement_id);
+        return null;
+      }
+      case "blocks_reorder":
+        (args.ids as number[]).forEach((id, i) => {
+          const b = blocks.find((x) => x.id === id);
+          if (b) b.position = i;
+        });
+        return null;
+      case "image_save":
+        // Le corps brut arrive tel quel : on en fait une URL du navigateur
+        return URL.createObjectURL(new Blob([payload as Uint8Array]));
       case "setting_get":
         return settings.get(args.key as string) ?? null;
       case "setting_set":

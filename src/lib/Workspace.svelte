@@ -16,6 +16,7 @@
     items,
     byId,
     revealed,
+    imagesDir,
     ontoggle,
     onchange,
     onadd,
@@ -23,6 +24,7 @@
     items: WorkspaceItem[];
     byId: Map<number, AchievementRow>;
     revealed: SvelteSet<number>;
+    imagesDir: string;
     ontoggle: (a: AchievementRow) => void;
     onchange: (items: WorkspaceItem[]) => void;
     onadd: (ids: number[], column: Column) => void;
@@ -127,6 +129,7 @@
         spoiler={spoiler(a)}
         animate={justToggled === a.id}
         {compact}
+        {imagesDir}
         ontoggle={() => toggle(a)}
         onreveal={() => revealed.add(a.id)}
         oncollapse={() => update(a.id, { collapsed: !c.collapsed })}

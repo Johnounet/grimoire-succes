@@ -75,6 +75,8 @@ export const DRAG_MIME = "application/x-chasse-succes-ids";
 /** URL affichable d'une image enregistrée dans le dossier de données. */
 export function localImage(imagesDir: string, rel: string | null): string | null {
   if (!rel) return null;
+  // Interface simulée : l'image est déjà une URL du navigateur
+  if (rel.startsWith("blob:") || rel.startsWith("data:")) return rel;
   return convertFileSrc(`${imagesDir}/${rel}`);
 }
 

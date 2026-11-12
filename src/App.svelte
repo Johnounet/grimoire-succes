@@ -4,7 +4,10 @@
   import GameView from "./lib/GameView.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
   import { api, type GameSummary } from "./lib/library";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { flushBlocks } from "./lib/blocks/store.svelte";
   import { loadSettings } from "./lib/settings.svelte";
+  import Toast from "./lib/Toast.svelte";
 
   let games = $state<GameSummary[]>([]);
   let imagesDir = $state("");
@@ -15,6 +18,12 @@
   const current = $derived(games.find((g) => g.appid === selected) ?? null);
 
   onMount(async () => {
+    // Avant la fermeture : envoyer les modifications de blocs encore en attente
+    try {
+      getCurrentWindow().onCloseRequested(() => flushBlocks());
+    } catch {
+      /* hors de Tauri (interface simulée) */
+    }
     try {
       [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings()]);
       selected = games[0]?.appid ?? null;
@@ -47,7 +56,7 @@
   <Sidebar {games} {imagesDir} {selected} onselect={(id) => (selected = id)} onadd={() => (adding = true)} />
 
   {#if current}
-    <GameView game={current} onchanged={upsert} ondeleted={onDeleted} />
+    <GameView game={current} {imagesDir} onchanged={upsert} ondeleted={onDeleted} />
   {:else}
     <main class="flex flex-1 items-center justify-center p-8 text-center">
       <div class="max-w-sm space-y-3">
@@ -68,6 +77,8 @@
     </main>
   {/if}
 </div>
+
+<Toast />
 
 {#if adding}
   <AddGameDialog onclose={() => (adding = false)} onimported={onImported} />
