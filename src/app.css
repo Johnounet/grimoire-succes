@@ -75,3 +75,12 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Fenêtre compacte : fond transparent, la carte arrondie porte l'opacité réglable */
+html.compact,
+html.compact body {
+  background: transparent;
+}
+html.compact #app {
+  height: 100%;
+}

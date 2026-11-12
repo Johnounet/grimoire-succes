@@ -173,6 +173,14 @@ pub fn achievement_set_unlocked(state: State<'_, AppState>, id: i64, unlocked: b
     db::get_game(&conn, appid).map_err(err)?.ok_or_else(|| "jeu introuvable".into())
 }
 
+/// Décoche tous les succès d'un jeu, après un reset complet fait par le joueur dans Steam.
+#[tauri::command]
+pub fn achievements_lock_all(state: State<'_, AppState>, appid: u32) -> Result<GameSummary, String> {
+    let conn = state.conn();
+    db::lock_all(&conn, appid).map_err(err)?;
+    db::get_game(&conn, appid).map_err(err)?.ok_or_else(|| "jeu introuvable".into())
+}
+
 #[tauri::command]
 pub fn workspace_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<db::WorkspaceItem>, String> {
     db::list_workspace(&state.conn(), appid).map_err(err)
@@ -184,7 +192,21 @@ pub fn workspace_save(state: State<'_, AppState>, appid: u32, items: Vec<db::Wor
 }
 
 /// Réglages modifiables depuis l'interface.
-const SETTINGS: &[&str] = &["anti_spoiler", "language", "country", "profile_url", "workspace_view", "panel_open"];
+const SETTINGS: &[&str] = &[
+    "anti_spoiler",
+    "language",
+    "country",
+    "profile_url",
+    "workspace_view",
+    "panel_open",
+    // Raccourcis globaux : blocs « actifs », touches (JSON), retour sonore
+    "active_counter",
+    "active_timer",
+    "shortcuts",
+    "shortcut_sound",
+    // Mode compact
+    "compact_opacity",
+];
 
 fn check_setting(key: &str) -> Result<(), String> {
     if SETTINGS.contains(&key) {

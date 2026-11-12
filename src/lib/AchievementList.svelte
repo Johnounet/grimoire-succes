@@ -15,6 +15,7 @@
   } from "./filters";
   import { DRAG_MIME, type AchievementRow } from "./library";
   import { setAntiSpoiler, settings, ui } from "./settings.svelte";
+  import { tags } from "./tags.svelte";
 
   let {
     achievements,
@@ -38,7 +39,12 @@
   /** Succès qui vient d'être coché : seul lui joue l'animation. */
   let justToggled = $state<number | null>(null);
 
-  const shown = $derived(apply(achievements, filters, personalOrder));
+  const shown = $derived(apply(achievements, filters, personalOrder, tags.byAch));
+  // Étiquette filtrée supprimée entre-temps : on revient à « toutes »
+  $effect(() => {
+    const t = filters.tag;
+    if (typeof t === "number" && !tags.list.some((x) => x.id === t)) filters.tag = "all";
+  });
   const n = $derived(counts(achievements));
   const selectable = (a: AchievementRow) => !a.removed && !personalOrder.has(a.id);
 
@@ -121,6 +127,15 @@
         class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-1.5 text-sm outline-none focus:border-accent"
       >
         {#each sortOptions as s (s.value)}<option value={s.value}>{s.label}</option>{/each}
+      </select>
+      <select
+        bind:value={filters.tag}
+        aria-label="Filtrer par étiquette"
+        class="min-w-0 basis-full rounded-lg border border-line bg-bg px-2 py-1.5 text-sm outline-none focus:border-accent"
+      >
+        <option value="all">Toutes les étiquettes</option>
+        <option value="none">Sans étiquette</option>
+        {#each tags.list as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
       </select>
     </div>
 

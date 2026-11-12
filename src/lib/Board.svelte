@@ -5,9 +5,11 @@
   //
   // Svelte rend le contenu des cartes ; gridstack ne fait que les positionner.
   // Une carte sans position (ajoutée depuis la liste, ou ancienne) reçoit une place libre.
-  import { GridStack, type GridItemHTMLElement } from "gridstack";
+  // La grille reste libre (`float`) : rien ne remonte tout seul, sauf les cartes situées sous une carte
+  // que le joueur retire (`willRemove`), et toutes d'un coup avec « Tout remonter » (`packAll`).
+  import { GridStack, type GridItemHTMLElement, type GridStackNode } from "gridstack";
   import "gridstack/dist/gridstack.min.css";
-  import { untrack, type Snippet } from "svelte";
+  import { tick, untrack, type Snippet } from "svelte";
   import { DRAG_MIME, type GridPos, type WorkspaceItem } from "./library";
   import { ui } from "./settings.svelte";
 
@@ -28,6 +30,51 @@
   const DEFAULT = { w: 4, h: 8 };
   let grid: GridStack | null = null;
   let hover = $state(false);
+
+  /** Cartes que le joueur retire : leur place sera comblée par les cartes du dessous. */
+  const closing = new Set<number>();
+
+  export function willRemove(id: number) {
+    closing.add(id);
+  }
+
+  /** Remonte toutes les cartes au plus haut, chacune dans sa colonne (aucune ne change de côté). */
+  export function packAll() {
+    slideUp(grid?.engine.nodes ?? [], 0);
+  }
+
+  type Area = { x: number; y: number; w: number; h: number };
+  const area = (n: GridStackNode): Area => ({ x: n.x ?? 0, y: n.y ?? 0, w: n.w ?? 1, h: n.h ?? 1 });
+  const overlap = (a: Area, b: Area) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+  /** Fait remonter, dans la place libérée, les cartes qui étaient en dessous (sans toucher aux autres). */
+  function closeGap(hole: Area) {
+    const below = (grid?.engine.nodes ?? []).filter(
+      (n) => area(n).y >= hole.y && area(n).x < hole.x + hole.w && hole.x < area(n).x + area(n).w,
+    );
+    slideUp(below, hole.y);
+  }
+
+  /** Remonte ces cartes tant que la place au-dessus est libre, sans dépasser la ligne `floor`. */
+  function slideUp(nodes: GridStackNode[], floor: number) {
+    const g = grid;
+    if (!g) return;
+    const free = (n: GridStackNode, y: number) => {
+      const want = { ...area(n), y };
+      return g.engine.nodes.every((o) => o === n || !overlap(area(o), want));
+    };
+    // De haut en bas : chaque carte remontée libère la place de la suivante
+    const sorted = [...nodes].sort((a, b) => area(a).y - area(b).y);
+    g.batchUpdate();
+    for (const n of sorted) {
+      let y = area(n).y;
+      while (y > floor && free(n, y - 1)) y--;
+      if (y !== n.y && n.el) g.update(n.el, { y });
+    }
+    g.batchUpdate(false);
+    // gridstack ne signale pas toujours ces déplacements par « change » : on enregistre nous-mêmes
+    emitLayout();
+  }
 
   function emitLayout() {
     if (!grid) return;
@@ -91,8 +138,15 @@
       queueMicrotask(() => {
         if (grid && !node.gridstackNode) grid.makeWidget(el);
       });
+      const id = item.achievement_id;
       return () => {
-        if (grid && node.gridstackNode) grid.removeWidget(el, false);
+        const n = node.gridstackNode;
+        if (!grid || !n) return;
+        const hole = area(n);
+        grid.removeWidget(el, false);
+        // Après la mise à jour de l'affichage : la liste `items` ne contient plus la carte retirée,
+        // sinon l'enregistrement des nouvelles positions la ferait revenir
+        if (closing.delete(id)) tick().then(() => closeGap(hole));
       };
     });
   }

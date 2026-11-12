@@ -8,12 +8,14 @@
     selected,
     onselect,
     onadd,
+    onsettings,
   }: {
     games: GameSummary[];
     imagesDir: string;
     selected: number | null;
     onselect: (appid: number) => void;
     onadd: () => void;
+    onsettings: () => void;
   } = $props();
 </script>
 
@@ -65,4 +67,13 @@
       {/each}
     </ul>
   </nav>
+
+  <div class="border-t border-line p-2">
+    <button
+      onclick={onsettings}
+      class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-raised hover:text-fg"
+    >
+      <span aria-hidden="true">⚙</span> Réglages
+    </button>
+  </div>
 </aside>

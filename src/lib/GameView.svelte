@@ -1,11 +1,18 @@
 <script lang="ts">
   import { api, heroUrl, percent, sourceLabel, type AchievementRow, type GameSummary } from "./library";
+  import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import AchievementList from "./AchievementList.svelte";
   import { blocks, loadBlocks } from "./blocks/store.svelte";
+  import { openCompact } from "./compact";
+  import MoreMenu from "./MoreMenu.svelte";
+  import RelockDialog from "./RelockDialog.svelte";
+  import { on, send } from "./sync";
+  import { loadGameTags } from "./tags.svelte";
   import type { GridPos, WorkspaceItem } from "./library";
   import ProgressRing from "./ProgressRing.svelte";
-  import { setPanelOpen, settings } from "./settings.svelte";
+  import { openRelock, setPanelOpen, settings, ui } from "./settings.svelte";
+  import { shortcutContext } from "./shortcuts.svelte";
   import Workspace from "./Workspace.svelte";
 
   let {
@@ -53,11 +60,26 @@
     const appid = appidKey;
     revealed.clear();
     workspace = [];
+    untrack(() => (ui.relock.open = false));
     loadBlocks(appid);
+    loadGameTags(appid);
     api.workspaceList(appid).then((w) => {
       if (appid === game.appid) workspace = w;
     });
   });
+
+  // Bloc par défaut des raccourcis : pris dans l'espace de travail du jeu ouvert
+  $effect(() => {
+    shortcutContext.workspace = workspace;
+  });
+
+  // Coche faite dans la fenêtre compacte
+  $effect(() =>
+    on("achievement-changed", ({ id, unlocked }) => {
+      const row = achievements.find((x) => x.id === id);
+      if (row) Object.assign(row, { unlocked, manual: true, unlock_time: unlocked ? row.unlock_time : null });
+    }),
+  );
 
   // Enregistrements de l'espace mis en file, pour qu'ils arrivent dans l'ordre
   let saving: Promise<unknown> = Promise.resolve();
@@ -66,6 +88,7 @@
     workspace = items;
     saving = saving
       .then(() => api.workspaceSave(appid, items))
+      .then(() => send("data-changed", { appid }))
       .catch((e) => (error = `Enregistrement de l'espace de travail impossible : ${e}`));
   }
 
@@ -77,8 +100,28 @@
     const place = (i: number): GridPos | null => (i === 0 && at ? { ...at, w: 4, h: 8 } : null);
     saveWorkspace([
       ...workspace,
-      ...fresh.map((id, i) => ({ achievement_id: id, column: "todo" as const, collapsed: false, grid: place(i) })),
+      ...fresh.map((id, i) => ({
+        achievement_id: id,
+        column: "todo" as const,
+        collapsed: false,
+        grid: place(i),
+        pinned: false,
+      })),
     ]);
+  }
+
+  /** Re-lock confirmé par le joueur : décoche dans le logiciel, sans toucher aux guides. */
+  async function relockDone() {
+    const t = ui.relock.target;
+    const appid = game.appid;
+    if (t) {
+      const row = achievements.find((x) => x.id === t.id);
+      if (row?.unlocked) await toggle(row);
+    } else {
+      onchanged(await api.lockAll(appid));
+      achievements = await api.achievements(appid);
+      send("data-changed", { appid });
+    }
   }
 
   const pct = $derived(percent(game));
@@ -114,6 +157,7 @@
     if (!row.unlocked) row.unlock_time = null;
     try {
       onchanged(await api.setUnlocked(row.id, row.unlocked));
+      send("data-changed", { appid: game.appid });
     } catch (e) {
       Object.assign(row, before);
       error = `Enregistrement impossible : ${e}`;
@@ -145,6 +189,13 @@
       </div>
       <ProgressRing value={pct} size={48} />
       <button
+        onclick={() => openCompact(game.appid)}
+        class="rounded-lg border border-line bg-panel/80 px-3 py-1.5 text-sm backdrop-blur transition hover:bg-raised"
+        title="Petite fenêtre toujours au premier plan : cartes épinglées, compteurs et chronos"
+      >
+        Mode compact
+      </button>
+      <button
         onclick={refresh}
         disabled={refreshing}
         class="rounded-lg border border-line bg-panel/80 px-3 py-1.5 text-sm backdrop-blur transition hover:bg-raised disabled:opacity-60"
@@ -159,6 +210,17 @@
       >
         Supprimer
       </button>
+      <MoreMenu
+        class="rounded-lg bg-panel/80 backdrop-blur"
+        label="Plus d'actions sur le jeu"
+        items={[
+          {
+            label: "Reset complet dans Steam…",
+            hint: "Prépare la commande console reset_all_stats",
+            onclick: () => openRelock(null),
+          },
+        ]}
+      />
     </div>
   </header>
 
@@ -233,3 +295,13 @@
     {/if}
   </div>
 </section>
+
+{#if ui.relock.open}
+  <RelockDialog
+    appid={game.appid}
+    gameName={game.name}
+    target={ui.relock.target}
+    onclose={() => (ui.relock.open = false)}
+    onlock={relockDone}
+  />
+{/if}

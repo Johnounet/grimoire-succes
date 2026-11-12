@@ -1,5 +1,8 @@
 <script lang="ts">
   import CopyId from "./CopyId.svelte";
+  import MoreMenu from "./MoreMenu.svelte";
+  import { openRelock } from "./settings.svelte";
+  import TagPicker from "./TagPicker.svelte";
   import { rarityBar, rarityText } from "./filters";
   import type { AchievementRow } from "./library";
 
@@ -117,7 +120,20 @@
       </div>
       <p class="text-sm text-muted">{a.description || "—"}</p>
     {/if}
-    {#if a.api_name}<CopyId id={a.api_name} />{/if}
+    <div class="mt-0.5 flex flex-wrap items-center gap-1.5">
+      {#if a.api_name}<CopyId id={a.api_name} />{/if}
+      <TagPicker achievementId={a.id} compact />
+      <MoreMenu
+        class="ml-auto opacity-0 transition group-hover:opacity-100 focus-within:opacity-100"
+        items={[
+          {
+            label: "Reverrouiller dans Steam…",
+            hint: "Prépare la commande console achievement_clear",
+            onclick: () => openRelock(a),
+          },
+        ]}
+      />
+    </div>
   </div>
 
   <!-- Rareté et date -->

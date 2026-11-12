@@ -43,7 +43,18 @@ npm run check          # vérification des types Svelte/TS
 - [x] Étape 6 — Blocs : validé sous Windows (2026-11-12), YouTube compris ; reste Linux (lecture vidéo dépendante de GStreamer)
 - [x] Vue Tableau (remplace les colonnes) : validée par l'utilisateur sous Windows, dépôt depuis le panneau compris (2026-11-12) ; reste Linux
 
-**Prochaine étape** : étape 7 du SPEC (étiquettes, re-lock, raccourcis globaux, mode compact).
+- [x] Étape 7 — Étiquettes, re-lock, raccourcis globaux, mode compact : testée par l'utilisateur sous Windows (2026-11-12), premiers retours corrigés (bloc visé par défaut par les raccourcis, cartes qui remontent). Reste Linux (raccourcis globaux sous Wayland à vérifier)
+
+**Prochaine étape** : l'utilisateur a d'autres modifications à demander sur l'étape 7, dans une nouvelle session ; ensuite étape 8 du SPEC (finitions).
+
+**Étape 7, choix faits** :
+- **Étiquettes** : tables `tags` / `achievement_tags` (migration v5, 6 étiquettes proposées), communes à tous les jeux. Store `src/lib/tags.svelte.ts`, sélecteur `TagPicker.svelte` (cartes et liste), gestion dans `SettingsDialog.svelte`, filtre dans la liste.
+- **Re-lock** : menu « ⋯ » d'un succès (carte ou liste) ou du jeu (bannière) → `RelockDialog.svelte`. Seules actions vers Steam : copier la commande, ouvrir `steam://open/console` (autorisé dans `capabilities/default.json`). « C'est fait » décoche dans le logiciel (`achievements_lock_all` pour le reset complet).
+- **Bloc actif** : icône ◎ sur un compteur ou un chrono, réglages `active_counter` / `active_timer` (globaux, le bloc peut être d'un autre jeu : lu par `block_get`). Sans choix ◎, les raccourcis visent le premier compteur / chrono des cartes épinglées, puis des autres cartes du jeu ouvert (`target()` dans `shortcuts.svelte.ts`).
+- **Raccourcis globaux** : `tauri-plugin-global-shortcut`, enregistrés par la fenêtre principale seulement (`src/lib/shortcuts.svelte.ts`). Touches au format `KeyboardEvent.code` (défaut Ctrl+Alt+flèches), réglage `shortcuts` en JSON. Logique compteur/chrono partagée dans `src/lib/blocks/ops.ts`.
+- **Mode compact** : 2ᵉ fenêtre Tauri `compact` (même page, `main.ts` choisit `Compact.svelte` selon le nom de la fenêtre), sans bordure, transparente, toujours au premier plan. Montre les cartes épinglées (menu « ⋯ » de la carte, colonne `workspace_items.pinned`) avec leurs compteurs et chronos, et les blocs actifs. **Pas de vidéo** dans le mode compact (question ouverte du SPEC, tranchée ainsi). Fermer la fenêtre principale quitte l'application.
+- **Synchronisation entre fenêtres** : événements Tauri (`src/lib/sync.ts`) : `block-changed`, `data-changed`, `achievement-changed`, `active-changed`, `compact-game`… Chaque fenêtre ignore ses propres messages. Ne pas remplacer un objet `$state` lu par un `$effect` (ex. `ui.relock`) : modifier ses champs.
+- Interface simulée de la fenêtre compacte : http://localhost:1420/?compact (données simulées propres à l'onglet).
 
 **Blocs** : table `blocks` (migration v3) rattachée au succès, pas à l'espace de travail. État et enregistrement différé (400 ms) dans `src/lib/blocks/store.svelte.ts` ; `flushBlocks()` au changement de jeu et à la fermeture (`onCloseRequested`, d'où la permission `core:window:allow-destroy`). Images dans `images/blocks/`, envoyées en binaire brut (`image_save`), orphelines supprimées au démarrage. Réordonnancement des blocs en glisser HTML natif : **ne pas utiliser `dragHandle` de svelte-dnd-action pour des zones imbriquées** (état de poignée global, la carte parente se mettrait à glisser aussi).
 
@@ -51,6 +62,7 @@ npm run check          # vérification des types Svelte/TS
 
 **Glisser-déposer** :
 - Vue Tableau : `gridstack` (`src/lib/Board.svelte`), position/taille en base (`workspace_items.grid_*`, migration v4). Svelte rend les cartes, gridstack les positionne : la mise en place d'une carte (`setupItem`) ne doit s'exécuter **qu'une fois** (`untrack`), sinon chaque enregistrement la remet à son ancienne place. Pour tester sans souris réelle : événements souris simulés progressifs sur `document` (un `left_click_drag` instantané ne suffit pas).
+- Tableau libre (`float`) : seules les cartes sous une carte retirée remontent (`closeGap`, après `tick()` sinon la carte retirée revient en base), et toutes avec « tout remonter » (remontée verticale maison, pas `grid.compact()` qui déplace les cartes de côté).
 - Vue Liste : `svelte-dnd-action` (`dragHandleZone`, `useCursorForDetection: true`).
 - Arrivée depuis le panneau : glisser HTML natif, d'où `dragDropEnabled: false` dans `tauri.conf.json`. Dans le Tableau, la case est calculée à la main (`cellAt`) : **ne pas utiliser `grid.getCellFromPixel`**, qui compare les coordonnées écran à `offsetLeft/offsetTop` et décale la carte. Aperçu de la place d'arrivée, toujours la place libre la plus proche (aucune carte n'est poussée) ; les cartes ignorent la souris pendant ce glisser (sinon les iframes YouTube avalent l'événement).
 

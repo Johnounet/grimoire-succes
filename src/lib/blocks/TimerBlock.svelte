@@ -1,6 +1,7 @@
 <script lang="ts">
   // Chronomètre : Démarrer → Arrêter (la course est terminée, le meilleur temps est mis à jour).
   // L'heure de départ est enregistrée : un chrono lancé tourne encore après un redémarrage.
+  import { timerElapsed, timerReset, timerStart, timerStop } from "./ops";
   import { saveBlock } from "./store.svelte";
   import { formatClock, formatDuration, parseClock, type Block } from "./types";
 
@@ -11,7 +12,7 @@
 
   const d = $derived(block.data);
   const running = $derived(d.running_since != null);
-  const elapsed = $derived(d.elapsed_ms + (d.running_since != null ? Math.max(0, now - d.running_since) : 0));
+  const elapsed = $derived(timerElapsed(d, now));
   const overTarget = $derived(d.target_ms != null && elapsed > d.target_ms);
 
   // Rafraîchit l'affichage seulement pendant la course
@@ -22,29 +23,20 @@
   });
 
   function start() {
-    // Une nouvelle course repart de zéro
-    block.data.elapsed_ms = 0;
-    block.data.running_since = Date.now();
     now = Date.now();
+    timerStart(block.data, now);
     record = false;
     saveBlock(block);
   }
 
   function stop() {
-    const t = Date.now();
-    block.data.elapsed_ms = d.elapsed_ms + (d.running_since != null ? t - d.running_since : 0);
-    block.data.running_since = null;
-    now = t;
-    if (block.data.elapsed_ms > 0 && (d.best_ms == null || block.data.elapsed_ms < d.best_ms)) {
-      block.data.best_ms = block.data.elapsed_ms;
-      record = true;
-    }
+    now = Date.now();
+    record = timerStop(block.data, now);
     saveBlock(block);
   }
 
   function reset() {
-    block.data.elapsed_ms = 0;
-    block.data.running_since = null;
+    timerReset(block.data);
     record = false;
     saveBlock(block);
   }

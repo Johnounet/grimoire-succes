@@ -47,13 +47,25 @@ export const api = {
   achievements: (appid: number) => invoke<AchievementRow[]>("game_achievements", { appid }),
   setUnlocked: (id: number, unlocked: boolean) =>
     invoke<GameSummary>("achievement_set_unlocked", { id, unlocked }),
+  lockAll: (appid: number) => invoke<GameSummary>("achievements_lock_all", { appid }),
   workspaceList: (appid: number) => invoke<WorkspaceItem[]>("workspace_list", { appid }),
   workspaceSave: (appid: number, items: WorkspaceItem[]) => invoke<void>("workspace_save", { appid, items }),
   getSetting: (key: SettingKey) => invoke<string | null>("setting_get", { key }),
   setSetting: (key: SettingKey, value: string) => invoke<void>("setting_set", { key, value }),
 };
 
-export type SettingKey = "anti_spoiler" | "language" | "country" | "profile_url" | "workspace_view" | "panel_open";
+export type SettingKey =
+  | "anti_spoiler"
+  | "language"
+  | "country"
+  | "profile_url"
+  | "workspace_view"
+  | "panel_open"
+  | "active_counter"
+  | "active_timer"
+  | "shortcuts"
+  | "shortcut_sound"
+  | "compact_opacity";
 
 export type Column = "todo" | "doing" | "done";
 
@@ -72,6 +84,8 @@ export interface WorkspaceItem {
   collapsed: boolean;
   /** null : pas encore placée dans le tableau (une place libre lui sera trouvée). */
   grid: GridPos | null;
+  /** Affichée dans le mode compact. */
+  pinned: boolean;
 }
 
 /** Statuts possibles d'une carte (anciennement les colonnes de la vue Colonnes). */

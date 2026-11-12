@@ -86,6 +86,30 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE workspace_items ADD COLUMN grid_w INTEGER;
     ALTER TABLE workspace_items ADD COLUMN grid_h INTEGER;
     "#,
+    // v5 : étiquettes (communes à tous les jeux, posées sur les succès) et cartes épinglées
+    // au mode compact
+    r#"
+    CREATE TABLE tags (
+        id       INTEGER PRIMARY KEY,
+        name     TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+        color    TEXT    NOT NULL,  -- #rrggbb
+        position INTEGER NOT NULL
+    );
+    CREATE TABLE achievement_tags (
+        achievement_id INTEGER NOT NULL REFERENCES achievements(id) ON DELETE CASCADE,
+        tag_id         INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        PRIMARY KEY (achievement_id, tag_id)
+    );
+    CREATE INDEX achievement_tags_by_tag ON achievement_tags (tag_id);
+    INSERT INTO tags (name, color, position) VALUES
+        ('ratable', '#ef5b5b', 0),
+        ('grind', '#f2994a', 1),
+        ('en ligne', '#4f7cff', 2),
+        ('difficile', '#b07cff', 3),
+        ('cumulable', '#4cc38a', 4),
+        ('DLC', '#f2c14e', 5);
+    ALTER TABLE workspace_items ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -331,6 +355,15 @@ pub fn set_unlocked(conn: &Connection, id: i64, unlocked: bool) -> rusqlite::Res
     )
 }
 
+/// Décoche tous les succès d'un jeu (après un reset complet lancé par le joueur dans Steam).
+pub fn lock_all(conn: &Connection, appid: u32) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE achievements SET unlocked = 0, manual = 1, unlock_time = NULL WHERE appid = ?1 AND unlocked = 1",
+        [appid],
+    )?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AchievementRow {
     pub id: i64,
@@ -394,12 +427,15 @@ pub struct WorkspaceItem {
     /// `None` : pas encore placée dans le tableau
     #[serde(default)]
     pub grid: Option<GridPos>,
+    /// Affichée dans le mode compact
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// Cartes de l'espace de travail d'un jeu, dans l'ordre.
 pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<WorkspaceItem>> {
     let mut stmt = conn.prepare(
-        "SELECT achievement_id, column_name, collapsed, grid_x, grid_y, grid_w, grid_h FROM workspace_items
+        "SELECT achievement_id, column_name, collapsed, grid_x, grid_y, grid_w, grid_h, pinned FROM workspace_items
          WHERE appid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map([appid], |r| {
@@ -413,6 +449,7 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
                 (Some(x), Some(y), Some(w), Some(h)) => Some(GridPos { x, y, w, h }),
                 _ => None,
             },
+            pinned: r.get(7)?,
         })
     })?;
     rows.collect()
@@ -426,8 +463,8 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
     {
         let mut insert = tx.prepare(
             "INSERT OR IGNORE INTO workspace_items
-                 (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h)
-             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9 FROM achievements WHERE id = ?1 AND appid = ?2",
+                 (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned)
+             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 FROM achievements WHERE id = ?1 AND appid = ?2",
         )?;
         for (pos, it) in items.iter().enumerate() {
             let column = match it.column.as_str() {
@@ -449,6 +486,7 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
                 g.map(|g| g.y),
                 g.map(|g| g.w),
                 g.map(|g| g.h),
+                it.pinned,
             ])?;
         }
     }
@@ -487,6 +525,24 @@ pub fn list_blocks(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Block>
     )?;
     let rows = stmt.query_map([appid], block_row)?;
     rows.collect()
+}
+
+/// Un bloc et le succès qui le porte (compteur ou chrono « actif », qui peut être d'un autre jeu).
+#[derive(Debug, Clone, Serialize)]
+pub struct BlockInfo {
+    pub block: Block,
+    pub appid: u32,
+    pub achievement_name: String,
+}
+
+pub fn get_block(conn: &Connection, id: i64) -> rusqlite::Result<Option<BlockInfo>> {
+    conn.query_row(
+        "SELECT b.id, b.achievement_id, b.kind, b.position, b.data, b.appid, a.name
+         FROM blocks b JOIN achievements a ON a.id = b.achievement_id WHERE b.id = ?1",
+        [id],
+        |r| Ok(BlockInfo { block: block_row(r)?, appid: r.get(5)?, achievement_name: r.get(6)? }),
+    )
+    .optional()
 }
 
 /// Crée un bloc sous un succès, à la fin ou à `position` (les suivants sont décalés).
@@ -564,6 +620,102 @@ pub fn referenced_block_images(conn: &Connection) -> rusqlite::Result<std::colle
         }
     }
     Ok(out)
+}
+
+// ---------- Étiquettes ----------
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Tag {
+    pub id: i64,
+    pub name: String,
+    pub color: String,
+}
+
+/// Nom nettoyé et couleur `#rrggbb` ; sinon un message pour le joueur.
+fn check_tag(name: &str, color: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Le nom de l'étiquette est vide.".into());
+    }
+    if name.chars().count() > 40 {
+        return Err("Nom d'étiquette trop long (40 caractères au plus).".into());
+    }
+    let ok = color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit());
+    if !ok {
+        return Err(format!("Couleur invalide : {color}"));
+    }
+    Ok(name.to_string())
+}
+
+fn tag_error(e: rusqlite::Error) -> String {
+    match e {
+        rusqlite::Error::SqliteFailure(f, _) if f.code == rusqlite::ErrorCode::ConstraintViolation => {
+            "Une étiquette porte déjà ce nom.".into()
+        }
+        e => e.to_string(),
+    }
+}
+
+pub fn list_tags(conn: &Connection) -> rusqlite::Result<Vec<Tag>> {
+    let mut stmt = conn.prepare("SELECT id, name, color FROM tags ORDER BY position, id")?;
+    let rows = stmt.query_map([], |r| Ok(Tag { id: r.get(0)?, name: r.get(1)?, color: r.get(2)? }))?;
+    rows.collect()
+}
+
+pub fn create_tag(conn: &Connection, name: &str, color: &str) -> Result<Tag, String> {
+    let name = check_tag(name, color)?;
+    conn.query_row(
+        "INSERT INTO tags (name, color, position) VALUES (?1, ?2, (SELECT COALESCE(MAX(position) + 1, 0) FROM tags))
+         RETURNING id, name, color",
+        params![name, color],
+        |r| Ok(Tag { id: r.get(0)?, name: r.get(1)?, color: r.get(2)? }),
+    )
+    .map_err(tag_error)
+}
+
+pub fn update_tag(conn: &Connection, id: i64, name: &str, color: &str) -> Result<(), String> {
+    let name = check_tag(name, color)?;
+    conn.execute("UPDATE tags SET name = ?2, color = ?3 WHERE id = ?1", params![id, name, color])
+        .map_err(tag_error)?;
+    Ok(())
+}
+
+/// Supprime une étiquette partout (elle disparaît des succès de tous les jeux).
+pub fn delete_tag(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM tags WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub struct AchievementTag {
+    pub achievement_id: i64,
+    pub tag_id: i64,
+}
+
+/// Étiquettes posées sur les succès d'un jeu.
+pub fn list_achievement_tags(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<AchievementTag>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.achievement_id, t.tag_id FROM achievement_tags t
+         JOIN achievements a ON a.id = t.achievement_id
+         WHERE a.appid = ?1 ORDER BY t.achievement_id, t.tag_id",
+    )?;
+    let rows = stmt.query_map([appid], |r| Ok(AchievementTag { achievement_id: r.get(0)?, tag_id: r.get(1)? }))?;
+    rows.collect()
+}
+
+pub fn set_achievement_tag(conn: &Connection, achievement_id: i64, tag_id: i64, on: bool) -> rusqlite::Result<()> {
+    if on {
+        conn.execute(
+            "INSERT OR IGNORE INTO achievement_tags (achievement_id, tag_id) VALUES (?1, ?2)",
+            params![achievement_id, tag_id],
+        )?;
+    } else {
+        conn.execute(
+            "DELETE FROM achievement_tags WHERE achievement_id = ?1 AND tag_id = ?2",
+            params![achievement_id, tag_id],
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -655,10 +807,11 @@ mod tests {
         let mut conn = open_in_memory().unwrap();
         save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None)]), "P", None).unwrap();
         let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
-        let item = |id, col: &str| WorkspaceItem { achievement_id: id, column: col.into(), collapsed: false, grid: None };
+        let item = |id, col: &str| WorkspaceItem { achievement_id: id, column: col.into(), collapsed: false, grid: None, pinned: false };
 
         let mut wanted = vec![item(ids[2], "doing"), item(ids[0], "todo")];
         wanted[0].grid = Some(GridPos { x: 4, y: 0, w: 8, h: 10 });
+        wanted[1].pinned = true;
         // Un succès d'un autre jeu et une colonne inconnue ne passent pas
         let mut sent = wanted.clone();
         sent.push(item(9999, "todo"));
@@ -715,6 +868,56 @@ mod tests {
         assert!(referenced_block_images(&conn).unwrap().is_empty());
         delete_game(&conn, 620).unwrap();
         assert!(list_blocks(&conn, 620).unwrap().is_empty());
+    }
+
+    #[test]
+    fn etiquettes() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None), ach("B", None)]), "P", None).unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+
+        // Étiquettes proposées au départ
+        let tags = list_tags(&conn).unwrap();
+        let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["ratable", "grind", "en ligne", "difficile", "cumulable", "DLC"]);
+
+        let t = create_tag(&conn, "  speedrun ", "#123abc").unwrap();
+        assert_eq!(t.name, "speedrun");
+        assert!(create_tag(&conn, "GRIND", "#000000").is_err(), "nom déjà pris (sans tenir compte de la casse)");
+        assert!(create_tag(&conn, "x", "rouge").is_err());
+        assert!(create_tag(&conn, " ", "#000000").is_err());
+        update_tag(&conn, t.id, "course", "#ffffff").unwrap();
+        assert!(update_tag(&conn, t.id, "ratable", "#ffffff").is_err());
+
+        set_achievement_tag(&conn, ids[0], t.id, true).unwrap();
+        set_achievement_tag(&conn, ids[0], t.id, true).unwrap();
+        set_achievement_tag(&conn, ids[1], tags[0].id, true).unwrap();
+        assert_eq!(list_achievement_tags(&conn, 620).unwrap().len(), 2);
+        set_achievement_tag(&conn, ids[1], tags[0].id, false).unwrap();
+
+        // L'actualisation garde les étiquettes ; supprimer l'étiquette la retire partout
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("B", None)]), "P", None).unwrap();
+        assert_eq!(
+            list_achievement_tags(&conn, 620).unwrap(),
+            vec![AchievementTag { achievement_id: ids[0], tag_id: t.id }]
+        );
+        delete_tag(&conn, t.id).unwrap();
+        assert!(list_achievement_tags(&conn, 620).unwrap().is_empty());
+    }
+
+    #[test]
+    fn reset_complet_et_bloc_actif() {
+        use serde_json::json;
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("B", Some(true))]), "Portal 2", None).unwrap();
+        lock_all(&conn, 620).unwrap();
+        let list = list_achievements(&conn, 620).unwrap();
+        assert!(list.iter().all(|a| !a.unlocked && a.manual && a.unlock_time.is_none()));
+
+        let c = create_block(&mut conn, list[0].id, "counter", &json!({"value": 1}), None).unwrap();
+        let info = get_block(&conn, c.id).unwrap().unwrap();
+        assert_eq!((info.appid, info.achievement_name.as_str(), info.block.id), (620, "a", c.id));
+        assert!(get_block(&conn, 9999).unwrap().is_none());
     }
 
     #[test]

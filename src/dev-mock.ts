@@ -1,6 +1,6 @@
 // Simulateur du cœur Rust, pour ouvrir l'interface dans un simple navigateur (http://localhost:1420)
 // pendant le développement. Chargé seulement en mode dev ET hors de Tauri : absent des versions publiées.
-import { mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
+import { mockConvertFileSrc, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
 const icon = (f: string) => `https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/620/${f}`;
 
@@ -27,7 +27,17 @@ const achievements = [
   removed: false,
 }));
 
-let workspace: { achievement_id: number; column: string; collapsed: boolean }[] = [];
+let workspace: { achievement_id: number; column: string; collapsed: boolean; pinned?: boolean }[] = [];
+let tags = [
+  ["ratable", "#ef5b5b"],
+  ["grind", "#f2994a"],
+  ["en ligne", "#4f7cff"],
+  ["difficile", "#b07cff"],
+  ["cumulable", "#4cc38a"],
+  ["DLC", "#f2c14e"],
+].map(([name, color], i) => ({ id: i + 1, name, color }));
+let nextTagId = tags.length + 1;
+let achievementTags: { achievement_id: number; tag_id: number }[] = [];
 const settings = new Map<string, string>();
 type MockBlock = { id: number; achievement_id: number; kind: string; position: number; data: unknown };
 let blocks: MockBlock[] = [];
@@ -52,9 +62,11 @@ const summary = () => ({
   refreshed_at: 1,
 });
 
-export function installMock() {
+export function installMock(label = "main") {
   mockConvertFileSrc("windows");
-  mockIPC((cmd, payload) => {
+  mockWindows(label);
+  mockIPC(
+    (cmd, payload) => {
     const args = (payload ?? {}) as Record<string, unknown>;
     switch (cmd) {
       case "images_dir":
@@ -66,6 +78,9 @@ export function installMock() {
         return [];
       case "game_achievements":
         return achievements.map((a) => ({ ...a }));
+      case "achievements_lock_all":
+        achievements.forEach((a) => Object.assign(a, { unlocked: false, manual: true, unlock_time: null }));
+        return summary();
       case "achievement_set_unlocked": {
         const a = achievements.find((x) => x.id === args.id);
         if (a) Object.assign(a, { unlocked: args.unlocked, manual: true });
@@ -76,6 +91,42 @@ export function installMock() {
       case "workspace_save":
         workspace = args.items as typeof workspace;
         console.info("[mock] workspace_save", JSON.stringify(workspace));
+        return null;
+      case "block_get": {
+        const b = blocks.find((x) => x.id === args.id);
+        const a = b && achievements.find((x) => x.id === b.achievement_id);
+        return b && a ? { block: structuredClone(b), appid: 620, achievement_name: a.name } : null;
+      }
+      case "tags_list":
+        return tags.map((t) => ({ ...t }));
+      case "tag_create": {
+        const name = String(args.name).trim();
+        if (!name) throw "Le nom de l'étiquette est vide.";
+        if (tags.some((t) => t.name.toLowerCase() === name.toLowerCase())) throw "Une étiquette porte déjà ce nom.";
+        const t = { id: nextTagId++, name, color: String(args.color) };
+        tags.push(t);
+        return { ...t };
+      }
+      case "tag_update": {
+        const name = String(args.name).trim();
+        if (tags.some((t) => t.id !== args.id && t.name.toLowerCase() === name.toLowerCase())) throw "Une étiquette porte déjà ce nom.";
+        const t = tags.find((x) => x.id === args.id);
+        if (t) Object.assign(t, { name, color: args.color });
+        return null;
+      }
+      case "tag_delete":
+        tags = tags.filter((t) => t.id !== args.id);
+        achievementTags = achievementTags.filter((x) => x.tag_id !== args.id);
+        return null;
+      case "achievement_tags_list":
+        return achievementTags;
+      case "achievement_tag_set":
+        achievementTags = achievementTags.filter((x) => !(x.achievement_id === args.achievementId && x.tag_id === args.tagId));
+        if (args.on) achievementTags.push({ achievement_id: args.achievementId as number, tag_id: args.tagId as number });
+        return null;
+      case "plugin:global-shortcut|register":
+      case "plugin:global-shortcut|unregister":
+      case "plugin:global-shortcut|unregister_all":
         return null;
       case "blocks_list":
         return [...blocks].sort((a, b) => a.achievement_id - b.achievement_id || a.position - b.position);
@@ -118,5 +169,7 @@ export function installMock() {
       default:
         throw new Error(`[mock] commande non simulée : ${cmd}`);
     }
-  });
+    },
+    { shouldMockEvents: true },
+  );
 }

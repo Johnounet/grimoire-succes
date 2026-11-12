@@ -8,6 +8,7 @@
   import CounterBlock from "./CounterBlock.svelte";
   import ImageBlock from "./ImageBlock.svelte";
   import ListBlock from "./ListBlock.svelte";
+  import { formatAccel, shortcuts, target, toggleActive } from "../shortcuts.svelte";
   import { blocksOf, createBlock, deleteBlock, duplicateBlock, reorderBlocks } from "./store.svelte";
   import TextBlock from "./TextBlock.svelte";
   import TimerBlock from "./TimerBlock.svelte";
@@ -113,6 +114,30 @@
             >
             <span aria-hidden="true">{info.icon}</span>
             <span class="font-medium tracking-wide uppercase">{info.label}</span>
+            {#if b.kind === "counter" || b.kind === "timer"}
+              {@const kind = b.kind}
+              {@const t = target(kind)}
+              {@const on = t?.id === b.id}
+              {@const chosen = on && t?.chosen}
+              {@const keys =
+                kind === "counter"
+                  ? `${formatAccel(shortcuts.keys.counter_inc)} / ${formatAccel(shortcuts.keys.counter_dec)}`
+                  : `${formatAccel(shortcuts.keys.timer_toggle)} · zéro : ${formatAccel(shortcuts.keys.timer_reset)}`}
+              <button
+                onclick={() => toggleActive(kind, b.id)}
+                aria-pressed={on}
+                title={chosen
+                  ? `Actif pour les raccourcis clavier (${keys}). Cliquer pour retirer.`
+                  : on
+                    ? `Visé par défaut par les raccourcis clavier (${keys}). Cliquer pour le choisir.`
+                    : `Rendre actif pour les raccourcis clavier (${keys})`}
+                class="ml-1 flex items-center gap-1 rounded-full px-1.5 py-px transition
+                  {chosen ? 'bg-accent/20 text-accent' : on ? 'text-accent' : 'text-muted/70 hover:bg-raised hover:text-fg'}"
+              >
+                <span aria-hidden="true">◎</span>
+                <span class={on ? "" : "sr-only"}>{chosen ? "actif" : on ? "raccourcis" : "actif"}</span>
+              </button>
+            {/if}
             <span class="ml-auto flex gap-0.5 opacity-0 transition group-hover/block:opacity-100 group-focus-within/block:opacity-100">
               <button
                 onclick={() => move(i, i - 1)}

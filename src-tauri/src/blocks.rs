@@ -1,6 +1,6 @@
 //! Blocs des guides (vidéo, image, texte, liste, compteur, chronomètre) et leurs images.
 
-use crate::db::{self, Block};
+use crate::db::{self, Block, BlockInfo};
 use crate::library::AppState;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,6 +13,12 @@ fn err(e: impl std::fmt::Display) -> String {
 #[tauri::command]
 pub fn blocks_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<Block>, String> {
     db::list_blocks(&state.conn(), appid).map_err(err)
+}
+
+/// Un bloc et son succès, quel que soit le jeu (compteur ou chrono « actif »).
+#[tauri::command]
+pub fn block_get(state: State<'_, AppState>, id: i64) -> Result<Option<BlockInfo>, String> {
+    db::get_block(&state.conn(), id).map_err(err)
 }
 
 #[tauri::command]

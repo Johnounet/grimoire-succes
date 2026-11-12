@@ -7,6 +7,9 @@
   import BlockList from "./blocks/BlockList.svelte";
   import { blocksOf, createBlock, imageFrom, saveBlock, uploadImage } from "./blocks/store.svelte";
   import CopyId from "./CopyId.svelte";
+  import MoreMenu from "./MoreMenu.svelte";
+  import { openRelock } from "./settings.svelte";
+  import TagPicker from "./TagPicker.svelte";
   import { rarityText } from "./filters";
   import { columns, type AchievementRow, type Column } from "./library";
 
@@ -14,6 +17,7 @@
     a,
     column,
     collapsed,
+    pinned,
     spoiler,
     animate,
     board,
@@ -23,10 +27,13 @@
     oncollapse,
     onremove,
     oncolumn,
+    onpin,
   }: {
     a: AchievementRow;
     column: Column;
     collapsed: boolean;
+    /** Affichée dans le mode compact. */
+    pinned: boolean;
     spoiler: boolean;
     animate: boolean;
     /** Carte affichée dans la vue Tableau. */
@@ -37,6 +44,7 @@
     oncollapse: () => void;
     onremove: () => void;
     oncolumn: (c: Column) => void;
+    onpin: () => void;
   } = $props();
 
   const icon = $derived(a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url));
@@ -129,6 +137,35 @@
       </div>
     </div>
 
+    {#if pinned}
+      <!-- Visible seulement une fois épinglée, pour ne pas encombrer les petites cartes -->
+      <button
+        onclick={onpin}
+        aria-label="Retirer du mode compact"
+        title="Épinglée au mode compact (cliquer pour retirer)"
+        class="grid h-7 w-7 shrink-0 place-items-center rounded text-accent transition hover:bg-raised"
+      >
+        <svg viewBox="0 0 16 16" class="h-4 w-4" aria-hidden="true">
+          <path d="M6 1.5h4l-.6 4.2L12 8.5H4l2.6-2.8z M8 8.5V14.5" fill="currentColor" stroke="currentColor"
+            stroke-width="1.3" stroke-linejoin="round" />
+        </svg>
+      </button>
+    {/if}
+    <MoreMenu
+      class="shrink-0"
+      items={[
+        {
+          label: pinned ? "Retirer du mode compact" : "Épingler au mode compact",
+          hint: "Cartes suivies dans la petite fenêtre au premier plan",
+          onclick: onpin,
+        },
+        {
+          label: "Reverrouiller dans Steam…",
+          hint: "Prépare la commande console achievement_clear",
+          onclick: () => openRelock(a),
+        },
+      ]}
+    />
     {#if !board}
       <button
         onclick={oncollapse}
@@ -163,6 +200,7 @@
 
       <div class="flex flex-wrap items-center gap-2">
         {#if a.api_name}<CopyId id={a.api_name} />{/if}
+        <TagPicker achievementId={a.id} />
         <select
           value={column}
           onchange={(e) => oncolumn((e.currentTarget as HTMLSelectElement).value as Column)}

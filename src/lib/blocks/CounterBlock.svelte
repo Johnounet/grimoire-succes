@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { counterAdd } from "./ops";
   import { saveBlock } from "./store.svelte";
   import type { Block } from "./types";
 
@@ -10,8 +11,7 @@
   let bump = $state(0);
 
   function add(sign: 1 | -1) {
-    const step = Math.max(1, Math.abs(d.step || 1));
-    block.data.value = Math.max(0, d.value + sign * step);
+    counterAdd(block.data, sign);
     bump++;
     saveBlock(block);
   }

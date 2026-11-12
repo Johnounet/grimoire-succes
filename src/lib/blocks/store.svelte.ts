@@ -3,7 +3,10 @@
 // - Une modification s'affiche tout de suite et part en base après un court délai
 //   (les frappes rapprochées sont regroupées) ; `flushBlocks()` force l'envoi immédiat.
 // - Une suppression peut être annulée quelques secondes (toast « Annuler »).
+// - Compteurs et chronos sont aussi affichés dans la fenêtre compacte : chaque changement
+//   lui est annoncé (`block-changed`), et ceux qu'elle fait arrivent ici de la même façon.
 import { invoke } from "@tauri-apps/api/core";
+import { on, send } from "../sync";
 import { defaultData, kindInfo, type Block, type BlockKind } from "./types";
 
 const SAVE_DELAY_MS = 400;
@@ -45,6 +48,26 @@ export async function loadBlocks(appid: number) {
 
 export const blocksOf = (achievementId: number): Block[] => blocks.byAch[achievementId] ?? [];
 
+/** Bloc du jeu ouvert, ou undefined s'il n'est pas chargé ici. */
+export function findBlock(id: number): Block | undefined {
+  for (const list of Object.values(blocks.byAch)) {
+    const b = list.find((x) => x.id === id);
+    if (b) return b;
+  }
+  return undefined;
+}
+
+/** Changement de structure : la fenêtre compacte se recharge. */
+const structureChanged = () => send("data-changed", { appid: blocks.appid });
+
+/** Reçoit les compteurs et chronos modifiés dans l'autre fenêtre. À appeler une fois par fenêtre. */
+export function listenBlockChanges(): () => void {
+  return on("block-changed", ({ block }) => {
+    const b = findBlock(block.id);
+    if (b) b.data = block.data;
+  });
+}
+
 export async function createBlock<K extends BlockKind>(
   achievementId: number,
   kind: K,
@@ -58,6 +81,7 @@ export async function createBlock<K extends BlockKind>(
     const list = blocks.byAch[achievementId];
     list.splice(position ?? list.length, 0, b);
     renumber(list);
+    structureChanged();
     return list.find((x) => x.id === b.id) ?? null;
   } catch (e) {
     fail(e);
@@ -68,13 +92,14 @@ export async function createBlock<K extends BlockKind>(
 /** À appeler après avoir modifié `block.data` : enregistre après un court délai. */
 export function saveBlock(block: Block) {
   const id = block.id;
-  const send = () => invoke<void>("block_update", { id, data: $state.snapshot(block.data) }).catch(fail);
+  const push = () => invoke<void>("block_update", { id, data: $state.snapshot(block.data) }).catch(fail);
+  if (block.kind === "counter" || block.kind === "timer") send("block-changed", { block: $state.snapshot(block) as Block });
   clearTimeout(pending.get(id)?.timer);
   pending.set(id, {
-    send,
+    send: push,
     timer: setTimeout(() => {
       pending.delete(id);
-      send();
+      push();
     }, SAVE_DELAY_MS),
   });
 }
@@ -104,6 +129,7 @@ export async function deleteBlock(block: Block) {
   }
   if (index >= 0) list.splice(index, 1);
   renumber(list);
+  structureChanged();
   showToast(`Bloc « ${kindInfo(snapshot.kind).label} » supprimé`, () =>
     createBlock(snapshot.achievement_id, snapshot.kind, snapshot.data, index),
   );
@@ -122,7 +148,7 @@ export function duplicateBlock(block: Block) {
 export function reorderBlocks(achievementId: number, ordered: Block[]) {
   blocks.byAch[achievementId] = ordered;
   renumber(ordered);
-  invoke("blocks_reorder", { achievementId, ids: ordered.map((b) => b.id) }).catch(fail);
+  invoke("blocks_reorder", { achievementId, ids: ordered.map((b) => b.id) }).then(structureChanged, fail);
 }
 
 function renumber(list: Block[]) {

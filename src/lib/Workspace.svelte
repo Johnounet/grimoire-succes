@@ -43,6 +43,7 @@
   });
 
   let justToggled = $state<number | null>(null);
+  let board: ReturnType<typeof Board> | undefined = $state();
   let listHover = $state(false);
 
   function listConsider(e: CustomEvent<DndEvent<Card>>) {
@@ -60,6 +61,8 @@
     onchange(items.map((it) => (it.achievement_id === id ? { ...it, ...patch } : it)));
   }
   function remove(id: number) {
+    // Tableau : les cartes du dessous remonteront dans la place libérée
+    board?.willRemove(id);
     onchange(items.filter((it) => it.achievement_id !== id));
   }
   function toggle(a: AchievementRow) {
@@ -114,6 +117,7 @@
       {a}
       column={it.column}
       collapsed={it.collapsed}
+      pinned={it.pinned}
       spoiler={spoiler(a)}
       animate={justToggled === a.id}
       {board}
@@ -123,6 +127,7 @@
       oncollapse={() => update(a.id, { collapsed: !it.collapsed })}
       onremove={() => remove(a.id)}
       oncolumn={(column) => update(a.id, { column })}
+      onpin={() => update(a.id, { pinned: !it.pinned })}
     />
   {/if}
 {/snippet}
@@ -141,6 +146,11 @@
     {/if}
     {#if items.length > 0 && settings.workspaceView === "board"}
       <span class="text-xs text-muted">Glissez une carte par son titre, tirez ses bords pour la redimensionner.</span>
+      <button
+        onclick={() => board?.packAll()}
+        class="text-xs text-muted underline hover:text-fg"
+        title="Remonte chaque carte au plus haut dans sa colonne, pour combler les trous">tout remonter</button
+      >
     {/if}
     <div class="ml-auto inline-flex rounded-lg border border-line bg-panel p-0.5" role="group" aria-label="Vue de l'espace de travail">
       {#each [{ v: "board", l: "Tableau" }, { v: "list", l: "Liste" }] as const as o (o.v)}
@@ -174,7 +184,7 @@
   {:else if settings.workspaceView === "board"}
     <!-- Vue tableau : grille libre -->
     <div class="flex flex-1 flex-col px-4 pb-6">
-      <Board {items} card={boardCard} onlayout={layout} ondropids={onadd} />
+      <Board bind:this={board} {items} card={boardCard} onlayout={layout} ondropids={onadd} />
     </div>
   {:else}
     <!-- Vue liste : une seule pile de cartes -->

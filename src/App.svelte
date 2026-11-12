@@ -5,14 +5,19 @@
   import Sidebar from "./lib/Sidebar.svelte";
   import { api, type GameSummary } from "./lib/library";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { flushBlocks } from "./lib/blocks/store.svelte";
+  import { flushBlocks, listenBlockChanges } from "./lib/blocks/store.svelte";
+  import SettingsDialog from "./lib/SettingsDialog.svelte";
   import { loadSettings } from "./lib/settings.svelte";
+  import { active, applyShortcuts, loadActive, loadShortcuts } from "./lib/shortcuts.svelte";
+  import { on, send } from "./lib/sync";
+  import { loadTags } from "./lib/tags.svelte";
   import Toast from "./lib/Toast.svelte";
 
   let games = $state<GameSummary[]>([]);
   let imagesDir = $state("");
   let selected = $state<number | null>(null);
   let adding = $state(false);
+  let settingsOpen = $state(false);
   let loadError = $state("");
 
   const current = $derived(games.find((g) => g.appid === selected) ?? null);
@@ -25,13 +30,33 @@
       /* hors de Tauri (interface simulée) */
     }
     try {
-      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings()]);
+      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings(), loadTags(), loadActive()]);
       selected = games[0]?.appid ?? null;
       // Premier lancement : on ouvre directement l'ajout de jeu
       if (games.length === 0) adding = true;
     } catch (e) {
       loadError = String(e);
     }
+    // Raccourcis globaux (fenêtre principale seulement)
+    loadShortcuts().then(applyShortcuts);
+  });
+
+  // Fenêtre compacte : compteurs et chronos modifiés, coches, demande du jeu ouvert
+  $effect(() => {
+    const stops = [
+      listenBlockChanges(),
+      on("achievement-changed", ({ game }) => upsert(game)),
+      on("compact-ready", () => selected != null && send("compact-game", { appid: selected })),
+      // Bloc actif choisi depuis la fenêtre compacte
+      on("active-changed", ({ counter, timer }) => {
+        active.counter = counter;
+        active.timer = timer;
+      }),
+    ];
+    return () => stops.forEach((s) => s());
+  });
+  $effect(() => {
+    if (selected != null) send("compact-game", { appid: selected });
   });
 
   function upsert(g: GameSummary) {
@@ -53,7 +78,14 @@
 </script>
 
 <div class="flex h-screen">
-  <Sidebar {games} {imagesDir} {selected} onselect={(id) => (selected = id)} onadd={() => (adding = true)} />
+  <Sidebar
+    {games}
+    {imagesDir}
+    {selected}
+    onselect={(id) => (selected = id)}
+    onadd={() => (adding = true)}
+    onsettings={() => (settingsOpen = true)}
+  />
 
   {#if current}
     <GameView game={current} {imagesDir} onchanged={upsert} ondeleted={onDeleted} />
@@ -79,6 +111,10 @@
 </div>
 
 <Toast />
+
+{#if settingsOpen}
+  <SettingsDialog onclose={() => (settingsOpen = false)} />
+{/if}
 
 {#if adding}
   <AddGameDialog onclose={() => (adding = false)} onimported={onImported} />

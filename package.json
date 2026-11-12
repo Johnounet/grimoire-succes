@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-global-shortcut": "^2.4.1",
     "@tauri-apps/plugin-opener": "^2.7.3",
     "gridstack": "^13.3.0",
     "svelte-dnd-action": "^0.9.80"
