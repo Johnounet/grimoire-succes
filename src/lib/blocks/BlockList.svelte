@@ -12,6 +12,8 @@
   import { blocksOf, createBlock, deleteBlock, duplicateBlock, reorderBlocks } from "./store.svelte";
   import TextBlock from "./TextBlock.svelte";
   import TimerBlock from "./TimerBlock.svelte";
+  import { tick } from "svelte";
+  import { CARD_MENU_EVENT, FIT_CARD_EVENT } from "../library";
   import { blockKinds, kindInfo, type Block, type BlockKind } from "./types";
   import VideoBlock from "./VideoBlock.svelte";
 
@@ -20,6 +22,17 @@
   const FLIP = 150;
   const MIME = "application/x-chasse-succes-block";
   let menuOpen = $state(false);
+  let menuWrap = $state<HTMLElement>();
+
+  // Prévient le tableau (après la mise à jour de l'affichage) : la carte grandit pour montrer le menu,
+  // puis reprend sa taille à la fermeture si rien n'a été ajouté
+  let menuWasOpen = false;
+  $effect(() => {
+    const open = menuOpen;
+    if (open === menuWasOpen) return;
+    menuWasOpen = open;
+    menuWrap?.dispatchEvent(new CustomEvent(CARD_MENU_EVENT, { bubbles: true, detail: { open } }));
+  });
 
   const list = $derived(blocksOf(achievementId));
 
@@ -72,6 +85,9 @@
   async function add(kind: BlockKind) {
     menuOpen = false;
     await createBlock(achievementId, kind);
+    // Tableau : la carte, revenue à sa taille d'avant le menu, grandit pour montrer le nouveau bloc
+    await tick();
+    menuWrap?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true }));
   }
 
   // Raccourcis typés pour les composants de chaque bloc
@@ -189,6 +205,7 @@
 
   <!-- Ajout d'un bloc : le menu prend place dans la carte (qui grandit dans le tableau) -->
   <div
+    bind:this={menuWrap}
     class="relative"
     onfocusout={(e) => {
       if (!e.currentTarget.contains(e.relatedTarget as Node | null)) menuOpen = false;

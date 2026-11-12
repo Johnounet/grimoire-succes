@@ -12,7 +12,7 @@
   import { GridStack, type GridItemHTMLElement, type GridStackNode } from "gridstack";
   import "gridstack/dist/gridstack.min.css";
   import { tick, untrack, type Snippet } from "svelte";
-  import { cardSizes, DRAG_MIME, FIT_CARD_EVENT, type GridPos, type WorkspaceItem } from "./library";
+  import { CARD_MENU_EVENT, cardSizes, DRAG_MIME, FIT_CARD_EVENT, type GridPos, type WorkspaceItem } from "./library";
   import { ui } from "./settings.svelte";
 
   let {
@@ -113,8 +113,14 @@
       if (item) fitCard(item as GridItemHTMLElement);
     };
     el.addEventListener(FIT_CARD_EVENT, onFit);
+    const onMenu = (e: Event) => {
+      const item = (e.target as HTMLElement).closest(".grid-stack-item");
+      if (item) menuToggled(item as GridItemHTMLElement, (e as CustomEvent<{ open: boolean }>).detail.open);
+    };
+    el.addEventListener(CARD_MENU_EVENT, onMenu);
     return () => {
       el.removeEventListener(FIT_CARD_EVENT, onFit);
+      el.removeEventListener(CARD_MENU_EVENT, onMenu);
       grid?.destroy(false);
       grid = null;
     };
@@ -126,19 +132,66 @@
    */
   function fitCard(el: GridItemHTMLElement) {
     const n = el.gridstackNode;
-    const card = el.querySelector("article");
-    if (!grid || !n || !card) return;
-    // Hauteur naturelle : en-tête + contenu complet de la zone qui défile + bordures
-    const [header, body] = Array.from(card.children) as HTMLElement[];
-    const borders = card.offsetHeight - card.clientHeight;
-    const need = (header?.offsetHeight ?? 0) + (body?.scrollHeight ?? 0) + borders;
-    const rowH = grid.getCellHeight(true);
-    const margin = 6; // marge de gridstack, au-dessus et au-dessous du contenu
-    const rows = Math.ceil((need + 2 * margin) / rowH);
+    const rows = neededRows(el);
+    if (!grid || !n || rows == null) return;
     if (rows > (n.h ?? 0)) {
       grid.update(el, { h: rows });
       emitLayout();
     }
+  }
+
+  /** Nombre de lignes de la grille qu'il faut à la carte pour tout montrer sans défiler. */
+  function neededRows(el: GridItemHTMLElement): number | null {
+    const card = el.querySelector("article");
+    if (!grid || !card) return null;
+    // Hauteur naturelle : en-tête + contenu (et marges de la zone qui défile) + bordures
+    const [header, body] = Array.from(card.children) as HTMLElement[];
+    const content = body?.querySelector<HTMLElement>("[data-card-content]");
+    let bodyH = body?.scrollHeight ?? 0;
+    if (body && content) {
+      const st = getComputedStyle(body);
+      bodyH = content.offsetHeight + parseFloat(st.paddingTop) + parseFloat(st.paddingBottom) + parseFloat(st.borderTopWidth);
+    }
+    const borders = card.offsetHeight - card.clientHeight;
+    const need = (header?.offsetHeight ?? 0) + bodyH + borders;
+    const margin = 6; // marge de gridstack, au-dessus et au-dessous du contenu
+    return Math.ceil((need + 2 * margin) / grid.getCellHeight(true));
+  }
+
+  /** Carte dont le menu « Ajouter un bloc » est ouvert : sa hauteur et la place des autres cartes avant. */
+  const beforeMenu = new Map<GridItemHTMLElement, { h: number; others: Map<GridStackNode, number> }>();
+
+  /**
+   * Menu « Ajouter un bloc » ouvert : on note la taille de la carte et la place des autres (la carte va
+   * grandir et les pousser). Fermé : la carte reprend sa taille d'avant (ou ce qu'il faut pour un bloc
+   * ajouté entre-temps) et les cartes poussées remontent à leur place.
+   */
+  function menuToggled(el: GridItemHTMLElement, open: boolean) {
+    const n = el.gridstackNode;
+    if (!grid || !n) return;
+    if (open) {
+      if (!beforeMenu.has(el)) {
+        const others = new Map(grid.engine.nodes.filter((o) => o !== n).map((o) => [o, o.y ?? 0]));
+        beforeMenu.set(el, { h: n.h ?? DEFAULT.h, others });
+      }
+      return;
+    }
+    const before = beforeMenu.get(el);
+    beforeMenu.delete(el);
+    if (!before) return;
+    const h = Math.max(before.h, neededRows(el) ?? 0);
+    if (h >= (n.h ?? 0)) return;
+    const g = grid;
+    g.batchUpdate();
+    g.update(el, { h });
+    // Les cartes poussées vers le bas retournent à leur place, si elle est libre
+    const moved = [...before.others].filter(([o, y]) => g.engine.nodes.includes(o) && (o.y ?? 0) > y).sort((a, b) => a[1] - b[1]);
+    for (const [o, y] of moved) {
+      const want = { ...area(o), y };
+      if (o.el && g.engine.nodes.every((x) => x === o || !overlap(area(x), want))) g.update(o.el, { y });
+    }
+    g.batchUpdate(false);
+    emitLayout();
   }
 
   /**

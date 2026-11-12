@@ -111,6 +111,10 @@ export const columns: { id: Column; label: string }[] = [
  *  la carte qui le contient s'agrandit pour tout montrer si elle est trop petite. */
 export const FIT_CARD_EVENT = "fit-card";
 
+/** Événement DOM (qui remonte, `detail: { open }`) émis à l'ouverture et à la fermeture du menu
+ *  « Ajouter un bloc » : le Tableau rend à la carte sa taille d'avant si aucun bloc n'a été ajouté. */
+export const CARD_MENU_EVENT = "card-menu";
+
 export const DRAG_MIME = "application/x-chasse-succes-ids";
 
 /** URL affichable d'une image enregistrée dans le dossier de données. */
