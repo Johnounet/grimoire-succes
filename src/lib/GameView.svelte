@@ -3,7 +3,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import AchievementList from "./AchievementList.svelte";
   import { blocks, loadBlocks } from "./blocks/store.svelte";
-  import type { Column, WorkspaceItem } from "./library";
+  import type { GridPos, WorkspaceItem } from "./library";
   import ProgressRing from "./ProgressRing.svelte";
   import { setPanelOpen, settings } from "./settings.svelte";
   import Workspace from "./Workspace.svelte";
@@ -69,11 +69,16 @@
       .catch((e) => (error = `Enregistrement de l'espace de travail impossible : ${e}`));
   }
 
-  function addToWorkspace(ids: number[], column: Column = "todo") {
+  /** Ajoute des succès à l'espace. `at` : case du tableau où le premier a été déposé. */
+  function addToWorkspace(ids: number[], at?: { x: number; y: number }) {
     const present = new Set(workspace.map((it) => it.achievement_id));
     const fresh = ids.filter((id) => byId.has(id) && !present.has(id));
     if (fresh.length === 0) return;
-    saveWorkspace([...workspace, ...fresh.map((id) => ({ achievement_id: id, column, collapsed: false }))]);
+    const place = (i: number): GridPos | null => (i === 0 && at ? { ...at, w: 4, h: 8 } : null);
+    saveWorkspace([
+      ...workspace,
+      ...fresh.map((id, i) => ({ achievement_id: id, column: "todo" as const, collapsed: false, grid: place(i) })),
+    ]);
   }
 
   const pct = $derived(percent(game));

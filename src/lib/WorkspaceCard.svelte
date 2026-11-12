@@ -1,5 +1,8 @@
 <script lang="ts">
-  // Carte d'un succès dans l'espace de travail : repliable, déplaçable par sa poignée.
+  // Carte d'un succès dans l'espace de travail.
+  // - Vue liste : repliable, déplacée par sa poignée (svelte-dnd-action).
+  // - Vue tableau : remplit sa case de la grille (gridstack), déplacée par la poignée ou le titre
+  //   (classe `card-drag`), contenu qui défile si la carte est petite.
   import { dragHandle } from "svelte-dnd-action";
   import BlockList from "./blocks/BlockList.svelte";
   import { blocksOf, createBlock, imageFrom, saveBlock, uploadImage } from "./blocks/store.svelte";
@@ -13,7 +16,7 @@
     collapsed,
     spoiler,
     animate,
-    compact,
+    board,
     imagesDir,
     ontoggle,
     onreveal,
@@ -26,8 +29,8 @@
     collapsed: boolean;
     spoiler: boolean;
     animate: boolean;
-    /** Vue colonnes : pas de sélecteur de colonne (on déplace la carte). */
-    compact: boolean;
+    /** Carte affichée dans la vue Tableau. */
+    board: boolean;
     imagesDir: string;
     ontoggle: () => void;
     onreveal: () => void;
@@ -60,18 +63,27 @@
 
 <article
   class="rounded-xl border bg-panel transition-colors
+    {board ? 'flex h-full flex-col overflow-hidden' : ''}
     {a.unlocked ? 'border-ok/30' : 'border-line'}"
   aria-label={label}
   onpaste={paste}
 >
-  <header class="flex items-center gap-2 p-2.5">
-    <span
-      use:dragHandle
-      aria-label={`Déplacer la carte « ${label} »`}
-      title="Glisser pour déplacer (ou Entrée puis flèches)"
-      class="grid h-8 w-5 shrink-0 cursor-grab place-items-center rounded text-muted hover:bg-raised hover:text-fg active:cursor-grabbing"
-      >⠿</span
-    >
+  <header class="flex shrink-0 items-center gap-2 p-2.5">
+    {#if board}
+      <span
+        class="card-drag grid h-8 w-5 shrink-0 cursor-grab place-items-center rounded text-muted hover:bg-raised hover:text-fg active:cursor-grabbing"
+        title="Glisser pour déplacer · coin inférieur droit pour redimensionner"
+        aria-hidden="true">⠿</span
+      >
+    {:else}
+      <span
+        use:dragHandle
+        aria-label={`Déplacer la carte « ${label} »`}
+        title="Glisser pour déplacer (ou Entrée puis flèches)"
+        class="grid h-8 w-5 shrink-0 cursor-grab place-items-center rounded text-muted hover:bg-raised hover:text-fg active:cursor-grabbing"
+        >⠿</span
+      >
+    {/if}
 
     <button
       onclick={ontoggle}
@@ -100,32 +112,34 @@
       {/if}
     </div>
 
-    <div class="min-w-0 flex-1">
+    <div class="min-w-0 flex-1 {board ? 'card-drag cursor-grab active:cursor-grabbing' : ''}">
       {#if spoiler}
         <button onclick={onreveal} class="block max-w-full text-left" title="Succès caché : cliquer pour révéler">
           <span class="block truncate font-medium blur-[6px] select-none" aria-hidden="true">{a.name}</span>
           <span class="sr-only">Succès caché, activer pour révéler</span>
         </button>
       {:else}
-        <div class="font-medium {compact ? 'line-clamp-2 leading-snug break-words' : 'truncate'} {a.unlocked ? '' : 'text-fg/90'}">
+        <div class="font-medium {board ? 'line-clamp-2 leading-snug break-words' : 'truncate'} {a.unlocked ? '' : 'text-fg/90'}">
           {a.name}
         </div>
       {/if}
       <div class="flex items-center gap-2 text-xs">
         {#if a.rarity != null}<span class="font-semibold {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
-        {#if collapsed && blockCount > 0}<span class="text-muted">· {blockCount} bloc{blockCount > 1 ? "s" : ""}</span>{/if}
+        {#if collapsed && !board && blockCount > 0}<span class="text-muted">· {blockCount} bloc{blockCount > 1 ? "s" : ""}</span>{/if}
       </div>
     </div>
 
-    <button
-      onclick={oncollapse}
-      aria-expanded={!collapsed}
-      aria-label={collapsed ? "Déplier la carte" : "Replier la carte"}
-      title={collapsed ? "Déplier" : "Replier"}
-      class="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-raised hover:text-fg"
-    >
-      <span class="transition-transform {collapsed ? '-rotate-90' : ''}">▾</span>
-    </button>
+    {#if !board}
+      <button
+        onclick={oncollapse}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "Déplier la carte" : "Replier la carte"}
+        title={collapsed ? "Déplier" : "Replier"}
+        class="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-raised hover:text-fg"
+      >
+        <span class="transition-transform {collapsed ? '-rotate-90' : ''}">▾</span>
+      </button>
+    {/if}
     <button
       onclick={onremove}
       aria-label="Retirer de l'espace de travail"
@@ -136,8 +150,8 @@
     </button>
   </header>
 
-  {#if !collapsed}
-    <div class="space-y-2 border-t border-line px-3 pt-2 pb-3">
+  {#if board || !collapsed}
+    <div class="space-y-2 border-t border-line px-3 pt-2 pb-3 {board ? 'min-h-0 flex-1 overflow-y-auto' : ''}">
       {#if spoiler}
         <button onclick={onreveal} class="block text-left text-sm text-muted">
           <span class="blur-[6px] select-none" aria-hidden="true">{a.description || "—"}</span>
@@ -149,16 +163,16 @@
 
       <div class="flex flex-wrap items-center gap-2">
         {#if a.api_name}<CopyId id={a.api_name} />{/if}
-        {#if !compact}
-          <select
-            value={column}
-            onchange={(e) => oncolumn((e.currentTarget as HTMLSelectElement).value as Column)}
-            aria-label="Colonne"
-            class="ml-auto rounded-md border border-line bg-bg px-1.5 py-0.5 text-xs outline-none focus:border-accent"
-          >
-            {#each columns as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
-          </select>
-        {/if}
+        <select
+          value={column}
+          onchange={(e) => oncolumn((e.currentTarget as HTMLSelectElement).value as Column)}
+          aria-label="Statut"
+          title="Statut"
+          class="ml-auto rounded-md border border-line bg-bg px-1.5 py-0.5 text-xs outline-none focus:border-accent
+            {column === 'done' ? 'text-ok' : column === 'doing' ? 'text-accent' : 'text-muted'}"
+        >
+          {#each columns as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
+        </select>
       </div>
 
       <BlockList achievementId={a.id} {imagesDir} />

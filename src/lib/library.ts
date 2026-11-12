@@ -57,12 +57,24 @@ export type SettingKey = "anti_spoiler" | "language" | "country" | "profile_url"
 
 export type Column = "todo" | "doing" | "done";
 
-export interface WorkspaceItem {
-  achievement_id: number;
-  column: Column;
-  collapsed: boolean;
+/** Place d'une carte dans la vue Tableau : grille de 12 colonnes, hauteur en rangées. */
+export interface GridPos {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
+export interface WorkspaceItem {
+  achievement_id: number;
+  /** Statut de la carte. */
+  column: Column;
+  collapsed: boolean;
+  /** null : pas encore placée dans le tableau (une place libre lui sera trouvée). */
+  grid: GridPos | null;
+}
+
+/** Statuts possibles d'une carte (anciennement les colonnes de la vue Colonnes). */
 export const columns: { id: Column; label: string }[] = [
   { id: "todo", label: "À faire" },
   { id: "doing", label: "En cours" },

@@ -78,6 +78,14 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX blocks_by_achievement ON blocks (achievement_id, position);
     CREATE INDEX blocks_by_game ON blocks (appid);
     "#,
+    // v4 : vue Tableau, position et taille de chaque carte sur une grille de 12 colonnes
+    // (NULL = pas encore placée : le tableau lui trouve une place libre)
+    r#"
+    ALTER TABLE workspace_items ADD COLUMN grid_x INTEGER;
+    ALTER TABLE workspace_items ADD COLUMN grid_y INTEGER;
+    ALTER TABLE workspace_items ADD COLUMN grid_w INTEGER;
+    ALTER TABLE workspace_items ADD COLUMN grid_h INTEGER;
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -368,22 +376,44 @@ pub fn list_achievements(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<
 
 // ---------- Espace de travail ----------
 
+/// Place d'une carte dans la vue Tableau (grille de 12 colonnes, hauteur en rangées).
+#[derive(Debug, Clone, Copy, Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct GridPos {
+    pub x: i64,
+    pub y: i64,
+    pub w: i64,
+    pub h: i64,
+}
+
 #[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq)]
 pub struct WorkspaceItem {
     pub achievement_id: i64,
-    /// `todo`, `doing` ou `done`
+    /// Statut : `todo`, `doing` ou `done`
     pub column: String,
     pub collapsed: bool,
+    /// `None` : pas encore placée dans le tableau
+    #[serde(default)]
+    pub grid: Option<GridPos>,
 }
 
 /// Cartes de l'espace de travail d'un jeu, dans l'ordre.
 pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<WorkspaceItem>> {
     let mut stmt = conn.prepare(
-        "SELECT achievement_id, column_name, collapsed FROM workspace_items
+        "SELECT achievement_id, column_name, collapsed, grid_x, grid_y, grid_w, grid_h FROM workspace_items
          WHERE appid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map([appid], |r| {
-        Ok(WorkspaceItem { achievement_id: r.get(0)?, column: r.get(1)?, collapsed: r.get(2)? })
+        let (x, y, w, h): (Option<i64>, Option<i64>, Option<i64>, Option<i64>) =
+            (r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?);
+        Ok(WorkspaceItem {
+            achievement_id: r.get(0)?,
+            column: r.get(1)?,
+            collapsed: r.get(2)?,
+            grid: match (x, y, w, h) {
+                (Some(x), Some(y), Some(w), Some(h)) => Some(GridPos { x, y, w, h }),
+                _ => None,
+            },
+        })
     })?;
     rows.collect()
 }
@@ -395,15 +425,31 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
     tx.execute("DELETE FROM workspace_items WHERE appid = ?1", [appid])?;
     {
         let mut insert = tx.prepare(
-            "INSERT OR IGNORE INTO workspace_items (achievement_id, appid, column_name, position, collapsed)
-             SELECT id, appid, ?3, ?4, ?5 FROM achievements WHERE id = ?1 AND appid = ?2",
+            "INSERT OR IGNORE INTO workspace_items
+                 (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h)
+             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9 FROM achievements WHERE id = ?1 AND appid = ?2",
         )?;
         for (pos, it) in items.iter().enumerate() {
             let column = match it.column.as_str() {
                 c @ ("todo" | "doing" | "done") => c,
                 _ => "todo",
             };
-            insert.execute(params![it.achievement_id, appid, column, pos as i64, it.collapsed])?;
+            // Grille de 12 colonnes : on borne ce qui arrive de l'interface
+            let g = it.grid.map(|g| {
+                let w = g.w.clamp(1, 12);
+                GridPos { x: g.x.clamp(0, 12 - w), y: g.y.max(0), w, h: g.h.clamp(1, 200) }
+            });
+            insert.execute(params![
+                it.achievement_id,
+                appid,
+                column,
+                pos as i64,
+                it.collapsed,
+                g.map(|g| g.x),
+                g.map(|g| g.y),
+                g.map(|g| g.w),
+                g.map(|g| g.h),
+            ])?;
         }
     }
     tx.commit()
@@ -609,15 +655,23 @@ mod tests {
         let mut conn = open_in_memory().unwrap();
         save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None)]), "P", None).unwrap();
         let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
-        let item = |id, col: &str| WorkspaceItem { achievement_id: id, column: col.into(), collapsed: false };
+        let item = |id, col: &str| WorkspaceItem { achievement_id: id, column: col.into(), collapsed: false, grid: None };
 
-        let wanted = vec![item(ids[2], "doing"), item(ids[0], "todo")];
+        let mut wanted = vec![item(ids[2], "doing"), item(ids[0], "todo")];
+        wanted[0].grid = Some(GridPos { x: 4, y: 0, w: 8, h: 10 });
         // Un succès d'un autre jeu et une colonne inconnue ne passent pas
         let mut sent = wanted.clone();
         sent.push(item(9999, "todo"));
         sent[1].column = "n'importe quoi".into();
         save_workspace(&mut conn, 620, &sent).unwrap();
         assert_eq!(list_workspace(&conn, 620).unwrap(), wanted);
+
+        // Une position hors grille est ramenée dedans
+        let mut odd = wanted.clone();
+        odd[1].grid = Some(GridPos { x: 11, y: -3, w: 6, h: 0 });
+        save_workspace(&mut conn, 620, &odd).unwrap();
+        assert_eq!(list_workspace(&conn, 620).unwrap()[1].grid, Some(GridPos { x: 6, y: 0, w: 6, h: 1 }));
+        save_workspace(&mut conn, 620, &wanted).unwrap();
 
         // L'actualisation du jeu ne touche pas à l'espace de travail
         save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("C", None)]), "P", None).unwrap();

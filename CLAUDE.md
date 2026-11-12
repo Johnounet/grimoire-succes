@@ -38,15 +38,21 @@ npm run check          # vérification des types Svelte/TS
 - [x] Étape 3 — Base de données et bibliothèque (rusqlite côté Rust, pas `tauri-plugin-sql`) : persistance validée sous Windows (2026-11-12) ; reste Linux
 - [x] Étape 4 — Liste des succès : validée sous Windows (2026-11-12) ; reste Linux. Tri « ordre personnel » et filtre par étiquette reportés aux étapes 5 (glisser-déposer) et 7 (étiquettes)
 
-- [x] Étape 5 — Espace de travail : validé sous Windows (2026-11-12) ; reste Linux. **Point ouvert** : l'utilisateur n'est pas convaincu par la vue colonnes (à faire / en cours / fait). Le SPEC prévoit de garder la vue la plus réussie si l'une déçoit : en reparler une fois les blocs (étape 6) en place, sans la supprimer d'ici là
+- [x] Étape 5 — Espace de travail : validé sous Windows (2026-11-12) ; reste Linux. **Décision de l'utilisateur (2026-11-12)** : la vue Colonnes du SPEC est remplacée par une vue **Tableau** (grille aimantée de 12 colonnes, cartes déplaçables et redimensionnables librement, sans chevauchement). Le statut à faire / en cours / fait reste un menu sur chaque carte. Vue Liste conservée
 
 - [x] Étape 6 — Blocs : validé sous Windows (2026-11-12), YouTube compris ; reste Linux (lecture vidéo dépendante de GStreamer)
+- [ ] Vue Tableau (remplace les colonnes) : vérifiée dans l'interface simulée, **pas encore testée par l'utilisateur dans la vraie application**. À confirmer avant l'étape 7
+
+**Prochaine étape** : faire tester la vue Tableau, puis étape 7 du SPEC (étiquettes, re-lock, raccourcis globaux, mode compact).
 
 **Blocs** : table `blocks` (migration v3) rattachée au succès, pas à l'espace de travail. État et enregistrement différé (400 ms) dans `src/lib/blocks/store.svelte.ts` ; `flushBlocks()` au changement de jeu et à la fermeture (`onCloseRequested`, d'où la permission `core:window:allow-destroy`). Images dans `images/blocks/`, envoyées en binaire brut (`image_save`), orphelines supprimées au démarrage. Réordonnancement des blocs en glisser HTML natif : **ne pas utiliser `dragHandle` de svelte-dnd-action pour des zones imbriquées** (état de poignée global, la carte parente se mettrait à glisser aussi).
 
 **Interface simulée** : `npm run dev` puis ouvrir http://localhost:1420 dans un navigateur. Hors de Tauri et en dev seulement, `src/dev-mock.ts` remplace le cœur Rust par des données factices (absent des versions compilées). Penser à y ajouter chaque nouvelle commande Tauri.
 
-**Glisser-déposer** : réordonnancement des cartes par `svelte-dnd-action` (`dragHandleZone`, `useCursorForDetection: true` indispensable entre colonnes) ; arrivée depuis le panneau par glisser HTML natif, d'où `dragDropEnabled: false` dans `tauri.conf.json`.
+**Glisser-déposer** :
+- Vue Tableau : `gridstack` (`src/lib/Board.svelte`), position/taille en base (`workspace_items.grid_*`, migration v4). Svelte rend les cartes, gridstack les positionne : la mise en place d'une carte (`setupItem`) ne doit s'exécuter **qu'une fois** (`untrack`), sinon chaque enregistrement la remet à son ancienne place. Pour tester sans souris réelle : événements souris simulés progressifs sur `document` (un `left_click_drag` instantané ne suffit pas).
+- Vue Liste : `svelte-dnd-action` (`dragHandleZone`, `useCursorForDetection: true`).
+- Arrivée depuis le panneau : glisser HTML natif, d'où `dragDropEnabled: false` dans `tauri.conf.json`.
 
 **Ne pas lancer l'application depuis la session Claude** sur ce PC (Windows isole alors `%APPDATA%` dans une copie privée) : c'est l'utilisateur qui lance `npm run tauri dev` dans son terminal.
 

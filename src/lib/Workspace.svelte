@@ -1,16 +1,18 @@
 <script lang="ts">
-  // Espace de travail d'un jeu : les succès choisis, en vue liste ou en colonnes.
-  // Réordonnancement par svelte-dnd-action (souris, tactile, clavier) ;
-  // arrivée depuis le panneau par glisser natif (DRAG_MIME).
+  // Espace de travail d'un jeu : les succès choisis, en vue Tableau (grille libre) ou Liste.
+  // - Tableau : gridstack (voir Board.svelte), position et taille de chaque carte enregistrées.
+  // - Liste : pile de cartes réordonnée par svelte-dnd-action (souris, tactile, clavier).
+  // Arrivée depuis le panneau par glisser natif (DRAG_MIME) dans les deux vues.
   import { flip } from "svelte/animate";
   import type { SvelteSet } from "svelte/reactivity";
   import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME, type DndEvent } from "svelte-dnd-action";
-  import { columns, DRAG_MIME, type AchievementRow, type Column, type WorkspaceItem } from "./library";
+  import Board from "./Board.svelte";
+  import { DRAG_MIME, type AchievementRow, type GridPos, type WorkspaceItem } from "./library";
   import { setWorkspaceView, settings, ui } from "./settings.svelte";
   import WorkspaceCard from "./WorkspaceCard.svelte";
 
   /** Élément manipulé par svelte-dnd-action (qui exige un champ `id`). */
-  type Card = { id: number; column: Column; collapsed: boolean; [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: boolean };
+  type Card = { id: number; item: WorkspaceItem; [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: boolean };
 
   let {
     items,
@@ -27,35 +29,22 @@
     imagesDir: string;
     ontoggle: (a: AchievementRow) => void;
     onchange: (items: WorkspaceItem[]) => void;
-    onadd: (ids: number[], column: Column) => void;
+    onadd: (ids: number[], at?: { x: number; y: number }) => void;
   } = $props();
 
   const FLIP = 150;
-  const zoneStyle = { outline: "2px dashed var(--color-accent)", "outline-offset": "4px", "border-radius": "12px" };
 
-  const toCard = (it: WorkspaceItem): Card => ({ id: it.achievement_id, column: it.column, collapsed: it.collapsed });
-  const toItem = (c: Card): WorkspaceItem => ({ achievement_id: c.id, column: c.column, collapsed: c.collapsed });
-
-  // Copies locales, modifiées pendant un glisser puis renvoyées au parent à la fin
+  // Vue liste : copie locale modifiée pendant un glisser, renvoyée au parent à la fin
   let list = $state.raw<Card[]>([]);
-  let cols = $state.raw<Record<Column, Card[]>>({ todo: [], doing: [], done: [] });
   let dragging = false;
-
   $effect(() => {
-    const cards = items.map(toCard);
-    if (dragging) return;
-    list = cards;
-    cols = {
-      todo: cards.filter((c) => c.column === "todo"),
-      doing: cards.filter((c) => c.column === "doing"),
-      done: cards.filter((c) => c.column === "done"),
-    };
+    const cards = items.map((item) => ({ id: item.achievement_id, item }));
+    if (!dragging) list = cards;
   });
 
   let justToggled = $state<number | null>(null);
-  let hoverZone = $state<Column | "list" | null>(null);
+  let listHover = $state(false);
 
-  // ----- Vue liste -----
   function listConsider(e: CustomEvent<DndEvent<Card>>) {
     dragging = true;
     list = e.detail.items;
@@ -63,19 +52,7 @@
   function listFinalize(e: CustomEvent<DndEvent<Card>>) {
     dragging = false;
     list = e.detail.items;
-    onchange(list.map(toItem));
-  }
-
-  // ----- Vue colonnes -----
-  function colConsider(col: Column, e: CustomEvent<DndEvent<Card>>) {
-    dragging = true;
-    cols = { ...cols, [col]: e.detail.items };
-  }
-  function colFinalize(col: Column, e: CustomEvent<DndEvent<Card>>) {
-    dragging = false;
-    cols = { ...cols, [col]: e.detail.items.map((c) => ({ ...c, column: col })) };
-    // Ordre global = colonnes mises bout à bout
-    onchange([...cols.todo, ...cols.doing, ...cols.done].map(toItem));
+    onchange(list.map((c) => c.item));
   }
 
   // ----- Modifications d'une carte -----
@@ -93,22 +70,34 @@
     onchange(items.map((it) => ({ ...it, collapsed })));
   }
 
-  // ----- Arrivée depuis le panneau (glisser natif) -----
-  function dragOver(e: DragEvent, zone: Column | "list") {
+  /** Tableau : nouvelles positions (n'émet que s'il y a un vrai changement). */
+  function layout(positions: Map<number, GridPos>) {
+    let changed = false;
+    const next = items.map((it) => {
+      const p = positions.get(it.achievement_id);
+      const g = it.grid;
+      if (!p || (g && g.x === p.x && g.y === p.y && g.w === p.w && g.h === p.h)) return it;
+      changed = true;
+      return { ...it, grid: p };
+    });
+    if (changed) onchange(next);
+  }
+
+  // ----- Vue liste : arrivée depuis le panneau -----
+  function listDragOver(e: DragEvent) {
     if (!e.dataTransfer?.types.includes(DRAG_MIME)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-    hoverZone = zone;
+    listHover = true;
   }
-  function drop(e: DragEvent, column: Column) {
-    const raw = e.dataTransfer?.getData(DRAG_MIME);
-    hoverZone = null;
+  function listDrop(e: DragEvent) {
+    listHover = false;
     ui.draggingFromPanel = false;
+    const raw = e.dataTransfer?.getData(DRAG_MIME);
     if (!raw) return;
     e.preventDefault();
     try {
-      const ids = (JSON.parse(raw) as unknown[]).filter((x): x is number => typeof x === "number");
-      onadd(ids, column);
+      onadd((JSON.parse(raw) as unknown[]).filter((x): x is number => typeof x === "number"));
     } catch {
       /* données d'un autre glisser : ignorées */
     }
@@ -118,27 +107,27 @@
   const isShadow = (c: Card) => !!c[SHADOW_ITEM_MARKER_PROPERTY_NAME];
 </script>
 
-{#snippet card(c: Card, compact: boolean)}
-  {@const a = byId.get(c.id)}
+{#snippet card(it: WorkspaceItem, board: boolean)}
+  {@const a = byId.get(it.achievement_id)}
   {#if a}
-    <div class={isShadow(c) ? "opacity-30" : ""}>
-      <WorkspaceCard
-        {a}
-        column={c.column}
-        collapsed={c.collapsed}
-        spoiler={spoiler(a)}
-        animate={justToggled === a.id}
-        {compact}
-        {imagesDir}
-        ontoggle={() => toggle(a)}
-        onreveal={() => revealed.add(a.id)}
-        oncollapse={() => update(a.id, { collapsed: !c.collapsed })}
-        onremove={() => remove(a.id)}
-        oncolumn={(column) => update(a.id, { column })}
-      />
-    </div>
+    <WorkspaceCard
+      {a}
+      column={it.column}
+      collapsed={it.collapsed}
+      spoiler={spoiler(a)}
+      animate={justToggled === a.id}
+      {board}
+      {imagesDir}
+      ontoggle={() => toggle(a)}
+      onreveal={() => revealed.add(a.id)}
+      oncollapse={() => update(a.id, { collapsed: !it.collapsed })}
+      onremove={() => remove(a.id)}
+      oncolumn={(column) => update(a.id, { column })}
+    />
   {/if}
 {/snippet}
+
+{#snippet boardCard(it: WorkspaceItem)}{@render card(it, true)}{/snippet}
 
 <div class="flex h-full flex-col">
   <!-- Barre de l'espace -->
@@ -146,12 +135,15 @@
     <h2 class="text-sm font-semibold tracking-wide text-muted uppercase">
       Espace de travail <span class="font-normal normal-case">· {items.length} succès</span>
     </h2>
-    {#if items.length > 0}
+    {#if items.length > 0 && settings.workspaceView === "list"}
       <button onclick={() => setAllCollapsed(true)} class="text-xs text-muted underline hover:text-fg">tout replier</button>
       <button onclick={() => setAllCollapsed(false)} class="text-xs text-muted underline hover:text-fg">tout déplier</button>
     {/if}
+    {#if items.length > 0 && settings.workspaceView === "board"}
+      <span class="text-xs text-muted">Glissez une carte par son titre, tirez ses bords pour la redimensionner.</span>
+    {/if}
     <div class="ml-auto inline-flex rounded-lg border border-line bg-panel p-0.5" role="group" aria-label="Vue de l'espace de travail">
-      {#each [{ v: "list", l: "Liste" }, { v: "columns", l: "Colonnes" }] as const as o (o.v)}
+      {#each [{ v: "board", l: "Tableau" }, { v: "list", l: "Liste" }] as const as o (o.v)}
         <button
           onclick={() => setWorkspaceView(o.v)}
           aria-pressed={settings.workspaceView === o.v}
@@ -164,72 +156,41 @@
     </div>
   </div>
 
-  {#if settings.workspaceView === "list"}
-    <!-- Vue liste : une seule pile de cartes -->
-    <div
-      class="flex-1 px-6 pb-6"
-      role="region"
-      aria-label="Cartes de l'espace de travail"
-      ondragover={(e) => dragOver(e, "list")}
-      ondragleave={() => (hoverZone = null)}
-      ondrop={(e) => drop(e, "todo")}
-    >
-      {#if items.length === 0}
-        <div
-          class="grid min-h-60 place-items-center rounded-xl border-2 border-dashed p-8 text-center text-sm transition
-            {ui.draggingFromPanel ? 'border-accent bg-accent/5 text-fg' : 'border-line text-muted'}"
-        >
-          <div class="max-w-sm space-y-2">
-            <p class="text-base font-medium text-fg">Choisissez les succès à travailler</p>
-            <p>
-              Glissez-les ici depuis la liste de droite, ou cochez leurs cases puis « Ajouter à l'espace ».
-              Chacun deviendra une carte où ranger vos guides.
-            </p>
-          </div>
+  {#if items.length === 0}
+    <div class="flex-1 px-6 pb-6" role="region" aria-label="Espace de travail vide" ondragover={listDragOver} ondragleave={() => (listHover = false)} ondrop={listDrop}>
+      <div
+        class="grid min-h-60 place-items-center rounded-xl border-2 border-dashed p-8 text-center text-sm transition
+          {ui.draggingFromPanel || listHover ? 'border-accent bg-accent/5 text-fg' : 'border-line text-muted'}"
+      >
+        <div class="max-w-sm space-y-2">
+          <p class="text-base font-medium text-fg">Choisissez les succès à travailler</p>
+          <p>
+            Glissez-les ici depuis la liste de droite, ou cochez leurs cases puis « Ajouter à l'espace ».
+            Chacun deviendra une carte où ranger vos guides.
+          </p>
         </div>
-      {:else}
-        <div
-          use:dragHandleZone={{ items: list, flipDurationMs: FLIP, type: "workspace", dropTargetStyle: {}, useCursorForDetection: true }}
-          onconsider={listConsider}
-          onfinalize={listFinalize}
-          class="space-y-2 rounded-xl transition
-            {ui.draggingFromPanel ? 'outline-2 outline-offset-4 outline-dashed' : ''}
-            {hoverZone === 'list' ? 'outline-accent' : 'outline-line'}"
-        >
-          {#each list as c (c.id)}
-            <div animate:flip={{ duration: FLIP }}>{@render card(c, false)}</div>
-          {/each}
-        </div>
-      {/if}
+      </div>
+    </div>
+  {:else if settings.workspaceView === "board"}
+    <!-- Vue tableau : grille libre -->
+    <div class="flex-1 px-4 pb-6">
+      <Board {items} card={boardCard} onlayout={layout} ondropids={onadd} />
     </div>
   {:else}
-    <!-- Vue colonnes : à faire / en cours / fait -->
-    <div class="flex flex-1 gap-4 overflow-x-auto px-6 pb-6">
-      {#each columns as col (col.id)}
-        <section
-          class="flex w-72 min-w-64 shrink-0 flex-col rounded-xl border bg-panel/40 transition
-            {hoverZone === col.id ? 'border-accent bg-accent/5' : ui.draggingFromPanel ? 'border-dashed border-accent/60' : 'border-line'}"
-          aria-label={col.label}
-          ondragover={(e) => dragOver(e, col.id)}
-          ondragleave={() => (hoverZone = null)}
-          ondrop={(e) => drop(e, col.id)}
-        >
-          <h3 class="flex items-center justify-between px-3 pt-3 pb-2 text-sm font-semibold">
-            {col.label}
-            <span class="rounded-full bg-raised px-2 text-xs font-normal text-muted">{cols[col.id].filter((c) => !isShadow(c)).length}</span>
-          </h3>
-          <div
-            use:dragHandleZone={{ items: cols[col.id], flipDurationMs: FLIP, type: "workspace", dropTargetStyle: zoneStyle, useCursorForDetection: true }}
-            onconsider={(e) => colConsider(col.id, e)}
-            onfinalize={(e) => colFinalize(col.id, e)}
-            class="min-h-32 flex-1 space-y-2 px-2 pb-3"
-          >
-            {#each cols[col.id] as c (c.id)}
-              <div animate:flip={{ duration: FLIP }}>{@render card(c, true)}</div>
-            {/each}
-          </div>
-        </section>
-      {/each}
+    <!-- Vue liste : une seule pile de cartes -->
+    <div class="flex-1 px-6 pb-6" role="region" aria-label="Cartes de l'espace de travail" ondragover={listDragOver} ondragleave={() => (listHover = false)} ondrop={listDrop}>
+      <div
+        use:dragHandleZone={{ items: list, flipDurationMs: FLIP, type: "workspace", dropTargetStyle: {}, useCursorForDetection: true }}
+        onconsider={listConsider}
+        onfinalize={listFinalize}
+        class="space-y-2 rounded-xl transition
+          {ui.draggingFromPanel ? 'outline-2 outline-offset-4 outline-dashed' : ''}
+          {listHover ? 'outline-accent' : 'outline-line'}"
+      >
+        {#each list as c (c.id)}
+          <div animate:flip={{ duration: FLIP }} class={isShadow(c) ? "opacity-30" : ""}>{@render card(c.item, false)}</div>
+        {/each}
+      </div>
     </div>
   {/if}
 </div>
