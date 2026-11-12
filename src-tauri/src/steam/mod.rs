@@ -8,6 +8,7 @@ pub mod detect;
 pub mod kv_binary;
 pub mod local_cache;
 pub mod model;
+pub mod store;
 pub mod web;
 
 use serde::Serialize;
@@ -42,6 +43,63 @@ impl<T> From<Result<T, String>> for Outcome<T> {
         match r {
             Ok(v) => Outcome::Ok(v),
             Err(e) => Outcome::Err(e),
+        }
+    }
+}
+
+/// Import d'un jeu depuis la meilleure source disponible (ordre du SPEC) :
+/// 1. cache local, 2. profil public, 3. (clé API : plus tard), 4. page publique.
+///
+/// `profile` : lien de profil réglé par le joueur ; à défaut, le compte détecté sur le PC.
+pub async fn load_best(appid: u32, lang: &str, profile: Option<&str>) -> Result<model::GameAchievements, String> {
+    let steam = detect::find_steam(None);
+    let account = steam.as_deref().and_then(|p| detect::list_accounts(p).into_iter().next());
+    let profile = profile
+        .map(str::to_string)
+        .or_else(|| account.as_ref().map(|a| a.steamid64.to_string()));
+
+    let mut errors = Vec::new();
+
+    if let Some(p) = &steam {
+        match local_cache::load(p, appid, account.as_ref().map(|a| a.account_id), lang) {
+            Ok(mut g) => {
+                // Le cache local n'a pas la rareté ; sans fichier de progression, il n'a pas non plus l'état.
+                if let Ok(r) = web::load_rarity(appid).await {
+                    for a in &mut g.achievements {
+                        a.rarity = a.api_name.as_ref().and_then(|n| r.get(n).copied());
+                    }
+                }
+                if g.achievements.iter().all(|a| a.unlocked.is_none()) {
+                    if let Some(prof) = &profile {
+                        if let Ok(pg) = web::load_profile(prof, appid, lang).await {
+                            merge_progress(&mut g, &pg);
+                        }
+                    }
+                }
+                return Ok(g);
+            }
+            Err(e) => errors.push(e),
+        }
+    }
+
+    if let Some(prof) = &profile {
+        match web::load_profile(prof, appid, lang).await {
+            Ok(g) => return Ok(g),
+            Err(e) => errors.push(format!("profil : {e}")),
+        }
+    }
+
+    web::load_public_page(appid, lang).await.map_err(|e| {
+        errors.push(format!("page publique : {e}"));
+        errors.join(" ; ")
+    })
+}
+
+fn merge_progress(target: &mut model::GameAchievements, from: &model::GameAchievements) {
+    for a in &mut target.achievements {
+        if let Some(src) = from.achievements.iter().find(|s| s.api_name.is_some() && s.api_name == a.api_name) {
+            a.unlocked = src.unlocked;
+            a.unlock_time = src.unlock_time;
         }
     }
 }

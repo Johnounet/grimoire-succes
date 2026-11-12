@@ -1,12 +1,46 @@
+@import "tailwindcss";
+
+/* Palette de l'application (thème sombre par défaut ; le thème clair viendra à l'étape 8) */
+@theme {
+  --color-bg: #0f1116;
+  --color-panel: #161922;
+  --color-raised: #1e222d;
+  --color-line: #2a2f3c;
+  --color-fg: #e6e8ee;
+  --color-muted: #8b93a7;
+  --color-accent: #4f7cff;
+  --color-gold: #f2c14e;
+  --color-rare: #b07cff;
+  --color-ok: #4cc38a;
+  --color-danger: #ef5b5b;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+}
+
 :root {
   color-scheme: dark;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
-  background: #12141a;
-  color: #e6e8ee;
 }
 
 html,
 body {
   margin: 0;
   height: 100%;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  overflow: hidden;
+}
+
+/* Barres de défilement discrètes */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

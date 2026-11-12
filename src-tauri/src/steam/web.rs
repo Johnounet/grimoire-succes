@@ -23,7 +23,19 @@ fn client() -> &'static reqwest::Client {
     })
 }
 
-async fn get_text(url: &str, lang: &str) -> Result<String, String> {
+/// Télécharge un fichier binaire. `Ok(None)` si le serveur répond 404 (image absente).
+pub(crate) async fn get_bytes(url: &str) -> Result<Option<Vec<u8>>, String> {
+    let resp = client().get(url).send().await.map_err(|e| format!("requête vers {url} : {e}"))?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    if !resp.status().is_success() {
+        return Err(format!("{url} a répondu {}", resp.status()));
+    }
+    resp.bytes().await.map(|b| Some(b.to_vec())).map_err(|e| e.to_string())
+}
+
+pub(crate) async fn get_text(url: &str, lang: &str) -> Result<String, String> {
     let resp = client()
         .get(url)
         // La langue de la page suit ce cookie (le paramètre `?l=` est ignoré)

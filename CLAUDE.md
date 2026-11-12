@@ -14,7 +14,11 @@ On avance une étape à la fois (section « Étapes de développement avec Claud
 
 ## Stack
 
-Tauri 2 (cœur Rust dans `src-tauri/`) + Svelte 5 + TypeScript + Vite (interface dans `src/`). Tailwind, SQLite, i18n, etc. arrivent aux étapes qui en ont besoin.
+Tauri 2 (cœur Rust dans `src-tauri/`) + Svelte 5 + TypeScript + Vite + Tailwind 4 (interface dans `src/`).
+
+- **Base de données** : SQLite via `rusqlite`, uniquement côté Rust (`src-tauri/src/db.rs`). L'interface ne touche jamais la base : elle appelle des commandes Tauri (`src-tauri/src/library.rs`). Migrations par `PRAGMA user_version` : ne jamais modifier une migration existante, en ajouter une.
+- **Données** : dossier `app_data_dir` de Tauri (`%APPDATA%\io.github.chassesucces.app`, `~/.local/share/io.github.chassesucces.app`) : `donnees.sqlite` + `images/` (jaquettes servies par le protocole asset).
+- Les guides (étapes suivantes) devront référencer `achievements.id`, stable lors des actualisations.
 
 ## Commandes
 
@@ -30,6 +34,8 @@ npm run check          # vérification des types Svelte/TS
 
 - [x] Étape 1 — Squelette : fenêtre validée sous Windows 11 (2026-11-12) ; reste à valider sous Linux
 - [x] Étape 2 — Prototype des sources Steam : validé sous Windows sur Portal 2, Clair Obscur, Vampire Survivors, Baldur's Gate 3, Hades, Balatro (2026-11-12) ; reste Linux
+
+- [x] Étape 3 — Base de données et bibliothèque (rusqlite côté Rust, pas `tauri-plugin-sql`) : persistance validée sous Windows (2026-11-12) ; reste Linux
 
 Diagnostic sans interface : `cd src-tauri && cargo run --example probe -- <appid> [french|english] [profil]`.
 
