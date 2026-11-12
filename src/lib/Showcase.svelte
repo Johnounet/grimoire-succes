@@ -1,5 +1,6 @@
 <script lang="ts">
   // Vitrine des trophées : les jeux terminés à 100 %, jaquettes dorées, du plus récent au plus ancien.
+  import { appear } from "./motion.svelte";
   import { formatDate, formatPlaytime, isComplete, localImage, type GameSummary } from "./library";
 
   let {
@@ -18,7 +19,7 @@
   const totalAchievements = $derived(done.reduce((n, g) => n + g.total, 0));
 </script>
 
-<main class="min-w-0 flex-1 overflow-y-auto">
+<main class="min-w-0 flex-1 overflow-y-auto" {@attach appear}>
   <header class="border-b border-line bg-gradient-to-b from-gold/10 to-transparent px-8 pt-10 pb-6">
     <p class="text-xs font-semibold tracking-[0.2em] text-gold uppercase">Vitrine des trophées</p>
     <h1 class="mt-1 text-3xl font-bold">

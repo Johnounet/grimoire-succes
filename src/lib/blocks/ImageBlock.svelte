@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { backdrop } from "../motion.svelte";
   import { localImage } from "../library";
   import { imageFrom, saveBlock, uploadImage } from "./store.svelte";
   import type { Block } from "./types";
@@ -119,6 +120,7 @@
     onclick={() => (zoom = false)}
     onkeydown={(e) => e.key === "Escape" && (zoom = false)}
     class="fixed inset-0 z-50 grid cursor-zoom-out place-items-center bg-black/85 p-6"
+    transition:backdrop
     {@attach (el) => el.focus()}
   >
     <figure class="max-h-full max-w-full space-y-2 text-center">

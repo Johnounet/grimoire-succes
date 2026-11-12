@@ -239,6 +239,9 @@ const SETTINGS: &[&str] = &[
     "shortcut_sound",
     // Mode compact
     "compact_opacity",
+    // Animations (system / on / off) et carillon à la coche
+    "animations",
+    "check_sound",
 ];
 
 fn check_setting(key: &str) -> Result<(), String> {

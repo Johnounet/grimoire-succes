@@ -111,7 +111,7 @@
 <dialog
   bind:this={dialog}
   onclose={onclose}
-  class="m-auto flex max-h-[80vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-line bg-panel p-0 text-fg shadow-2xl backdrop:bg-black/60"
+  class="dialog-pop m-auto flex max-h-[80vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-line bg-panel p-0 text-fg shadow-2xl backdrop:bg-black/60"
 >
   <div class="border-b border-line p-4">
     <div class="mb-3 flex items-center justify-between">

@@ -81,7 +81,9 @@ export type SettingKey =
   | "active_timer"
   | "shortcuts"
   | "shortcut_sound"
-  | "compact_opacity";
+  | "compact_opacity"
+  | "animations"
+  | "check_sound";
 
 export type Column = "todo" | "doing" | "done";
 

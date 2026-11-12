@@ -32,6 +32,10 @@ export interface SyncEvents {
   /** La fenêtre compacte vient de s'ouvrir et demande le jeu ouvert. */
   "compact-ready": Record<string, never>;
   "compact-opacity": { value: number };
+  /** Réglage des animations changé. */
+  "motion-changed": { pref: "system" | "on" | "off" };
+  /** Réglage du carillon à la coche changé. */
+  "sound-changed": { check: boolean };
 }
 
 type Name = keyof SyncEvents;

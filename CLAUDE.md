@@ -47,8 +47,15 @@ npm run check          # vérification des types Svelte/TS
 
 **Étape 8 en cours** (finitions). **Décision de l'utilisateur (2026-11-12)** : la traduction français / anglais se fera tout à la fin.
 - [x] 100 % et vitrine : validé par l'utilisateur sous Windows (2026-11-12)
-- [ ] Animations, thèmes, export / import de guides, clé API optionnelle
+- [x] Animations (réglage, transitions, carillon à la coche) : validé par l'utilisateur (2026-11-12)
+- [ ] Thèmes, export / import de guides, clé API optionnelle
 - [ ] Traduction (en dernier)
+
+**Animations, choix faits** :
+- Module `src/lib/motion.svelte.ts` : réglage `animations` (`system` = selon Windows, par défaut / `on` / `off`), section « Interface » des Réglages, synchronisé avec la fenêtre compacte (`motion-changed`). Animations réduites → attribut `data-reduced-motion` sur `<html>` (coupe tout le CSS, `app.css`) **et** `dur()` qui renvoie 0 pour ce qui est lancé en JS (transitions Svelte, `flip`, svelte-dnd-action, gridstack via `setAnimation`). Toute nouvelle animation JS doit passer par `dur()` / `reduced()`, jamais `matchMedia` directement.
+- Durées communes `SPEED` (120 / 180 / 300 ms). Transitions `backdrop` et `pop` (fenêtres modales, menus « ⋯ », étiquettes, notification, menu d'ajout de bloc en entrée seulement car il est dans le flux de la carte). `<dialog>` natif (ajout de jeu) : classe CSS `dialog-pop`.
+- `appear` : changement de jeu et vitrine. `arrive` : une carte ne s'anime à l'entrée que si son succès vient d'être ajouté (`arrivals`, rempli par `addToWorkspace`), pas au chargement. `leave` : animation de sortie avant le retrait (`data-card` sur la carte), limitée dans le temps pour ne jamais retarder le retrait. `appear`/`arrive` lisent le réglage avec `untrack` (sinon l'attachement se rejoue).
+- Son : `src/lib/sound.svelte.ts`, réglage `check_sound` (désactivé par défaut), carillon de deux notes synthétisées à la coche (pas au décochage), fenêtre principale et compacte (`sound-changed`). Le bip des raccourcis y est aussi.
 
 **100 % et vitrine, choix faits** :
 - `games.completed_at` tenu à jour par `update_completion` (`db.rs`) après chaque import, coche ou reset : posé quand tous les succès non retirés sont obtenus (coche manuelle → maintenant ; actualisation → date du dernier succès Steam), effacé si le jeu n'est plus à 100 %. Migration v7 : colonne `celebrated` et date des jeux déjà terminés.

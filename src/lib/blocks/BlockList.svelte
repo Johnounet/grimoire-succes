@@ -4,6 +4,7 @@
   // Réordonnancement par glisser HTML natif (poignée ⠿) et boutons ↑ ↓ au clavier.
   // Pas svelte-dnd-action ici : ses poignées partagent un état global, et une poignée de bloc
   // rendrait aussi déplaçable la carte qui le contient (zones imbriquées).
+  import { dur, pop } from "../motion.svelte";
   import { flip } from "svelte/animate";
   import CounterBlock from "./CounterBlock.svelte";
   import ImageBlock from "./ImageBlock.svelte";
@@ -100,7 +101,7 @@
       {#each list as b, i (b.id)}
         {@const info = kindInfo(b.kind)}
         <section
-          animate:flip={{ duration: FLIP }}
+          animate:flip={{ duration: dur(FLIP) }}
           role="listitem"
           draggable={armed === b.id}
           ondragstart={(e) => dragStart(e, b)}
@@ -223,6 +224,7 @@
       <div
         role="menu"
         tabindex="-1"
+        in:pop={{ y: -4, start: 0.98 }}
         onkeydown={(e) => e.key === "Escape" && (menuOpen = false)}
         class="mt-1 grid grid-cols-2 gap-1 rounded-lg border border-line bg-raised p-1.5"
       >

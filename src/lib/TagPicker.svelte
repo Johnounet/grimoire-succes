@@ -1,5 +1,6 @@
 <script lang="ts">
   // Étiquettes d'un succès : pastilles affichées, et menu pour en poser, en retirer ou en créer.
+  import { pop } from "./motion.svelte";
   import { popoverStyle } from "./popover";
   import { createTag, hasTag, TAG_COLORS, tags, tagsOf, tagStyle, toggleTag } from "./tags.svelte";
 
@@ -55,6 +56,7 @@
       role="dialog"
       aria-label="Étiquettes"
       tabindex="-1"
+      transition:pop={{ y: -4 }}
       onkeydown={(e) => {
         if (e.key === "Escape") open = false;
       }}

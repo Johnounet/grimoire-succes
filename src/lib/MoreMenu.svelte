@@ -1,5 +1,6 @@
 <script lang="ts">
   // Menu « ⋯ » discret : quelques actions rares (re-lock, épingle…).
+  import { pop } from "./motion.svelte";
   import { popoverStyle } from "./popover";
   export interface MenuItem {
     label: string;
@@ -33,6 +34,7 @@
     <div
       role="menu"
       tabindex="-1"
+      transition:pop={{ y: -4 }}
       onkeydown={(e) => {
         if (e.key === "Escape") open = false;
       }}

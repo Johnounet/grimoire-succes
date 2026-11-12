@@ -13,6 +13,7 @@
   import "gridstack/dist/gridstack.min.css";
   import { tick, untrack, type Snippet } from "svelte";
   import { CARD_MENU_EVENT, cardSizes, DRAG_MIME, FIT_CARD_EVENT, type GridPos, type WorkspaceItem } from "./library";
+  import { arrive, reduced } from "./motion.svelte";
   import { ui } from "./settings.svelte";
 
   let {
@@ -96,7 +97,7 @@
         cellHeight: 40,
         margin: 6,
         float: true,
-        animate: true,
+        animate: untrack(() => !reduced()), // sans dépendance : la grille ne doit pas être recréée
         minRow: 8,
         handle: ".card-drag",
         resizable: { handles: "e, se, s, sw, w" },
@@ -105,6 +106,12 @@
     );
     if (!g) return;
     grid = g;
+    // Réglage des animations changé pendant que le tableau est affiché
+    const stopMotion = $effect.root(() => {
+      $effect(() => {
+        g.setAnimation(!reduced());
+      });
+    });
     // Une seule notification par geste : fin de déplacement / redimensionnement, ajout
     g.on("change", emitLayout);
     g.on("added", emitLayout);
@@ -119,6 +126,7 @@
     };
     el.addEventListener(CARD_MENU_EVENT, onMenu);
     return () => {
+      stopMotion();
       el.removeEventListener(FIT_CARD_EVENT, onFit);
       el.removeEventListener(CARD_MENU_EVENT, onMenu);
       grid?.destroy(false);
@@ -365,7 +373,7 @@
   <div class="grid-stack" bind:this={gridEl} {@attach setupGrid}>
     {#each items as item (item.achievement_id)}
       <div class="grid-stack-item" data-id={item.achievement_id} {@attach (el) => setupItem(el, () => item)}>
-        <div class="grid-stack-item-content">
+        <div class="grid-stack-item-content" data-card={item.achievement_id} {@attach (el) => arrive(el, item.achievement_id)}>
           {@render card(item)}
         </div>
       </div>

@@ -13,6 +13,8 @@
   import { api, type AchievementRow, type GameSummary, type WorkspaceItem } from "./lib/library";
   import { clampOpacity, loadSettings, setCompactOpacity, settings } from "./lib/settings.svelte";
   import { active, formatAccel, loadActive, shortcutContext, shortcuts, target, toggleActive } from "./lib/shortcuts.svelte";
+  import { applyMotionAttribute, loadMotion, motion } from "./lib/motion.svelte";
+  import { chime, loadSound, sound } from "./lib/sound.svelte";
   import { on, send } from "./lib/sync";
 
   let appid = $state(0);
@@ -89,6 +91,7 @@
   async function toggle(a: AchievementRow) {
     const unlocked = !a.unlocked;
     a.unlocked = unlocked;
+    if (unlocked) chime();
     try {
       const g = await api.setUnlocked(a.id, unlocked);
       game = g;
@@ -107,6 +110,8 @@
       window.close();
     }
   }
+
+  $effect(applyMotionAttribute);
 
   onMount(() => {
     document.documentElement.classList.add("compact");
@@ -128,6 +133,8 @@
         loadOutside();
       }),
       on("compact-opacity", ({ value }) => (settings.compactOpacity = clampOpacity(value))),
+      on("motion-changed", ({ pref }) => (motion.pref = pref)),
+      on("sound-changed", ({ check }) => (sound.check = check)),
       on("shortcut-fired", (f) => {
         flash = f;
         setTimeout(() => flash?.text === f.text && (flash = null), 1800);
@@ -135,7 +142,7 @@
     ];
     const tick = setInterval(() => (now = Date.now()), 100);
 
-    Promise.all([loadSettings(), loadActive()]).then(async () => {
+    Promise.all([loadSettings(), loadActive(), loadMotion(), loadSound()]).then(async () => {
       send("compact-ready", {});
       // Sans réponse de la fenêtre principale (interface simulée) : premier jeu de la bibliothèque
       setTimeout(async () => {

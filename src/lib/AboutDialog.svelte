@@ -1,5 +1,6 @@
 <script lang="ts">
   // « À propos » : version, dépôt, contact, et transparence sur la façon dont le logiciel a été écrit.
+  import { backdrop, pop } from "./motion.svelte";
   import { getVersion } from "@tauri-apps/api/app";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
@@ -35,13 +36,14 @@
 <div
   class="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
   role="presentation"
+  transition:backdrop
   onclick={(e) => e.target === e.currentTarget && onclose()}
   onkeydown={(e) => e.key === "Escape" && onclose()}
 >
   <div
     role="dialog"
     aria-modal="true"
-    aria-labelledby="about-title"
+    aria-labelledby="about-title" transition:pop
     class="flex max-h-[90vh] w-full max-w-md flex-col rounded-2xl border border-line bg-panel shadow-2xl"
   >
     <header class="flex items-center border-b border-line px-5 py-3">

@@ -14,6 +14,7 @@ import { counterAdd, timerReset, timerToggle } from "./blocks/ops";
 import { blocksOf, findBlock, saveBlock, showToast } from "./blocks/store.svelte";
 import { formatDuration, type Block, type CounterData, type TimerData } from "./blocks/types";
 import { api, type WorkspaceItem } from "./library";
+import { beep } from "./sound.svelte";
 import { send } from "./sync";
 
 export type ShortcutAction = "counter_inc" | "counter_dec" | "timer_toggle" | "timer_reset";
@@ -195,25 +196,6 @@ function feedback(ok: boolean, text: string) {
   showToast(text);
   send("shortcut-fired", { text, ok });
   if (shortcuts.sound) beep(ok);
-}
-
-let audio: AudioContext | null = null;
-function beep(ok: boolean) {
-  try {
-    audio ??= new AudioContext();
-    const t = audio.currentTime;
-    const osc = audio.createOscillator();
-    const gain = audio.createGain();
-    osc.frequency.value = ok ? 880 : 220;
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    osc.connect(gain).connect(audio.destination);
-    osc.start(t);
-    osc.stop(t + 0.13);
-  } catch {
-    /* pas de son disponible */
-  }
 }
 
 // ----- Affichage et saisie des touches -----

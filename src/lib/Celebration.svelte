@@ -1,6 +1,7 @@
 <script lang="ts">
   // Célébration du 100 % : pluie de confettis aux couleurs de la jaquette, puis le récap
   // (date du 100 %, temps de jeu Steam, succès le plus rare). Rejouable depuis la vitrine.
+  import { backdrop, reduced } from "./motion.svelte";
   import { onMount } from "svelte";
   import { coverPalette, rain } from "./confetti";
   import { rarityText } from "./filters";
@@ -34,7 +35,7 @@
       .then(async (r) => {
         recap = r;
         closeButton?.focus();
-        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        if (reduced()) return;
         const colors = await coverPalette(localImage(imagesDir, r.game.cover_file));
         if (!dead) stop = rain(canvas, colors);
       })
@@ -51,6 +52,7 @@
 <div
   class="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
   role="presentation"
+  transition:backdrop
   onclick={(e) => e.target === e.currentTarget && onclose()}
 >
   {#if error}

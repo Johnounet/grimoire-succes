@@ -1,5 +1,7 @@
 <script lang="ts">
-  // Réglages : étiquettes, raccourcis clavier globaux, mode compact.
+  // Réglages : interface (animations, son), étiquettes, raccourcis clavier globaux, mode compact.
+  import { backdrop, motion, pop, setMotionPref, type MotionPref } from "./motion.svelte";
+  import { chime, setCheckSound, sound } from "./sound.svelte";
   import { setCompactOpacity, settings } from "./settings.svelte";
   import {
     accelFromEvent,
@@ -14,6 +16,13 @@
   import { createTag, deleteTag, TAG_COLORS, tags, tagStyle, updateTag, type Tag } from "./tags.svelte";
 
   let { onclose }: { onclose: () => void } = $props();
+
+  // ----- Interface -----
+  const motionChoices: { v: MotionPref; l: string }[] = [
+    { v: "system", l: "Selon Windows" },
+    { v: "on", l: "Activées" },
+    { v: "off", l: "Désactivées" },
+  ];
 
   // ----- Étiquettes -----
   let tagError = $state("");
@@ -68,13 +77,14 @@
 <div
   class="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
   role="presentation"
+  transition:backdrop
   onclick={(e) => e.target === e.currentTarget && onclose()}
   onkeydown={(e) => e.key === "Escape" && !capturing && onclose()}
 >
   <div
     role="dialog"
     aria-modal="true"
-    aria-labelledby="settings-title"
+    aria-labelledby="settings-title" transition:pop
     class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl border border-line bg-panel shadow-2xl"
   >
     <header class="flex items-center border-b border-line px-5 py-3">
@@ -83,6 +93,45 @@
     </header>
 
     <div class="space-y-8 overflow-y-auto px-5 py-4">
+      <!-- Interface -->
+      <section aria-labelledby="s-ui">
+        <h3 id="s-ui" class="text-sm font-semibold tracking-wide text-muted uppercase">Interface</h3>
+        <div class="mt-3 flex flex-wrap items-center gap-3 text-sm">
+          <span id="motion-label">Animations</span>
+          <div class="inline-flex rounded-lg border border-line bg-bg p-0.5" role="radiogroup" aria-labelledby="motion-label">
+            {#each motionChoices as o (o.v)}
+              <button
+                role="radio"
+                aria-checked={motion.pref === o.v}
+                onclick={() => setMotionPref(o.v)}
+                class="rounded-md px-3 py-1 transition
+                  {motion.pref === o.v ? 'bg-raised font-medium text-fg' : 'text-muted hover:text-fg'}"
+              >
+                {o.l}
+              </button>
+            {/each}
+          </div>
+        </div>
+        <p class="mt-1 text-xs text-muted">
+          Coche, apparitions, déplacements des cartes, confettis du 100 %.
+          {#if motion.pref === "system"}
+            Windows demande en ce moment {motion.system ? "de réduire les animations : elles sont coupées" : "des animations normales"}.
+          {/if}
+        </p>
+        <label class="mt-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={sound.check}
+            onchange={(e) => {
+              setCheckSound(e.currentTarget.checked);
+              chime(); // aperçu du son
+            }}
+            class="accent-accent"
+          />
+          Petit carillon quand je coche un succès
+        </label>
+      </section>
+
       <!-- Étiquettes -->
       <section aria-labelledby="s-tags">
         <h3 id="s-tags" class="text-sm font-semibold tracking-wide text-muted uppercase">Étiquettes</h3>

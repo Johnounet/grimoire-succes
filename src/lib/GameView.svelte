@@ -6,6 +6,8 @@
   import { blocks, loadBlocks } from "./blocks/store.svelte";
   import { openCompact } from "./compact";
   import MoreMenu from "./MoreMenu.svelte";
+  import { appear, arrivals } from "./motion.svelte";
+  import { chime } from "./sound.svelte";
   import RelockDialog from "./RelockDialog.svelte";
   import { on, send } from "./sync";
   import { loadGameTags } from "./tags.svelte";
@@ -58,10 +60,18 @@
     });
   });
 
+  // Changement de jeu : la vue apparaît en douceur
+  let view: HTMLElement | undefined = $state();
+  $effect(() => {
+    void appidKey;
+    if (view) untrack(() => appear(view!));
+  });
+
   // L'espace de travail ne dépend que du jeu (une actualisation n'y touche pas)
   $effect(() => {
     const appid = appidKey;
     revealed.clear();
+    arrivals.clear();
     workspace = [];
     untrack(() => (ui.relock.open = false));
     loadBlocks(appid);
@@ -106,6 +116,7 @@
     const present = new Set(workspace.map((it) => it.achievement_id));
     const fresh = ids.filter((id) => byId.has(id) && !present.has(id));
     if (fresh.length === 0) return;
+    for (const id of fresh) arrivals.add(id);
     // Une carte déjà venue dans l'espace retrouve sa dernière taille ; elle s'agrandira de toute façon
     // si son contenu (ses blocs) ne tient pas dedans
     const size = (id: number) => cardSizes.get(id) ?? { w: 4, h: 8 };
@@ -167,6 +178,7 @@
     if (!row) return;
     const before = { unlocked: row.unlocked, manual: row.manual, unlock_time: row.unlock_time };
     row.unlocked = !row.unlocked;
+    if (row.unlocked) chime();
     row.manual = true;
     if (!row.unlocked) row.unlock_time = null;
     try {
@@ -179,7 +191,7 @@
   }
 </script>
 
-<section class="flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
+<section bind:this={view} class="flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
   <!-- Bannière -->
   <header class="relative h-40 shrink-0 overflow-hidden bg-raised">
     {#if heroOk}

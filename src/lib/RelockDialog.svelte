@@ -1,6 +1,7 @@
 <script lang="ts">
   // Assistant de re-lock : prépare la commande console Steam, que le joueur lance lui-même.
   // Le logiciel n'exécute jamais rien dans Steam (règle du projet) : il affiche, copie, ouvre la console.
+  import { backdrop, pop } from "./motion.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import type { AchievementRow } from "./library";
 
@@ -73,10 +74,11 @@
 <div
   class="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
   role="presentation"
+  transition:backdrop
   onclick={(e) => e.target === e.currentTarget && onclose()}
   onkeydown={(e) => e.key === "Escape" && onclose()}
 >
-  <div role="dialog" aria-modal="true" aria-labelledby="relock-title" class="w-full max-w-lg rounded-2xl border border-line bg-panel p-5 shadow-2xl">
+  <div role="dialog" aria-modal="true" aria-labelledby="relock-title" transition:pop class="w-full max-w-lg rounded-2xl border border-line bg-panel p-5 shadow-2xl">
     <h2 id="relock-title" class="text-lg font-semibold">
       {full ? `Reset complet de « ${gameName} »` : `Reverrouiller « ${target?.name} »`}
     </h2>

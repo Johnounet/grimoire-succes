@@ -9,6 +9,7 @@
   import Board from "./Board.svelte";
   import { DRAG_MIME, type AchievementRow, type GridPos, type WorkspaceItem } from "./library";
   import { setWorkspaceView, settings, ui } from "./settings.svelte";
+  import { arrive, dur, leave } from "./motion.svelte";
   import { releaseActive } from "./shortcuts.svelte";
   import WorkspaceCard from "./WorkspaceCard.svelte";
 
@@ -61,7 +62,13 @@
   function update(id: number, patch: Partial<WorkspaceItem>) {
     onchange(items.map((it) => (it.achievement_id === id ? { ...it, ...patch } : it)));
   }
-  function remove(id: number) {
+  /** Cartes en train de partir (animation de sortie) : un 2ᵉ clic ne les retire pas deux fois. */
+  const leaving = new Set<number>();
+  async function remove(id: number) {
+    if (leaving.has(id)) return;
+    leaving.add(id);
+    await leave(document.querySelector(`[data-card="${id}"]`));
+    leaving.delete(id);
     // Tableau : les cartes du dessous remonteront dans la place libérée
     board?.willRemove(id);
     onchange(items.filter((it) => it.achievement_id !== id));
@@ -194,7 +201,7 @@
     <!-- Vue liste : une seule pile de cartes -->
     <div class="flex-1 px-6 pb-6" role="region" aria-label="Cartes de l'espace de travail" ondragover={listDragOver} ondragleave={() => (listHover = false)} ondrop={listDrop}>
       <div
-        use:dragHandleZone={{ items: list, flipDurationMs: FLIP, type: "workspace", dropTargetStyle: {}, useCursorForDetection: true }}
+        use:dragHandleZone={{ items: list, flipDurationMs: dur(FLIP), type: "workspace", dropTargetStyle: {}, useCursorForDetection: true }}
         onconsider={listConsider}
         onfinalize={listFinalize}
         class="space-y-2 rounded-xl transition
@@ -202,7 +209,14 @@
           {listHover ? 'outline-accent' : 'outline-line'}"
       >
         {#each list as c (c.id)}
-          <div animate:flip={{ duration: FLIP }} class={isShadow(c) ? "opacity-30" : ""}>{@render card(c.item, false)}</div>
+          <div
+            animate:flip={{ duration: dur(FLIP) }}
+            class={isShadow(c) ? "opacity-30" : ""}
+            data-card={c.id}
+            {@attach (el) => arrive(el, c.id)}
+          >
+            {@render card(c.item, false)}
+          </div>
         {/each}
       </div>
     </div>

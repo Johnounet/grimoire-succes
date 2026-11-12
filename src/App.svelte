@@ -11,6 +11,8 @@
   import { flushBlocks, listenBlockChanges } from "./lib/blocks/store.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import { loadSettings } from "./lib/settings.svelte";
+  import { applyMotionAttribute, loadMotion } from "./lib/motion.svelte";
+  import { loadSound } from "./lib/sound.svelte";
   import { active, applyShortcuts, loadActive, loadShortcuts } from "./lib/shortcuts.svelte";
   import { on, send } from "./lib/sync";
   import { loadTags } from "./lib/tags.svelte";
@@ -38,7 +40,7 @@
       /* hors de Tauri (interface simulée) */
     }
     try {
-      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings(), loadTags(), loadActive()]);
+      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings(), loadTags(), loadActive(), loadMotion(), loadSound()]);
       selected = games[0]?.appid ?? null;
       // Premier lancement : on ouvre directement l'ajout de jeu
       if (games.length === 0) adding = true;
@@ -66,6 +68,7 @@
   $effect(() => {
     if (selected != null) send("compact-game", { appid: selected });
   });
+  $effect(applyMotionAttribute);
 
   function upsert(g: GameSummary) {
     const i = games.findIndex((x) => x.appid === g.appid);
