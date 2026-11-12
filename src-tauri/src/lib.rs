@@ -33,6 +33,8 @@ pub fn run() {
             library::library_delete,
             library::game_achievements,
             library::achievement_set_unlocked,
+            library::workspace_list,
+            library::workspace_save,
             library::setting_get,
             library::setting_set,
         ])

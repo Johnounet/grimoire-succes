@@ -14,3 +14,6 @@ src-tauri/gen/schemas/
 .DS_Store
 Thumbs.db
 *.log
+
+# Configuration locale de Claude Code
+.claude/

@@ -3,7 +3,7 @@ import type { AchievementRow } from "./library";
 
 export type StateFilter = "all" | "unlocked" | "locked";
 export type RarityFilter = "all" | "ultra" | "rare" | "uncommon" | "common";
-export type SortKey = "steam" | "name" | "rarest" | "commonest" | "recent";
+export type SortKey = "steam" | "personal" | "name" | "rarest" | "commonest" | "recent";
 
 export interface Filters {
   text: string;
@@ -24,6 +24,7 @@ export const rarityTiers: { value: RarityFilter; label: string }[] = [
 
 export const sortOptions: { value: SortKey; label: string }[] = [
   { value: "steam", label: "Ordre Steam" },
+  { value: "personal", label: "Ordre personnel" },
   { value: "name", label: "Nom" },
   { value: "rarest", label: "Plus rares d'abord" },
   { value: "commonest", label: "Plus communs d'abord" },
@@ -36,6 +37,17 @@ export function rarityTier(r: number | null): Exclude<RarityFilter, "all"> | nul
   if (r < 20) return "rare";
   if (r < 50) return "uncommon";
   return "common";
+}
+
+/** Couleur du texte de rareté : or sous 5 %, violet sous 20 %, neutre sinon. */
+export function rarityText(r: number | null): string {
+  const t = rarityTier(r);
+  return t === "ultra" ? "text-gold" : t === "rare" ? "text-rare" : "text-muted";
+}
+
+export function rarityBar(r: number | null): string {
+  const t = rarityTier(r);
+  return t === "ultra" ? "bg-gold" : t === "rare" ? "bg-rare" : "bg-muted/60";
 }
 
 /** Sans accents ni majuscules, pour une recherche tolérante. */
@@ -59,12 +71,17 @@ export function matches(a: AchievementRow, f: Filters): boolean {
 
 const byName = new Intl.Collator("fr", { sensitivity: "base", numeric: true });
 
-/** Filtre et trie. L'ordre Steam d'origine est celui du tableau reçu. Les succès retirés restent en fin de liste. */
-export function apply(list: AchievementRow[], f: Filters): AchievementRow[] {
+/**
+ * Filtre et trie. L'ordre Steam d'origine est celui du tableau reçu. Les succès retirés restent en fin de liste.
+ * `personal` : rang de chaque succès dans l'espace de travail (ordre personnel) ; les autres suivent dans l'ordre Steam.
+ */
+export function apply(list: AchievementRow[], f: Filters, personal?: Map<number, number>): AchievementRow[] {
   const out = list.filter((a) => matches(a, f));
   const rarity = (a: AchievementRow, missing: number) => a.rarity ?? missing;
+  const rank = (a: AchievementRow) => personal?.get(a.id) ?? Infinity;
   const cmp: Record<SortKey, ((x: AchievementRow, y: AchievementRow) => number) | null> = {
     steam: null,
+    personal: (x, y) => (rank(x) === rank(y) ? 0 : rank(x) - rank(y)),
     name: (x, y) => byName.compare(x.name, y.name),
     rarest: (x, y) => rarity(x, Infinity) - rarity(y, Infinity),
     commonest: (x, y) => rarity(y, -Infinity) - rarity(x, -Infinity),

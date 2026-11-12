@@ -52,6 +52,17 @@ const MIGRATIONS: &[&str] = &[
         value TEXT NOT NULL
     );
     "#,
+    // v2 : espace de travail (succès choisis, leur colonne et leur place)
+    r#"
+    CREATE TABLE workspace_items (
+        achievement_id INTEGER PRIMARY KEY REFERENCES achievements(id) ON DELETE CASCADE,
+        appid          INTEGER NOT NULL REFERENCES games(appid) ON DELETE CASCADE,
+        column_name    TEXT    NOT NULL DEFAULT 'todo' CHECK (column_name IN ('todo', 'doing', 'done')),
+        position       INTEGER NOT NULL,  -- ordre global ; une colonne affiche ses cartes dans cet ordre
+        collapsed      INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX workspace_items_by_game ON workspace_items (appid, position);
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -340,6 +351,49 @@ pub fn list_achievements(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<
     rows.collect()
 }
 
+// ---------- Espace de travail ----------
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq)]
+pub struct WorkspaceItem {
+    pub achievement_id: i64,
+    /// `todo`, `doing` ou `done`
+    pub column: String,
+    pub collapsed: bool,
+}
+
+/// Cartes de l'espace de travail d'un jeu, dans l'ordre.
+pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<WorkspaceItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT achievement_id, column_name, collapsed FROM workspace_items
+         WHERE appid = ?1 ORDER BY position",
+    )?;
+    let rows = stmt.query_map([appid], |r| {
+        Ok(WorkspaceItem { achievement_id: r.get(0)?, column: r.get(1)?, collapsed: r.get(2)? })
+    })?;
+    rows.collect()
+}
+
+/// Remplace l'espace de travail d'un jeu par `items` (dans l'ordre donné).
+/// Les succès qui n'appartiennent pas à ce jeu sont ignorés.
+pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM workspace_items WHERE appid = ?1", [appid])?;
+    {
+        let mut insert = tx.prepare(
+            "INSERT OR IGNORE INTO workspace_items (achievement_id, appid, column_name, position, collapsed)
+             SELECT id, appid, ?3, ?4, ?5 FROM achievements WHERE id = ?1 AND appid = ?2",
+        )?;
+        for (pos, it) in items.iter().enumerate() {
+            let column = match it.column.as_str() {
+                c @ ("todo" | "doing" | "done") => c,
+                _ => "todo",
+            };
+            insert.execute(params![it.achievement_id, appid, column, pos as i64, it.collapsed])?;
+        }
+    }
+    tx.commit()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -422,6 +476,31 @@ mod tests {
         // Steam d'accord : l'état redevient ordinaire
         save_game(&mut conn, &game(vec![ach("A", Some(false)), ach("B", Some(true))]), "P", None).unwrap();
         assert_eq!(state(&conn), vec![(false, false), (true, false)]);
+    }
+
+    #[test]
+    fn espace_de_travail() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None)]), "P", None).unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+        let item = |id, col: &str| WorkspaceItem { achievement_id: id, column: col.into(), collapsed: false };
+
+        let wanted = vec![item(ids[2], "doing"), item(ids[0], "todo")];
+        // Un succès d'un autre jeu et une colonne inconnue ne passent pas
+        let mut sent = wanted.clone();
+        sent.push(item(9999, "todo"));
+        sent[1].column = "n'importe quoi".into();
+        save_workspace(&mut conn, 620, &sent).unwrap();
+        assert_eq!(list_workspace(&conn, 620).unwrap(), wanted);
+
+        // L'actualisation du jeu ne touche pas à l'espace de travail
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("C", None)]), "P", None).unwrap();
+        assert_eq!(list_workspace(&conn, 620).unwrap(), wanted);
+
+        // Supprimer le jeu vide son espace
+        delete_game(&conn, 620).unwrap();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM workspace_items", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
     }
 
     #[test]

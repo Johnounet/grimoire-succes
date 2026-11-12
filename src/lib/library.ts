@@ -47,11 +47,30 @@ export const api = {
   achievements: (appid: number) => invoke<AchievementRow[]>("game_achievements", { appid }),
   setUnlocked: (id: number, unlocked: boolean) =>
     invoke<GameSummary>("achievement_set_unlocked", { id, unlocked }),
+  workspaceList: (appid: number) => invoke<WorkspaceItem[]>("workspace_list", { appid }),
+  workspaceSave: (appid: number, items: WorkspaceItem[]) => invoke<void>("workspace_save", { appid, items }),
   getSetting: (key: SettingKey) => invoke<string | null>("setting_get", { key }),
   setSetting: (key: SettingKey, value: string) => invoke<void>("setting_set", { key, value }),
 };
 
-export type SettingKey = "anti_spoiler" | "language" | "country" | "profile_url";
+export type SettingKey = "anti_spoiler" | "language" | "country" | "profile_url" | "workspace_view" | "panel_open";
+
+export type Column = "todo" | "doing" | "done";
+
+export interface WorkspaceItem {
+  achievement_id: number;
+  column: Column;
+  collapsed: boolean;
+}
+
+export const columns: { id: Column; label: string }[] = [
+  { id: "todo", label: "À faire" },
+  { id: "doing", label: "En cours" },
+  { id: "done", label: "Fait" },
+];
+
+/** Type MIME du glisser natif depuis le panneau des succès vers l'espace de travail. */
+export const DRAG_MIME = "application/x-chasse-succes-ids";
 
 /** URL affichable d'une image enregistrée dans le dossier de données. */
 export function localImage(imagesDir: string, rel: string | null): string | null {

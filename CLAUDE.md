@@ -38,6 +38,12 @@ npm run check          # vérification des types Svelte/TS
 - [x] Étape 3 — Base de données et bibliothèque (rusqlite côté Rust, pas `tauri-plugin-sql`) : persistance validée sous Windows (2026-11-12) ; reste Linux
 - [x] Étape 4 — Liste des succès : validée sous Windows (2026-11-12) ; reste Linux. Tri « ordre personnel » et filtre par étiquette reportés aux étapes 5 (glisser-déposer) et 7 (étiquettes)
 
+- [x] Étape 5 — Espace de travail : validé sous Windows (2026-11-12) ; reste Linux. **Point ouvert** : l'utilisateur n'est pas convaincu par la vue colonnes (à faire / en cours / fait). Le SPEC prévoit de garder la vue la plus réussie si l'une déçoit : en reparler une fois les blocs (étape 6) en place, sans la supprimer d'ici là
+
+**Interface simulée** : `npm run dev` puis ouvrir http://localhost:1420 dans un navigateur. Hors de Tauri et en dev seulement, `src/dev-mock.ts` remplace le cœur Rust par des données factices (absent des versions compilées). Penser à y ajouter chaque nouvelle commande Tauri.
+
+**Glisser-déposer** : réordonnancement des cartes par `svelte-dnd-action` (`dragHandleZone`, `useCursorForDetection: true` indispensable entre colonnes) ; arrivée depuis le panneau par glisser HTML natif, d'où `dragDropEnabled: false` dans `tauri.conf.json`.
+
 **Ne pas lancer l'application depuis la session Claude** sur ce PC (Windows isole alors `%APPDATA%` dans une copie privée) : c'est l'utilisateur qui lance `npm run tauri dev` dans son terminal.
 
 Diagnostic sans interface : `cd src-tauri && cargo run --example probe -- <appid> [french|english] [profil]`.

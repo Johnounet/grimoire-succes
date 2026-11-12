@@ -173,8 +173,18 @@ pub fn achievement_set_unlocked(state: State<'_, AppState>, id: i64, unlocked: b
     db::get_game(&conn, appid).map_err(err)?.ok_or_else(|| "jeu introuvable".into())
 }
 
+#[tauri::command]
+pub fn workspace_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<db::WorkspaceItem>, String> {
+    db::list_workspace(&state.conn(), appid).map_err(err)
+}
+
+#[tauri::command]
+pub fn workspace_save(state: State<'_, AppState>, appid: u32, items: Vec<db::WorkspaceItem>) -> Result<(), String> {
+    db::save_workspace(&mut state.conn(), appid, &items).map_err(err)
+}
+
 /// Réglages modifiables depuis l'interface.
-const SETTINGS: &[&str] = &["anti_spoiler", "language", "country", "profile_url"];
+const SETTINGS: &[&str] = &["anti_spoiler", "language", "country", "profile_url", "workspace_view", "panel_open"];
 
 fn check_setting(key: &str) -> Result<(), String> {
     if SETTINGS.contains(&key) {
