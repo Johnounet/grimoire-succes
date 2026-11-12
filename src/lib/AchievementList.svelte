@@ -94,6 +94,7 @@
     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(ids));
     e.dataTransfer.effectAllowed = "copy";
     ui.draggingFromPanel = true;
+    ui.draggingIds = ids;
   }
 
   const isSpoiler = (a: AchievementRow) => settings.antiSpoiler && a.hidden && !a.unlocked && !revealed.has(a.id);

@@ -47,6 +47,7 @@ pub fn run() {
             library::achievements_lock_all,
             library::workspace_list,
             library::workspace_save,
+            library::workspace_card_sizes,
             library::setting_get,
             library::setting_set,
             blocks::blocks_list,

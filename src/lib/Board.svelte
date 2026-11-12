@@ -5,12 +5,14 @@
   //
   // Svelte rend le contenu des cartes ; gridstack ne fait que les positionner.
   // Une carte sans position (ajoutée depuis la liste, ou ancienne) reçoit une place libre.
+  // Une carte grandit (en hauteur, jamais ne rapetisse) quand le joueur y ajoute du contenu
+  // (`watchGrowth`), et quand elle arrive dans l'espace avec des blocs (`fresh`).
   // La grille reste libre (`float`) : rien ne remonte tout seul, sauf les cartes situées sous une carte
   // que le joueur retire (`willRemove`), et toutes d'un coup avec « Tout remonter » (`packAll`).
   import { GridStack, type GridItemHTMLElement, type GridStackNode } from "gridstack";
   import "gridstack/dist/gridstack.min.css";
   import { tick, untrack, type Snippet } from "svelte";
-  import { DRAG_MIME, type GridPos, type WorkspaceItem } from "./library";
+  import { cardSizes, DRAG_MIME, FIT_CARD_EVENT, type GridPos, type WorkspaceItem } from "./library";
   import { ui } from "./settings.svelte";
 
   let {
@@ -106,9 +108,70 @@
     // Une seule notification par geste : fin de déplacement / redimensionnement, ajout
     g.on("change", emitLayout);
     g.on("added", emitLayout);
+    const onFit = (e: Event) => {
+      const item = (e.target as HTMLElement).closest(".grid-stack-item");
+      if (item) fitCard(item as GridItemHTMLElement);
+    };
+    el.addEventListener(FIT_CARD_EVENT, onFit);
     return () => {
+      el.removeEventListener(FIT_CARD_EVENT, onFit);
       grid?.destroy(false);
       grid = null;
+    };
+  }
+
+  /**
+   * Agrandit la carte (en hauteur seulement) pour que tout son contenu soit visible sans défiler.
+   * Une carte déjà assez grande ne bouge pas ; les cartes du dessous sont poussées si besoin.
+   */
+  function fitCard(el: GridItemHTMLElement) {
+    const n = el.gridstackNode;
+    const card = el.querySelector("article");
+    if (!grid || !n || !card) return;
+    // Hauteur naturelle : en-tête + contenu complet de la zone qui défile + bordures
+    const [header, body] = Array.from(card.children) as HTMLElement[];
+    const borders = card.offsetHeight - card.clientHeight;
+    const need = (header?.offsetHeight ?? 0) + (body?.scrollHeight ?? 0) + borders;
+    const rowH = grid.getCellHeight(true);
+    const margin = 6; // marge de gridstack, au-dessus et au-dessous du contenu
+    const rows = Math.ceil((need + 2 * margin) / rowH);
+    if (rows > (n.h ?? 0)) {
+      grid.update(el, { h: rows });
+      emitLayout();
+    }
+  }
+
+  /**
+   * Agrandit la carte quand son contenu grandit à la suite d'une action du joueur dans la carte
+   * (bloc ajouté, menu d'ajout ouvert, élément de liste, texte, image, vidéo…).
+   * Les changements sans action récente (chargement, images qui arrivent) ne comptent pas : une carte
+   * que le joueur a volontairement réduite le reste. Un redimensionnement de la carte non plus
+   * (la largeur change, le texte se replie).
+   */
+  function watchGrowth(el: GridItemHTMLElement): () => void {
+    const content = el.querySelector<HTMLElement>("[data-card-content]");
+    if (!content || typeof ResizeObserver === "undefined") return () => {};
+    let lastAction = 0;
+    const acted = () => (lastAction = Date.now());
+    const events = ["pointerdown", "keydown", "input", "paste", "drop"] as const;
+    for (const ev of events) el.addEventListener(ev, acted, true);
+    // Largeur de la carte elle-même : celle du contenu varie quand la barre de défilement apparaît
+    let width = el.offsetWidth;
+    let height = content.offsetHeight;
+    const ro = new ResizeObserver(() => {
+      const w = el.offsetWidth;
+      const h = content.offsetHeight;
+      const grew = h > height && w === width;
+      width = w;
+      height = h;
+      const busy = el.classList.contains("ui-resizable-resizing") || el.classList.contains("ui-draggable-dragging");
+      // 3 s : laisse le temps à une image envoyée ou une vidéo d'apparaître
+      if (grew && !busy && Date.now() - lastAction < 3000) fitCard(el);
+    });
+    ro.observe(content);
+    return () => {
+      ro.disconnect();
+      for (const ev of events) el.removeEventListener(ev, acted, true);
     };
   }
 
@@ -128,8 +191,9 @@
         el.setAttribute("gs-w", String(g.w));
         el.setAttribute("gs-h", String(g.h));
       } else {
-        el.setAttribute("gs-w", String(DEFAULT.w));
-        el.setAttribute("gs-h", String(DEFAULT.h));
+        const size = item.size ?? DEFAULT;
+        el.setAttribute("gs-w", String(size.w));
+        el.setAttribute("gs-h", String(size.h));
         el.setAttribute("gs-auto-position", "true");
       }
       el.setAttribute("gs-min-w", "2");
@@ -137,9 +201,13 @@
       // Grille déjà créée : carte ajoutée après coup. Sinon, GridStack.init l'adoptera.
       queueMicrotask(() => {
         if (grid && !node.gridstackNode) grid.makeWidget(el);
+        // Carte qui vient d'arriver : agrandie si ses blocs ne tiennent pas dedans (une fois affichés)
+        if (item.fresh) requestAnimationFrame(() => fitCard(node));
       });
+      const stopWatch = watchGrowth(node);
       const id = item.achievement_id;
       return () => {
+        stopWatch();
         const n = node.gridstackNode;
         if (!grid || !n) return;
         const hole = area(n);
@@ -156,6 +224,8 @@
   // On ne dépose jamais sur une carte existante (rien n'est poussé) ; le tableau garde
   // toujours de l'espace libre sous les cartes (`DROP_ROWS`) pour en ajouter en bas.
   const DROP_ROWS = DEFAULT.h + 2;
+  /** Taille de la carte qui arrive : sa dernière taille connue, sinon la taille par défaut. */
+  const dropSize = () => cardSizes.get(ui.draggingIds[0]) ?? DEFAULT;
   let gridEl: HTMLElement | undefined = $state();
   let ghost = $state<{ x: number; y: number } | null>(null);
 
@@ -167,15 +237,16 @@
     const rowH = grid.getCellHeight(true);
     if (colW <= 0 || rowH <= 0) return null;
     return {
-      x: Math.floor((e.clientX - box.left) / colW) - Math.floor(DEFAULT.w / 2),
+      x: Math.floor((e.clientX - box.left) / colW) - Math.floor(dropSize().w / 2),
       y: Math.max(0, Math.floor((e.clientY - box.top) / rowH)),
     };
   }
 
-  /** Place libre la plus proche de `want` pour une carte de taille DEFAULT. */
+  /** Place libre la plus proche de `want` pour la carte qui arrive (`dropSize`). */
   function nearestFree(want: { x: number; y: number }): { x: number; y: number } {
     const g = grid!;
-    const maxX = 12 - DEFAULT.w;
+    const size = dropSize();
+    const maxX = 12 - size.w;
     const tx = Math.max(0, Math.min(maxX, want.x));
     let best = { x: tx, y: g.getRow() };
     let bestD = Infinity;
@@ -183,7 +254,7 @@
       for (let x = 0; x <= maxX; x++) {
         // Distance pondérée : on préfère rester sur la même ligne que monter/descendre
         const d = Math.abs(x - tx) + 1.5 * Math.abs(y - want.y);
-        if (d < bestD && g.isAreaEmpty(x, y, DEFAULT.w, DEFAULT.h)) {
+        if (d < bestD && g.isAreaEmpty(x, y, size.w, size.h)) {
           bestD = d;
           best = { x, y };
         }
@@ -213,6 +284,7 @@
     hover = false;
     ghost = null;
     ui.draggingFromPanel = false;
+    ui.draggingIds = [];
     const raw = e.dataTransfer?.getData(DRAG_MIME);
     if (!raw || !grid) return;
     e.preventDefault();
@@ -252,8 +324,8 @@
       class="ghost pointer-events-none absolute"
       style:left="calc({ghost.x} * 100% / 12)"
       style:top="{ghost.y * 40}px"
-      style:width="calc({DEFAULT.w} * 100% / 12)"
-      style:height="{DEFAULT.h * 40}px"
+      style:width="calc({dropSize().w} * 100% / 12)"
+      style:height="{dropSize().h * 40}px"
     ></div>
   {/if}
 </div>

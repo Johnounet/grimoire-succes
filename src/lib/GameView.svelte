@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, heroUrl, percent, sourceLabel, type AchievementRow, type GameSummary } from "./library";
+  import { api, cardSizes, heroUrl, percent, sourceLabel, type AchievementRow, type GameSummary } from "./library";
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import AchievementList from "./AchievementList.svelte";
@@ -63,6 +63,11 @@
     untrack(() => (ui.relock.open = false));
     loadBlocks(appid);
     loadGameTags(appid);
+    cardSizes.clear();
+    api.workspaceCardSizes(appid).then((sizes) => {
+      if (appid !== game.appid) return;
+      for (const s of sizes) if (!cardSizes.has(s.achievement_id)) cardSizes.set(s.achievement_id, { w: s.w, h: s.h });
+    });
     api.workspaceList(appid).then((w) => {
       if (appid === game.appid) workspace = w;
     });
@@ -86,6 +91,7 @@
   function saveWorkspace(items: WorkspaceItem[]) {
     const appid = game.appid;
     workspace = items;
+    for (const it of items) if (it.grid) cardSizes.set(it.achievement_id, { w: it.grid.w, h: it.grid.h });
     saving = saving
       .then(() => api.workspaceSave(appid, items))
       .then(() => send("data-changed", { appid }))
@@ -97,15 +103,20 @@
     const present = new Set(workspace.map((it) => it.achievement_id));
     const fresh = ids.filter((id) => byId.has(id) && !present.has(id));
     if (fresh.length === 0) return;
-    const place = (i: number): GridPos | null => (i === 0 && at ? { ...at, w: 4, h: 8 } : null);
+    // Une carte déjà venue dans l'espace retrouve sa dernière taille ; elle s'agrandira de toute façon
+    // si son contenu (ses blocs) ne tient pas dedans
+    const size = (id: number) => cardSizes.get(id) ?? { w: 4, h: 8 };
+    const place = (id: number, i: number): GridPos | null => (i === 0 && at ? { ...at, ...size(id) } : null);
     saveWorkspace([
       ...workspace,
       ...fresh.map((id, i) => ({
         achievement_id: id,
         column: "todo" as const,
         collapsed: false,
-        grid: place(i),
+        grid: place(id, i),
         pinned: false,
+        size: size(id),
+        fresh: true,
       })),
     ]);
   }

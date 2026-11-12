@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import AboutDialog from "./lib/AboutDialog.svelte";
   import AddGameDialog from "./lib/AddGameDialog.svelte";
   import GameView from "./lib/GameView.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
@@ -18,6 +19,7 @@
   let selected = $state<number | null>(null);
   let adding = $state(false);
   let settingsOpen = $state(false);
+  let aboutOpen = $state(false);
   let loadError = $state("");
 
   const current = $derived(games.find((g) => g.appid === selected) ?? null);
@@ -85,6 +87,7 @@
     onselect={(id) => (selected = id)}
     onadd={() => (adding = true)}
     onsettings={() => (settingsOpen = true)}
+    onabout={() => (aboutOpen = true)}
   />
 
   {#if current}
@@ -114,6 +117,10 @@
 
 {#if settingsOpen}
   <SettingsDialog onclose={() => (settingsOpen = false)} />
+{/if}
+
+{#if aboutOpen}
+  <AboutDialog onclose={() => (aboutOpen = false)} />
 {/if}
 
 {#if adding}

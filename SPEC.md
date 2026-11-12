@@ -13,7 +13,7 @@ Un logiciel de bureau gratuit et open source qui réunit sur un seul écran tout
 **Principes non négociables**
 
 - Gratuit et open source (licence GPL-3.0, pour que toutes les copies restent open source).
-- Fonctionne sous Windows 11 et Linux, y compris Steam Deck en mode bureau.
+- Fonctionne sous Windows 11. *Décision du 2026-11-12 : Linux (et Steam Deck) n'est pas pris en charge, faute de pouvoir le tester ; le code reste portable pour qu'un contributeur puisse le reprendre.*
 - Aucune clé API Steam requise. La clé reste une option pour synchroniser automatiquement les succès débloqués.
 - Simple : un jeu s'importe en tapant son nom, son AppID ou en collant le lien de sa page Steam.
 - Tout est enregistré en local et retrouvé tel quel au redémarrage.
@@ -222,7 +222,7 @@ Tauri 2 est le meilleur choix : un installeur d'environ 10 Mo, une faible consom
 | Vidéo | Lecteur YouTube intégré (`youtube-nocookie.com`, API IFrame pour les repères) | Sous Linux, la lecture dépend des codecs GStreamer installés : afficher un lien de secours. |
 | Confettis | `canvas-confetti` | Léger, couleurs personnalisables. |
 | Traduction | `svelte-i18n`, un fichier par langue | Les contributeurs ajoutent une langue sans toucher au code. |
-| Distribution | GitHub Actions + `tauri-action` | Installeurs Windows et Linux générés à chaque version. |
+| Distribution | GitHub Actions + `tauri-action` | Installeurs Windows générés à chaque version. |
 
 **Architecture**
 
@@ -283,7 +283,7 @@ On avance en neuf étapes, chacune livrant un logiciel qui fonctionne et se test
 
 **Mise en route** : placer ce fichier à la racine du projet sous le nom `SPEC.md`, puis demander à Claude Code de créer un `CLAUDE.md` qui y renvoie. Donner ensuite une étape à la fois : « Réalise l'étape 2 du SPEC.md ».
 
-1. **Squelette** : projet Tauri 2 + Svelte + TypeScript, dépôt Git, licence, README. *Validé quand* une fenêtre vide s'ouvre sous Windows 11 et sous Linux.
+1. **Squelette** : projet Tauri 2 + Svelte + TypeScript, dépôt Git, licence, README. *Validé quand* une fenêtre vide s'ouvre sous Windows 11.
 2. **Prototype des sources Steam** : détection de Steam, lecture du cache local (schéma + progression), du profil public XML et de la page publique, sur 3 jeux tests. *Validé quand* les succès (avec ID technique) et leur état s'affichent en texte brut. C'est l'étape la plus risquée : on la fait tôt.
 3. **Base de données et bibliothèque** : SQLite, ajout d'un jeu par nom / AppID / lien, barre latérale, jaquettes. *Validé quand* les jeux importés réapparaissent après redémarrage.
 4. **Liste des succès** : affichage complet, coche manuelle, rareté, anti-spoiler, recherche et filtres.
@@ -291,7 +291,7 @@ On avance en neuf étapes, chacune livrant un logiciel qui fonctionne et se test
 6. **Blocs** : texte, liste, compteur, image (avec Ctrl+V), vidéo YouTube avec repères, chronomètre. *Validé quand* tout est retrouvé à l'identique après redémarrage et en changeant de jeu.
 7. **Étiquettes, re-lock, raccourcis globaux, mode compact**.
 8. **Finitions** : 100 % et vitrine, animations, thèmes, traduction français / anglais, export / import de guides, clé API optionnelle.
-9. **Publication** : compilation automatique par GitHub Actions pour Windows (`.msi` / `.exe`) et Linux (`.AppImage`, `.deb`), page de release sur GitHub.
+9. **Publication** : compilation automatique par GitHub Actions pour Windows (`.msi` / `.exe`), page de release sur GitHub. Pas de version Linux (voir Vision).
 
 **Règles à rappeler à Claude Code**
 

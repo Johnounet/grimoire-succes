@@ -2,7 +2,9 @@
 // le jeu est au premier plan.
 //
 // Bloc visé par un raccourci : celui choisi avec l'icône ◎ ; à défaut, le premier compteur (ou chrono)
-// des cartes épinglées au mode compact, puis des autres cartes de l'espace de travail du jeu ouvert.
+// des cartes épinglées au mode compact. Une carte non épinglée n'est jamais visée par défaut : les
+// raccourcis n'agissent que sur ce que montre la fenêtre compacte. Désépingler une carte retire aussi
+// le ◎ de ses blocs (`releaseActive`).
 //
 // Les raccourcis sont enregistrés par la fenêtre principale seulement. Le bloc actif peut appartenir
 // à un autre jeu que celui affiché : il est alors lu et enregistré directement en base.
@@ -45,12 +47,10 @@ type Kind = "counter" | "timer";
 export function target(kind: Kind): { id: number; chosen: boolean } | null {
   const chosen = active[kind];
   if (chosen != null) return { id: chosen, chosen: true };
-  const cards = shortcutContext.workspace;
-  for (const list of [cards.filter((c) => c.pinned), cards]) {
-    for (const c of list) {
-      const b = blocksOf(c.achievement_id).find((x) => x.kind === kind);
-      if (b) return { id: b.id, chosen: false };
-    }
+  for (const c of shortcutContext.workspace) {
+    if (!c.pinned) continue;
+    const b = blocksOf(c.achievement_id).find((x) => x.kind === kind);
+    if (b) return { id: b.id, chosen: false };
   }
   return null;
 }
@@ -76,6 +76,14 @@ export async function toggleActive(kind: Kind, id: number) {
   active[kind] = active[kind] === id ? null : id;
   send("active-changed", { counter: active.counter, timer: active.timer });
   await api.setSetting(kind === "counter" ? "active_counter" : "active_timer", active[kind] == null ? "" : String(active[kind]));
+}
+
+/** Carte retirée du mode compact : ses blocs cessent d'être visés par les raccourcis. */
+export async function releaseActive(achievementId: number) {
+  for (const kind of ["counter", "timer"] as const) {
+    const id = active[kind];
+    if (id != null && findBlock(id)?.achievement_id === achievementId) await toggleActive(kind, id);
+  }
 }
 
 export async function loadShortcuts() {
@@ -137,8 +145,8 @@ export async function run(action: ShortcutAction) {
     return feedback(
       false,
       kind === "counter"
-        ? "Aucun compteur : ajoutez un bloc Compteur à une carte de l'espace de travail"
-        : "Aucun chrono : ajoutez un bloc Chronomètre à une carte de l'espace de travail",
+        ? "Aucun compteur visé : épinglez au mode compact une carte qui en contient un, ou choisissez-le avec ◎"
+        : "Aucun chrono visé : épinglez au mode compact une carte qui en contient un, ou choisissez-le avec ◎",
     );
   const id = t.id;
 

@@ -187,7 +187,7 @@
     </div>
   {/if}
 
-  <!-- Ajout d'un bloc -->
+  <!-- Ajout d'un bloc : le menu prend place dans la carte (qui grandit dans le tableau) -->
   <div
     class="relative"
     onfocusout={(e) => {
@@ -207,7 +207,7 @@
         role="menu"
         tabindex="-1"
         onkeydown={(e) => e.key === "Escape" && (menuOpen = false)}
-        class="absolute inset-x-0 top-full z-20 mt-1 grid grid-cols-2 gap-1 rounded-lg border border-line bg-raised p-1.5 shadow-xl"
+        class="mt-1 grid grid-cols-2 gap-1 rounded-lg border border-line bg-raised p-1.5"
       >
         {#each blockKinds as k, i (k.kind)}
           <button

@@ -188,7 +188,9 @@
   </header>
 
   {#if board || !collapsed}
-    <div class="space-y-2 border-t border-line px-3 pt-2 pb-3 {board ? 'min-h-0 flex-1 overflow-y-auto' : ''}">
+    <div class="border-t border-line px-3 pt-2 pb-3 {board ? 'min-h-0 flex-1 overflow-y-auto' : ''}">
+      <!-- Contenu mesuré par le tableau : la carte grandit quand il grandit (Board.svelte, watchGrowth) -->
+      <div class="space-y-2" data-card-content>
       {#if spoiler}
         <button onclick={onreveal} class="block text-left text-sm text-muted">
           <span class="blur-[6px] select-none" aria-hidden="true">{a.description || "—"}</span>
@@ -214,6 +216,7 @@
       </div>
 
       <BlockList achievementId={a.id} {imagesDir} />
+      </div>
     </div>
   {/if}
 </article>

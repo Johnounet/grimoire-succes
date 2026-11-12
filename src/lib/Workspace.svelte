@@ -9,6 +9,7 @@
   import Board from "./Board.svelte";
   import { DRAG_MIME, type AchievementRow, type GridPos, type WorkspaceItem } from "./library";
   import { setWorkspaceView, settings, ui } from "./settings.svelte";
+  import { releaseActive } from "./shortcuts.svelte";
   import WorkspaceCard from "./WorkspaceCard.svelte";
 
   /** Élément manipulé par svelte-dnd-action (qui exige un champ `id`). */
@@ -127,7 +128,10 @@
       oncollapse={() => update(a.id, { collapsed: !it.collapsed })}
       onremove={() => remove(a.id)}
       oncolumn={(column) => update(a.id, { column })}
-      onpin={() => update(a.id, { pinned: !it.pinned })}
+      onpin={() => {
+        if (it.pinned) releaseActive(a.id);
+        update(a.id, { pinned: !it.pinned });
+      }}
     />
   {/if}
 {/snippet}

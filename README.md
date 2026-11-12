@@ -4,11 +4,11 @@
 
 Logiciel de bureau gratuit et open source pour les chasseurs de succès Steam : la liste des succès d'un jeu et, sous chacun, vos propres guides (vidéos YouTube, images, notes, listes, compteurs, chronos), sauvegardés automatiquement en local.
 
-- Windows 11 et Linux (Steam Deck en mode bureau compris)
+- Windows 11 (Linux non pris en charge : le code est portable mais n'a jamais été testé, à compiler soi-même à ses risques)
 - Aucune clé API Steam requise
 - Ne modifie jamais vos succès Steam : lecture seule
 
-> Projet en tout début de développement (étape 1 sur 9 : squelette). Le cahier des charges est dans [SPEC.md](SPEC.md).
+> Projet en cours de développement (étape 7 sur 9). Le cahier des charges est dans [SPEC.md](SPEC.md).
 
 ## Développement
 
@@ -18,11 +18,11 @@ Logiciel de bureau gratuit et open source pour les chasseurs de succès Steam : 
 - [Rust](https://rustup.rs/) (stable)
 - Dépendances système de Tauri 2 : voir <https://v2.tauri.app/start/prerequisites/>
   - **Windows** : Microsoft C++ Build Tools (charge de travail « Développement Desktop en C++ ») ; WebView2 est déjà présent sur Windows 11.
-  - **Linux (Debian/Ubuntu)** :
+  - **Linux (non testé)**, Debian/Ubuntu :
     ```bash
     sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
     ```
-  - **Linux (Fedora)** :
+  - **Linux (non testé)**, Fedora :
     ```bash
     sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file libappindicator-gtk3-devel librsvg2-devel libxdo-devel
     sudo dnf group install "c-development"

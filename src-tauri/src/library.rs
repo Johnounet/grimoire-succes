@@ -186,6 +186,12 @@ pub fn workspace_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<db::
     db::list_workspace(&state.conn(), appid).map_err(err)
 }
 
+/// Dernière taille connue des cartes du jeu, pour qu'une carte remise dans l'espace la retrouve.
+#[tauri::command]
+pub fn workspace_card_sizes(state: State<'_, AppState>, appid: u32) -> Result<Vec<db::CardSize>, String> {
+    db::card_sizes(&state.conn(), appid).map_err(err)
+}
+
 #[tauri::command]
 pub fn workspace_save(state: State<'_, AppState>, appid: u32, items: Vec<db::WorkspaceItem>) -> Result<(), String> {
     db::save_workspace(&mut state.conn(), appid, &items).map_err(err)
@@ -199,6 +205,7 @@ const SETTINGS: &[&str] = &[
     "profile_url",
     "workspace_view",
     "panel_open",
+    "sidebar_open",
     // Raccourcis globaux : blocs « actifs », touches (JSON), retour sonore
     "active_counter",
     "active_timer",

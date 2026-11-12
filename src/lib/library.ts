@@ -50,6 +50,8 @@ export const api = {
   lockAll: (appid: number) => invoke<GameSummary>("achievements_lock_all", { appid }),
   workspaceList: (appid: number) => invoke<WorkspaceItem[]>("workspace_list", { appid }),
   workspaceSave: (appid: number, items: WorkspaceItem[]) => invoke<void>("workspace_save", { appid, items }),
+  workspaceCardSizes: (appid: number) =>
+    invoke<{ achievement_id: number; w: number; h: number }[]>("workspace_card_sizes", { appid }),
   getSetting: (key: SettingKey) => invoke<string | null>("setting_get", { key }),
   setSetting: (key: SettingKey, value: string) => invoke<void>("setting_set", { key, value }),
 };
@@ -61,6 +63,7 @@ export type SettingKey =
   | "profile_url"
   | "workspace_view"
   | "panel_open"
+  | "sidebar_open"
   | "active_counter"
   | "active_timer"
   | "shortcuts"
@@ -86,7 +89,15 @@ export interface WorkspaceItem {
   grid: GridPos | null;
   /** Affichée dans le mode compact. */
   pinned: boolean;
+  /** Interface seulement : taille voulue quand `grid` est null (taille mémorisée d'une carte remise). */
+  size?: { w: number; h: number };
+  /** Interface seulement : carte qui vient d'être ajoutée (le tableau l'agrandit à son contenu). */
+  fresh?: boolean;
 }
+
+/** Dernière taille connue des cartes du jeu ouvert dans le tableau, y compris celles retirées de
+ *  l'espace de travail (table `card_sizes`). Tenu à jour par la vue du jeu. */
+export const cardSizes = new Map<number, { w: number; h: number }>();
 
 /** Statuts possibles d'une carte (anciennement les colonnes de la vue Colonnes). */
 export const columns: { id: Column; label: string }[] = [
@@ -96,6 +107,10 @@ export const columns: { id: Column; label: string }[] = [
 ];
 
 /** Type MIME du glisser natif depuis le panneau des succès vers l'espace de travail. */
+/** Événement DOM (qui remonte) émis par un bloc dont le contenu vient de grandir : dans le Tableau,
+ *  la carte qui le contient s'agrandit pour tout montrer si elle est trop petite. */
+export const FIT_CARD_EVENT = "fit-card";
+
 export const DRAG_MIME = "application/x-chasse-succes-ids";
 
 /** URL affichable d'une image enregistrée dans le dossier de données. */

@@ -8,7 +8,7 @@ On avance une étape à la fois (section « Étapes de développement avec Claud
 
 - Ne jamais écrire dans les fichiers de Steam : lecture seule.
 - Ne jamais exécuter de commande console Steam : seulement les afficher.
-- Tester chaque étape sous Windows 11 et Linux avant de continuer.
+- Tester chaque étape sous Windows 11 avant de continuer. **Décision de l'utilisateur (2026-11-12)** : Windows seulement, Linux non pris en charge (l'utilisateur ne peut pas le tester). Le code reste portable (chemins Steam Linux conservés, pas de code propre à Windows sans nécessité), mais aucune version Linux n'est publiée ni annoncée.
 - Garder la logique Steam isolée dans un module Rust dédié, réparable seul si Valve change un format.
 - Licence GPL-3.0 : toute dépendance ajoutée doit être compatible.
 
@@ -32,29 +32,31 @@ npm run check          # vérification des types Svelte/TS
 
 ## Avancement
 
-- [x] Étape 1 — Squelette : fenêtre validée sous Windows 11 (2026-11-12) ; reste à valider sous Linux
-- [x] Étape 2 — Prototype des sources Steam : validé sous Windows sur Portal 2, Clair Obscur, Vampire Survivors, Baldur's Gate 3, Hades, Balatro (2026-11-12) ; reste Linux
+- [x] Étape 1 — Squelette : fenêtre validée sous Windows 11 (2026-11-12)
+- [x] Étape 2 — Prototype des sources Steam : validé sous Windows sur Portal 2, Clair Obscur, Vampire Survivors, Baldur's Gate 3, Hades, Balatro (2026-11-12)
 
-- [x] Étape 3 — Base de données et bibliothèque (rusqlite côté Rust, pas `tauri-plugin-sql`) : persistance validée sous Windows (2026-11-12) ; reste Linux
-- [x] Étape 4 — Liste des succès : validée sous Windows (2026-11-12) ; reste Linux. Tri « ordre personnel » et filtre par étiquette reportés aux étapes 5 (glisser-déposer) et 7 (étiquettes)
+- [x] Étape 3 — Base de données et bibliothèque (rusqlite côté Rust, pas `tauri-plugin-sql`) : persistance validée sous Windows (2026-11-12)
+- [x] Étape 4 — Liste des succès : validée sous Windows (2026-11-12). Tri « ordre personnel » et filtre par étiquette reportés aux étapes 5 (glisser-déposer) et 7 (étiquettes)
 
-- [x] Étape 5 — Espace de travail : validé sous Windows (2026-11-12) ; reste Linux. **Décision de l'utilisateur (2026-11-12)** : la vue Colonnes du SPEC est remplacée par une vue **Tableau** (grille aimantée de 12 colonnes, cartes déplaçables et redimensionnables librement, sans chevauchement). Le statut à faire / en cours / fait reste un menu sur chaque carte. Vue Liste conservée
+- [x] Étape 5 — Espace de travail : validé sous Windows (2026-11-12). **Décision de l'utilisateur (2026-11-12)** : la vue Colonnes du SPEC est remplacée par une vue **Tableau** (grille aimantée de 12 colonnes, cartes déplaçables et redimensionnables librement, sans chevauchement). Le statut à faire / en cours / fait reste un menu sur chaque carte. Vue Liste conservée
 
-- [x] Étape 6 — Blocs : validé sous Windows (2026-11-12), YouTube compris ; reste Linux (lecture vidéo dépendante de GStreamer)
-- [x] Vue Tableau (remplace les colonnes) : validée par l'utilisateur sous Windows, dépôt depuis le panneau compris (2026-11-12) ; reste Linux
+- [x] Étape 6 — Blocs : validé sous Windows (2026-11-12), YouTube compris
+- [x] Vue Tableau (remplace les colonnes) : validée par l'utilisateur sous Windows, dépôt depuis le panneau compris (2026-11-12)
 
-- [x] Étape 7 — Étiquettes, re-lock, raccourcis globaux, mode compact : testée par l'utilisateur sous Windows (2026-11-12), premiers retours corrigés (bloc visé par défaut par les raccourcis, cartes qui remontent). Reste Linux (raccourcis globaux sous Wayland à vérifier)
+- [x] Étape 7 — Étiquettes, re-lock, raccourcis globaux, mode compact : testée par l'utilisateur sous Windows (2026-11-12), premiers retours corrigés (bloc visé par défaut par les raccourcis, cartes qui remontent)
 
 **Prochaine étape** : l'utilisateur a d'autres modifications à demander sur l'étape 7, dans une nouvelle session ; ensuite étape 8 du SPEC (finitions).
 
 **Étape 7, choix faits** :
 - **Étiquettes** : tables `tags` / `achievement_tags` (migration v5, 6 étiquettes proposées), communes à tous les jeux. Store `src/lib/tags.svelte.ts`, sélecteur `TagPicker.svelte` (cartes et liste), gestion dans `SettingsDialog.svelte`, filtre dans la liste.
 - **Re-lock** : menu « ⋯ » d'un succès (carte ou liste) ou du jeu (bannière) → `RelockDialog.svelte`. Seules actions vers Steam : copier la commande, ouvrir `steam://open/console` (autorisé dans `capabilities/default.json`). « C'est fait » décoche dans le logiciel (`achievements_lock_all` pour le reset complet).
-- **Bloc actif** : icône ◎ sur un compteur ou un chrono, réglages `active_counter` / `active_timer` (globaux, le bloc peut être d'un autre jeu : lu par `block_get`). Sans choix ◎, les raccourcis visent le premier compteur / chrono des cartes épinglées, puis des autres cartes du jeu ouvert (`target()` dans `shortcuts.svelte.ts`).
+- **Bloc actif** : icône ◎ sur un compteur ou un chrono, réglages `active_counter` / `active_timer` (globaux, le bloc peut être d'un autre jeu : lu par `block_get`). Sans choix ◎, les raccourcis visent le premier compteur / chrono des cartes **épinglées seulement** (`target()` dans `shortcuts.svelte.ts`) : une carte absente du mode compact n'est jamais visée. Désépingler une carte retire aussi le ◎ de ses blocs (`releaseActive`).
 - **Raccourcis globaux** : `tauri-plugin-global-shortcut`, enregistrés par la fenêtre principale seulement (`src/lib/shortcuts.svelte.ts`). Touches au format `KeyboardEvent.code` (défaut Ctrl+Alt+flèches), réglage `shortcuts` en JSON. Logique compteur/chrono partagée dans `src/lib/blocks/ops.ts`.
 - **Mode compact** : 2ᵉ fenêtre Tauri `compact` (même page, `main.ts` choisit `Compact.svelte` selon le nom de la fenêtre), sans bordure, transparente, toujours au premier plan. Montre les cartes épinglées (menu « ⋯ » de la carte, colonne `workspace_items.pinned`) avec leurs compteurs et chronos, et les blocs actifs. **Pas de vidéo** dans le mode compact (question ouverte du SPEC, tranchée ainsi). Fermer la fenêtre principale quitte l'application.
 - **Synchronisation entre fenêtres** : événements Tauri (`src/lib/sync.ts`) : `block-changed`, `data-changed`, `achievement-changed`, `active-changed`, `compact-game`… Chaque fenêtre ignore ses propres messages. Ne pas remplacer un objet `$state` lu par un `$effect` (ex. `ui.relock`) : modifier ses champs.
 - Interface simulée de la fenêtre compacte : http://localhost:1420/?compact (données simulées propres à l'onglet).
+
+**Retours sur l'étape 7 (2026-11-12)** : panneau des jeux repliable (réglage `sidebar_open`, replié = jaquettes seules) ; fenêtre « À propos » (`AboutDialog.svelte`, bouton à côté de Réglages : version, dépôt GitHub à renseigner dans `GITHUB_URL`, contact Discord, mention « vibe-codé avec Claude » à garder visible) ; dans le Tableau, une carte s'agrandit en hauteur (jamais ne rapetisse) quand son contenu grandit **à la suite d'une action du joueur dans la carte** (`watchGrowth` dans `Board.svelte` : ResizeObserver sur `[data-card-content]`, ignoré au chargement et pendant un redimensionnement, pour qu'une carte réduite exprès le reste) ; la vidéo émet aussi `FIT_CARD_EVENT`. Le menu « Ajouter un bloc » est donc dans le flux de la carte, pas en surimpression. Dernière taille de chaque carte gardée dans `card_sizes` (migration v6, mise à jour par `save_workspace`) : une carte remise dans l'espace la retrouve, puis grandit si ses blocs ne tiennent pas (`fresh`). Tout nouveau réglage doit aussi être ajouté à la liste `SETTINGS` de `library.rs`.
 
 **Blocs** : table `blocks` (migration v3) rattachée au succès, pas à l'espace de travail. État et enregistrement différé (400 ms) dans `src/lib/blocks/store.svelte.ts` ; `flushBlocks()` au changement de jeu et à la fermeture (`onCloseRequested`, d'où la permission `core:window:allow-destroy`). Images dans `images/blocks/`, envoyées en binaire brut (`image_save`), orphelines supprimées au démarrage. Réordonnancement des blocs en glisser HTML natif : **ne pas utiliser `dragHandle` de svelte-dnd-action pour des zones imbriquées** (état de poignée global, la carte parente se mettrait à glisser aussi).
 

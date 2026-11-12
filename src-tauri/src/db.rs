@@ -110,6 +110,20 @@ const MIGRATIONS: &[&str] = &[
         ('DLC', '#f2c14e', 5);
     ALTER TABLE workspace_items ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
     "#,
+    // v6 : dernière taille de chaque carte du tableau, gardée quand la carte est retirée de l'espace
+    // de travail, pour qu'elle la retrouve si on l'y remet
+    r#"
+    CREATE TABLE card_sizes (
+        achievement_id INTEGER PRIMARY KEY REFERENCES achievements(id) ON DELETE CASCADE,
+        appid          INTEGER NOT NULL REFERENCES games(appid) ON DELETE CASCADE,
+        w              INTEGER NOT NULL,
+        h              INTEGER NOT NULL
+    );
+    CREATE INDEX card_sizes_by_game ON card_sizes (appid);
+    INSERT INTO card_sizes (achievement_id, appid, w, h)
+        SELECT achievement_id, appid, grid_w, grid_h FROM workspace_items
+        WHERE grid_w IS NOT NULL AND grid_h IS NOT NULL;
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -455,6 +469,20 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
     rows.collect()
 }
 
+/// Taille mémorisée d'une carte du tableau (y compris des cartes retirées de l'espace de travail).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardSize {
+    pub achievement_id: i64,
+    pub w: i64,
+    pub h: i64,
+}
+
+pub fn card_sizes(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<CardSize>> {
+    let mut stmt = conn.prepare("SELECT achievement_id, w, h FROM card_sizes WHERE appid = ?1")?;
+    let rows = stmt.query_map([appid], |r| Ok(CardSize { achievement_id: r.get(0)?, w: r.get(1)?, h: r.get(2)? }))?;
+    rows.collect()
+}
+
 /// Remplace l'espace de travail d'un jeu par `items` (dans l'ordre donné).
 /// Les succès qui n'appartiennent pas à ce jeu sont ignorés.
 pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]) -> rusqlite::Result<()> {
@@ -465,6 +493,11 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
             "INSERT OR IGNORE INTO workspace_items
                  (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned)
              SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 FROM achievements WHERE id = ?1 AND appid = ?2",
+        )?;
+        let mut remember = tx.prepare(
+            "INSERT INTO card_sizes (achievement_id, appid, w, h)
+             SELECT id, appid, ?3, ?4 FROM achievements WHERE id = ?1 AND appid = ?2
+             ON CONFLICT (achievement_id) DO UPDATE SET w = excluded.w, h = excluded.h",
         )?;
         for (pos, it) in items.iter().enumerate() {
             let column = match it.column.as_str() {
@@ -488,6 +521,9 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
                 g.map(|g| g.h),
                 it.pinned,
             ])?;
+            if let Some(g) = g {
+                remember.execute(params![it.achievement_id, appid, g.w, g.h])?;
+            }
         }
     }
     tx.commit()
@@ -824,6 +860,11 @@ mod tests {
         odd[1].grid = Some(GridPos { x: 11, y: -3, w: 6, h: 0 });
         save_workspace(&mut conn, 620, &odd).unwrap();
         assert_eq!(list_workspace(&conn, 620).unwrap()[1].grid, Some(GridPos { x: 6, y: 0, w: 6, h: 1 }));
+        save_workspace(&mut conn, 620, &wanted).unwrap();
+
+        // Une carte retirée garde sa dernière taille, pour la retrouver si on la remet
+        save_workspace(&mut conn, 620, &wanted[1..]).unwrap();
+        assert!(card_sizes(&conn, 620).unwrap().contains(&CardSize { achievement_id: ids[2], w: 8, h: 10 }));
         save_workspace(&mut conn, 620, &wanted).unwrap();
 
         // L'actualisation du jeu ne touche pas à l'espace de travail

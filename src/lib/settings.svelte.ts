@@ -9,6 +9,8 @@ export const settings = $state({
   workspaceView: "board" as "board" | "list",
   /** Panneau de droite (liste complète des succès) ouvert. */
   panelOpen: true,
+  /** Panneau de gauche (liste des jeux) déplié ; replié, il ne montre que les jaquettes. */
+  sidebarOpen: true,
   /** Opacité de la fenêtre compacte (0,3 à 1). */
   compactOpacity: 0.95,
 });
@@ -19,6 +21,8 @@ export const clampOpacity = (v: number) => (Number.isFinite(v) ? Math.min(1, Mat
 export const ui = $state({
   /** Un glisser depuis le panneau est en cours (pour montrer les zones d'arrivée). */
   draggingFromPanel: false,
+  /** Succès en cours de glisser depuis le panneau (le premier donne la taille de l'aperçu). */
+  draggingIds: [] as number[],
   /** Assistant de re-lock : ouvert ou non, pour un succès ou (null) le jeu entier. */
   relock: { open: false, target: null as AchievementRow | null },
 });
@@ -30,8 +34,8 @@ export function openRelock(target: AchievementRow | null) {
 }
 
 export async function loadSettings() {
-  const [spoiler, view, panel, opacity] = await Promise.all(
-    (["anti_spoiler", "workspace_view", "panel_open", "compact_opacity"] as const).map((k) =>
+  const [spoiler, view, panel, opacity, sidebar] = await Promise.all(
+    (["anti_spoiler", "workspace_view", "panel_open", "compact_opacity", "sidebar_open"] as const).map((k) =>
       api.getSetting(k).catch(() => null),
     ),
   );
@@ -40,6 +44,7 @@ export async function loadSettings() {
   // « columns » (ancienne vue Colonnes, retirée) devient le tableau
   settings.workspaceView = view === "list" ? "list" : "board";
   settings.panelOpen = panel !== "0";
+  settings.sidebarOpen = sidebar !== "0";
 }
 
 export async function setAntiSpoiler(on: boolean) {
@@ -61,4 +66,9 @@ export async function setCompactOpacity(value: number) {
 export async function setPanelOpen(open: boolean) {
   settings.panelOpen = open;
   await api.setSetting("panel_open", open ? "1" : "0");
+}
+
+export async function setSidebarOpen(open: boolean) {
+  settings.sidebarOpen = open;
+  await api.setSetting("sidebar_open", open ? "1" : "0");
 }

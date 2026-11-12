@@ -27,6 +27,7 @@ const achievements = [
   removed: false,
 }));
 
+const cardSizes = new Map<number, { w: number; h: number }>();
 let workspace: { achievement_id: number; column: string; collapsed: boolean; pinned?: boolean }[] = [];
 let tags = [
   ["ratable", "#ef5b5b"],
@@ -88,8 +89,12 @@ export function installMock(label = "main") {
       }
       case "workspace_list":
         return workspace;
+      case "workspace_card_sizes":
+        return [...cardSizes].map(([achievement_id, size]) => ({ achievement_id, ...size }));
       case "workspace_save":
         workspace = args.items as typeof workspace;
+        for (const it of args.items as { achievement_id: number; grid: { w: number; h: number } | null }[])
+          if (it.grid) cardSizes.set(it.achievement_id, { w: it.grid.w, h: it.grid.h });
         console.info("[mock] workspace_save", JSON.stringify(workspace));
         return null;
       case "block_get": {
@@ -124,6 +129,8 @@ export function installMock(label = "main") {
         achievementTags = achievementTags.filter((x) => !(x.achievement_id === args.achievementId && x.tag_id === args.tagId));
         if (args.on) achievementTags.push({ achievement_id: args.achievementId as number, tag_id: args.tagId as number });
         return null;
+      case "plugin:app|version":
+        return "0.1.0-dev";
       case "plugin:global-shortcut|register":
       case "plugin:global-shortcut|unregister":
       case "plugin:global-shortcut|unregister_all":

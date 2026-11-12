@@ -2,6 +2,8 @@
   // Vidéo YouTube intégrée (youtube-nocookie.com) avec repères de temps.
   // Le lecteur est piloté par postMessage (API IFrame, enablejsapi=1) : pas de script externe à charger.
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import { tick } from "svelte";
+  import { FIT_CARD_EVENT } from "../library";
   import { embedUrl, parseYouTube, watchUrl } from "../youtube";
   import { saveBlock } from "./store.svelte";
   import { formatClock, parseClock, type Block } from "./types";
@@ -20,7 +22,7 @@
   const ref = $derived(parseYouTube(block.data.url));
   const markers = $derived([...block.data.markers].sort((a, b) => a.time - b.time));
 
-  function setUrl() {
+  async function setUrl() {
     const r = parseYouTube(urlDraft);
     if (!r) {
       urlError = "Lien YouTube non reconnu.";
@@ -30,6 +32,9 @@
     urlDraft = "";
     urlError = "";
     saveBlock(block);
+    // Tableau : la carte s'agrandit pour montrer toute la vidéo (jamais ne rapetisse)
+    await tick();
+    iframe?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true }));
   }
 
   function post(func: string, args: unknown[] = []) {
