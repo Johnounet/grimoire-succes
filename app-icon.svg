@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Icône provisoire : trophée doré sur fond sombre. Source de `npm run tauri icon app-icon.svg`. -->
+  <rect width="1024" height="1024" rx="224" fill="#1b1e27"/>
+  <g fill="#f2c14e">
+    <path d="M312 232h400v168c0 128-84 224-200 224S312 528 312 400z"/>
+    <path d="M312 288h-88c0 120 56 192 152 200l-8-56c-56-8-84-56-88-96h40zM712 288h88c0 120-56 192-152 200l8-56c56-8 84-56 88-96h-40z"/>
+    <rect x="472" y="616" width="80" height="112"/>
+    <rect x="352" y="728" width="320" height="72" rx="16"/>
+  </g>
+  <path d="M440 412l52 52 104-112" fill="none" stroke="#1b1e27" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
