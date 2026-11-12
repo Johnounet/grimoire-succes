@@ -45,6 +45,8 @@ pub fn run() {
             library::game_achievements,
             library::achievement_set_unlocked,
             library::achievements_lock_all,
+            library::game_recap,
+            library::game_mark_celebrated,
             library::workspace_list,
             library::workspace_save,
             library::workspace_card_sizes,

@@ -51,4 +51,5 @@ fn main() {
         }
     }
     println!("\nAPI rareté : {:?}", report.rarity_api_count);
+    println!("Temps de jeu (minutes) : {:?}", steam::playtime_minutes(appid));
 }

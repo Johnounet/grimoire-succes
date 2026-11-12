@@ -160,9 +160,35 @@ pub async fn library_import(state: State<'_, AppState>, appid: u32) -> Result<Ga
         }
     }
 
+    let playtime = steam::playtime_minutes(appid);
     let mut conn = state.conn();
     db::save_game(&mut conn, &data, &name, cover.as_ref().map(|(f, k)| (f.as_str(), *k))).map_err(err)?;
+    db::set_playtime(&conn, appid, playtime).map_err(err)?;
     db::get_game(&conn, appid).map_err(err)?.ok_or_else(|| "jeu introuvable après import".into())
+}
+
+/// Récapitulatif du 100 % : le jeu (date du 100 %, temps de jeu relu dans Steam) et son succès le plus rare.
+#[derive(Debug, Serialize)]
+pub struct Recap {
+    pub game: GameSummary,
+    pub rarest: Option<AchievementRow>,
+}
+
+#[tauri::command]
+pub fn game_recap(state: State<'_, AppState>, appid: u32) -> Result<Recap, String> {
+    let playtime = steam::playtime_minutes(appid);
+    let conn = state.conn();
+    db::set_playtime(&conn, appid, playtime).map_err(err)?;
+    Ok(Recap {
+        game: db::get_game(&conn, appid).map_err(err)?.ok_or("jeu introuvable")?,
+        rarest: db::rarest_unlocked(&conn, appid).map_err(err)?,
+    })
+}
+
+/// La célébration du 100 % a été montrée : elle ne se déclenchera plus d'elle-même pour ce jeu.
+#[tauri::command]
+pub fn game_mark_celebrated(state: State<'_, AppState>, appid: u32) -> Result<(), String> {
+    db::mark_celebrated(&state.conn(), appid).map_err(err)
 }
 
 /// Coche ou décoche un succès à la main. Renvoie le jeu avec sa progression à jour.

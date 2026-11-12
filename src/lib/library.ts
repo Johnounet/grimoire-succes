@@ -11,6 +11,17 @@ export interface GameSummary {
   unlocked: number;
   has_api_names: boolean;
   refreshed_at: number;
+  /** Date du 100 % (secondes Unix) ; null tant que le jeu n'est pas terminé. */
+  completed_at: number | null;
+  playtime_minutes: number | null;
+  /** La célébration du 100 % a déjà été montrée (elle ne revient que depuis la vitrine). */
+  celebrated: boolean;
+}
+
+/** Récapitulatif du 100 %. */
+export interface Recap {
+  game: GameSummary;
+  rarest: AchievementRow | null;
 }
 
 export interface SearchHit {
@@ -48,6 +59,8 @@ export const api = {
   setUnlocked: (id: number, unlocked: boolean) =>
     invoke<GameSummary>("achievement_set_unlocked", { id, unlocked }),
   lockAll: (appid: number) => invoke<GameSummary>("achievements_lock_all", { appid }),
+  recap: (appid: number) => invoke<Recap>("game_recap", { appid }),
+  markCelebrated: (appid: number) => invoke<void>("game_mark_celebrated", { appid }),
   workspaceList: (appid: number) => invoke<WorkspaceItem[]>("workspace_list", { appid }),
   workspaceSave: (appid: number, items: WorkspaceItem[]) => invoke<void>("workspace_save", { appid, items }),
   workspaceCardSizes: (appid: number) =>
@@ -130,6 +143,19 @@ export const heroUrl = (appid: number) =>
 
 export const percent = (g: { total: number; unlocked: number }) =>
   g.total ? Math.floor((g.unlocked / g.total) * 100) : 0;
+
+/** Jeu terminé à 100 % (date posée par le cœur Rust). */
+export const isComplete = (g: GameSummary) => g.completed_at != null;
+
+export const formatDate = (unix: number) =>
+  new Date(unix * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+
+export function formatPlaytime(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m && h < 10 ? `${h} h ${String(m).padStart(2, "0")}` : `${h.toLocaleString("fr-FR")} h`;
+}
 
 export const sourceLabel: Record<GameSummary["source"], string> = {
   local_cache: "cache local de Steam",

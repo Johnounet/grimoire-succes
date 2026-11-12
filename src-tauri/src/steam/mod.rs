@@ -8,6 +8,7 @@ pub mod detect;
 pub mod kv_binary;
 pub mod local_cache;
 pub mod model;
+pub mod playtime;
 pub mod store;
 pub mod web;
 
@@ -93,6 +94,13 @@ pub async fn load_best(appid: u32, lang: &str, profile: Option<&str>) -> Result<
         errors.push(format!("page publique : {e}"));
         errors.join(" ; ")
     })
+}
+
+/// Temps de jeu Steam (minutes) du compte détecté sur ce PC, s'il est connu.
+pub fn playtime_minutes(appid: u32) -> Option<u32> {
+    let steam = detect::find_steam(None)?;
+    let account = detect::list_accounts(&steam).into_iter().next()?;
+    playtime::load(&steam, account.account_id, appid)
 }
 
 fn merge_progress(target: &mut model::GameAchievements, from: &model::GameAchievements) {

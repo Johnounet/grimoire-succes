@@ -67,12 +67,64 @@ body {
   }
 }
 
+/* Version dorée d'un jeu terminé à 100 % : bordure, lueur et reflet qui passe de temps en temps */
+.gold-frame {
+  --gold-ring: 2px;
+  --gold-glow: 18px;
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 var(--gold-ring) var(--color-gold),
+    0 0 var(--gold-glow) -2px rgb(242 193 78 / 0.55);
+}
+.gold-frame.gold-sm {
+  --gold-ring: 1.5px;
+  --gold-glow: 8px;
+}
+.gold-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 35%, rgb(255 236 170 / 0.55) 50%, transparent 65%);
+  transform: translateX(-130%);
+  animation: gold-sheen 5s ease-in-out infinite;
+  animation-delay: var(--sheen-delay, 0s);
+  pointer-events: none;
+}
+@keyframes gold-sheen {
+  0%,
+  65% {
+    transform: translateX(-130%);
+  }
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+/* Apparition de la carte du 100 % */
+.pop-in {
+  animation: pop-in 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.25);
+}
+@keyframes pop-in {
+  from {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+  .gold-frame::after {
+    display: none;
   }
 }
 

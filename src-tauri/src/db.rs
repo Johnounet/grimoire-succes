@@ -124,6 +124,16 @@ const MIGRATIONS: &[&str] = &[
         SELECT achievement_id, appid, grid_w, grid_h FROM workspace_items
         WHERE grid_w IS NOT NULL AND grid_h IS NOT NULL;
     "#,
+    // v7 : 100 %. `completed_at` (colonne de la v1) est désormais tenue à jour ; `celebrated` retient que
+    // la célébration a déjà été montrée (une seule fois par jeu, rejouable depuis la vitrine)
+    r#"
+    ALTER TABLE games ADD COLUMN celebrated INTEGER NOT NULL DEFAULT 0;
+    UPDATE games SET completed_at = COALESCE(
+            (SELECT MAX(unlock_time) FROM achievements a WHERE a.appid = games.appid AND a.removed = 0),
+            CAST(strftime('%s', 'now') AS INTEGER))
+        WHERE EXISTS (SELECT 1 FROM achievements a WHERE a.appid = games.appid AND a.removed = 0)
+          AND NOT EXISTS (SELECT 1 FROM achievements a WHERE a.appid = games.appid AND a.removed = 0 AND a.unlocked = 0);
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -201,13 +211,19 @@ pub struct GameSummary {
     pub unlocked: u32,
     pub has_api_names: bool,
     pub refreshed_at: i64,
+    /// Date du 100 % (secondes Unix), `None` tant que le jeu n'est pas terminé
+    pub completed_at: Option<i64>,
+    pub playtime_minutes: Option<u32>,
+    /// La célébration du 100 % a déjà été montrée
+    pub celebrated: bool,
 }
 
 const SUMMARY_SQL: &str = "
     SELECT g.appid, g.name, g.cover_file, g.cover_kind, g.source, g.refreshed_at,
            COUNT(a.id),
            COALESCE(SUM(a.unlocked), 0),
-           COUNT(a.id) = COUNT(a.api_name)
+           COUNT(a.id) = COUNT(a.api_name),
+           g.completed_at, g.playtime_minutes, g.celebrated
     FROM games g
     LEFT JOIN achievements a ON a.appid = g.appid AND a.removed = 0";
 
@@ -222,6 +238,9 @@ fn summary_row(r: &rusqlite::Row) -> rusqlite::Result<GameSummary> {
         total: r.get(6)?,
         unlocked: r.get(7)?,
         has_api_names: r.get(8)?,
+        completed_at: r.get(9)?,
+        playtime_minutes: r.get(10)?,
+        celebrated: r.get(11)?,
     })
 }
 
@@ -342,7 +361,51 @@ pub fn save_game(
         }
     }
 
+    update_completion(&tx, data.appid, None)?;
     tx.commit()
+}
+
+/// Tient à jour la date du 100 % après un changement d'état des succès.
+///
+/// Jeu terminé et pas encore daté : `when` (coche du joueur), sinon la date du dernier succès obtenu
+/// d'après Steam, sinon maintenant. Jeu qui n'est plus terminé (re-lock, nouveaux succès) : plus de date.
+fn update_completion(conn: &Connection, appid: u32, when: Option<i64>) -> rusqlite::Result<()> {
+    let (total, missing, last): (i64, i64, Option<i64>) = conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(unlocked = 0), 0), MAX(unlock_time)
+         FROM achievements WHERE appid = ?1 AND removed = 0",
+        [appid],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    if total > 0 && missing == 0 {
+        conn.execute(
+            "UPDATE games SET completed_at = ?2 WHERE appid = ?1 AND completed_at IS NULL",
+            params![appid, when.or(last).unwrap_or_else(now)],
+        )?;
+    } else {
+        conn.execute("UPDATE games SET completed_at = NULL WHERE appid = ?1", [appid])?;
+    }
+    Ok(())
+}
+
+/// Temps de jeu lu dans Steam. Un temps inconnu n'efface pas le dernier connu.
+pub fn set_playtime(conn: &Connection, appid: u32, minutes: Option<u32>) -> rusqlite::Result<()> {
+    if let Some(m) = minutes {
+        conn.execute("UPDATE games SET playtime_minutes = ?2 WHERE appid = ?1", params![appid, m])?;
+    }
+    Ok(())
+}
+
+pub fn mark_celebrated(conn: &Connection, appid: u32) -> rusqlite::Result<()> {
+    conn.execute("UPDATE games SET celebrated = 1 WHERE appid = ?1", [appid])?;
+    Ok(())
+}
+
+/// Succès obtenu le plus rare d'un jeu (rareté connue seulement).
+pub fn rarest_unlocked(conn: &Connection, appid: u32) -> rusqlite::Result<Option<AchievementRow>> {
+    Ok(list_achievements(conn, appid)?
+        .into_iter()
+        .filter(|a| a.unlocked && !a.removed && a.rarity.is_some())
+        .min_by(|a, b| a.rarity.partial_cmp(&b.rarity).unwrap_or(std::cmp::Ordering::Equal)))
 }
 
 pub fn delete_game(conn: &Connection, appid: u32) -> rusqlite::Result<Option<String>> {
@@ -358,7 +421,7 @@ pub fn delete_game(conn: &Connection, appid: u32) -> rusqlite::Result<Option<Str
 
 /// Coche ou décoche un succès à la main. Renvoie l'AppID du jeu concerné.
 pub fn set_unlocked(conn: &Connection, id: i64, unlocked: bool) -> rusqlite::Result<u32> {
-    conn.query_row(
+    let appid = conn.query_row(
         "UPDATE achievements
          SET unlocked = ?2, manual = 1,
              unlock_time = CASE WHEN ?2 THEN unlock_time ELSE NULL END
@@ -366,7 +429,10 @@ pub fn set_unlocked(conn: &Connection, id: i64, unlocked: bool) -> rusqlite::Res
          RETURNING appid",
         params![id, unlocked],
         |r| r.get(0),
-    )
+    )?;
+    // Le dernier succès coché à la main date le 100 % d'aujourd'hui
+    update_completion(conn, appid, Some(now()))?;
+    Ok(appid)
 }
 
 /// Décoche tous les succès d'un jeu (après un reset complet lancé par le joueur dans Steam).
@@ -375,7 +441,7 @@ pub fn lock_all(conn: &Connection, appid: u32) -> rusqlite::Result<()> {
         "UPDATE achievements SET unlocked = 0, manual = 1, unlock_time = NULL WHERE appid = ?1 AND unlocked = 1",
         [appid],
     )?;
-    Ok(())
+    update_completion(conn, appid, None)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -959,6 +1025,40 @@ mod tests {
         let info = get_block(&conn, c.id).unwrap().unwrap();
         assert_eq!((info.appid, info.achievement_name.as_str(), info.block.id), (620, "a", c.id));
         assert!(get_block(&conn, 9999).unwrap().is_none());
+    }
+
+    #[test]
+    fn cent_pour_cent() {
+        let mut conn = open_in_memory().unwrap();
+        let mut b = ach("B", Some(true));
+        b.unlock_time = Some(2000);
+        b.rarity = Some(2.5);
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("C", Some(false))]), "P", None).unwrap();
+        let g = get_game(&conn, 620).unwrap().unwrap();
+        assert_eq!((g.completed_at, g.celebrated), (None, false));
+
+        // Terminé dans Steam : daté du dernier succès obtenu
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), b.clone()]), "P", None).unwrap();
+        assert_eq!(get_game(&conn, 620).unwrap().unwrap().completed_at, Some(2000));
+        assert_eq!(rarest_unlocked(&conn, 620).unwrap().unwrap().api_name.as_deref(), Some("B"));
+
+        // Un succès décoché : plus terminé ; recoché à la main : daté d'aujourd'hui
+        let id_a = list_achievements(&conn, 620).unwrap()[0].id;
+        set_unlocked(&conn, id_a, false).unwrap();
+        assert_eq!(get_game(&conn, 620).unwrap().unwrap().completed_at, None);
+        set_unlocked(&conn, id_a, true).unwrap();
+        assert!(get_game(&conn, 620).unwrap().unwrap().completed_at.unwrap() > 1_700_000_000);
+
+        // Célébration retenue ; temps de jeu inconnu n'efface pas le connu
+        mark_celebrated(&conn, 620).unwrap();
+        set_playtime(&conn, 620, Some(90)).unwrap();
+        set_playtime(&conn, 620, None).unwrap();
+        let g = get_game(&conn, 620).unwrap().unwrap();
+        assert_eq!((g.celebrated, g.playtime_minutes), (true, Some(90)));
+
+        // Reset complet
+        lock_all(&conn, 620).unwrap();
+        assert_eq!(get_game(&conn, 620).unwrap().unwrap().completed_at, None);
     }
 
     #[test]

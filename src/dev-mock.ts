@@ -51,6 +51,15 @@ function renumber(achievementId: number) {
     .forEach((b, i) => (b.position = i));
 }
 
+let completedAt: number | null = null;
+let celebrated = false;
+/** Comme `update_completion` côté Rust. */
+function updateCompletion(when: number | null) {
+  const done = achievements.every((a) => a.unlocked);
+  if (!done) completedAt = null;
+  else completedAt ??= when ?? Math.floor(Date.now() / 1000);
+}
+
 const summary = () => ({
   appid: 620,
   name: "Portal 2 (données simulées)",
@@ -61,6 +70,9 @@ const summary = () => ({
   unlocked: achievements.filter((a) => a.unlocked).length,
   has_api_names: true,
   refreshed_at: 1,
+  completed_at: completedAt,
+  playtime_minutes: 1504,
+  celebrated,
 });
 
 export function installMock(label = "main") {
@@ -81,12 +93,23 @@ export function installMock(label = "main") {
         return achievements.map((a) => ({ ...a }));
       case "achievements_lock_all":
         achievements.forEach((a) => Object.assign(a, { unlocked: false, manual: true, unlock_time: null }));
+        updateCompletion(null);
         return summary();
       case "achievement_set_unlocked": {
         const a = achievements.find((x) => x.id === args.id);
         if (a) Object.assign(a, { unlocked: args.unlocked, manual: true });
+        updateCompletion(Math.floor(Date.now() / 1000));
         return summary();
       }
+      case "game_recap": {
+        const rarest = achievements
+          .filter((a) => a.unlocked && a.rarity != null)
+          .sort((a, b) => (a.rarity as number) - (b.rarity as number))[0];
+        return { game: summary(), rarest: rarest ? { ...rarest } : null };
+      }
+      case "game_mark_celebrated":
+        celebrated = true;
+        return null;
       case "workspace_list":
         return workspace;
       case "workspace_card_sizes":

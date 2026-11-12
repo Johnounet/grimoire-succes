@@ -2,9 +2,11 @@
   import { onMount } from "svelte";
   import AboutDialog from "./lib/AboutDialog.svelte";
   import AddGameDialog from "./lib/AddGameDialog.svelte";
+  import Celebration from "./lib/Celebration.svelte";
   import GameView from "./lib/GameView.svelte";
+  import Showcase from "./lib/Showcase.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
-  import { api, type GameSummary } from "./lib/library";
+  import { api, isComplete, type GameSummary } from "./lib/library";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { flushBlocks, listenBlockChanges } from "./lib/blocks/store.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
@@ -21,6 +23,10 @@
   let settingsOpen = $state(false);
   let aboutOpen = $state(false);
   let loadError = $state("");
+  /** Vitrine des trophées affichée à la place du jeu. */
+  let showcase = $state(false);
+  /** Jeu dont la célébration du 100 % est affichée. */
+  let celebrating = $state<number | null>(null);
 
   const current = $derived(games.find((g) => g.appid === selected) ?? null);
 
@@ -63,14 +69,26 @@
 
   function upsert(g: GameSummary) {
     const i = games.findIndex((x) => x.appid === g.appid);
+    // Le jeu vient de passer à 100 % (coche, fenêtre compacte, actualisation) : célébration, une fois par jeu.
+    // Un jeu importé déjà terminé rejoint la vitrine sans célébration.
+    if (i >= 0 && !isComplete(games[i]) && isComplete(g) && !g.celebrated) {
+      g = { ...g, celebrated: true };
+      celebrating = g.appid;
+      api.markCelebrated(g.appid).catch(() => {});
+    }
     if (i >= 0) games[i] = g;
     else games.push(g);
   }
 
   function onImported(g: GameSummary) {
     upsert(g);
-    selected = g.appid;
+    select(g.appid);
     adding = false;
+  }
+
+  function select(appid: number) {
+    selected = appid;
+    showcase = false;
   }
 
   function onDeleted(appid: number) {
@@ -84,14 +102,24 @@
     {games}
     {imagesDir}
     {selected}
-    onselect={(id) => (selected = id)}
+    {showcase}
+    onselect={select}
+    onshowcase={() => (showcase = true)}
     onadd={() => (adding = true)}
     onsettings={() => (settingsOpen = true)}
     onabout={() => (aboutOpen = true)}
   />
 
-  {#if current}
-    <GameView game={current} {imagesDir} onchanged={upsert} ondeleted={onDeleted} />
+  {#if showcase}
+    <Showcase {games} {imagesDir} onopen={select} oncelebrate={(id) => (celebrating = id)} />
+  {:else if current}
+    <GameView
+      game={current}
+      {imagesDir}
+      onchanged={upsert}
+      ondeleted={onDeleted}
+      oncelebrate={() => (celebrating = selected)}
+    />
   {:else}
     <main class="flex flex-1 items-center justify-center p-8 text-center">
       <div class="max-w-sm space-y-3">
@@ -125,4 +153,20 @@
 
 {#if adding}
   <AddGameDialog onclose={() => (adding = false)} onimported={onImported} />
+{/if}
+
+{#if celebrating != null}
+  {#key celebrating}
+    <Celebration
+      appid={celebrating}
+      {imagesDir}
+      onclose={() => (celebrating = null)}
+      onshowcase={showcase
+        ? undefined
+        : () => {
+            celebrating = null;
+            showcase = true;
+          }}
+    />
+  {/key}
 {/if}

@@ -45,7 +45,17 @@ npm run check          # vérification des types Svelte/TS
 
 - [x] Étape 7 — Étiquettes, re-lock, raccourcis globaux, mode compact : testée par l'utilisateur sous Windows (2026-11-12), premiers retours corrigés (bloc visé par défaut par les raccourcis, cartes qui remontent)
 
-**Prochaine étape** : l'utilisateur a d'autres modifications à demander sur l'étape 7, dans une nouvelle session ; ensuite étape 8 du SPEC (finitions).
+**Étape 8 en cours** (finitions). **Décision de l'utilisateur (2026-11-12)** : la traduction français / anglais se fera tout à la fin.
+- [x] 100 % et vitrine : validé par l'utilisateur sous Windows (2026-11-12)
+- [ ] Animations, thèmes, export / import de guides, clé API optionnelle
+- [ ] Traduction (en dernier)
+
+**100 % et vitrine, choix faits** :
+- `games.completed_at` tenu à jour par `update_completion` (`db.rs`) après chaque import, coche ou reset : posé quand tous les succès non retirés sont obtenus (coche manuelle → maintenant ; actualisation → date du dernier succès Steam), effacé si le jeu n'est plus à 100 %. Migration v7 : colonne `celebrated` et date des jeux déjà terminés.
+- Célébration (`Celebration.svelte`) **une seule fois par jeu** : déclenchée dans `App.svelte` (`upsert`) quand un jeu déjà présent passe à 100 % et que `celebrated` est faux, puis `game_mark_celebrated`. Un jeu importé déjà terminé rejoint la vitrine sans célébration. Rejouable depuis la vitrine (🎉) et le badge « 🏆 100 % » de la bannière.
+- Récap (`game_recap`) : date du 100 %, temps de jeu relu dans `userdata/<compte>/config/localconfig.vdf` (`steam/playtime.rs`, aussi lu à chaque import), succès obtenu le plus rare.
+- Confettis : canvas maison (`src/lib/confetti.ts`), couleurs extraites de la jaquette (repli doré si l'image est illisible) ; aucun confetti si « réduire les animations » est actif dans Windows.
+- Version dorée : classe `.gold-frame` (`app.css`) ; vitrine (`Showcase.svelte`) ouverte depuis le haut du panneau des jeux, triée par date du 100 %.
 
 **Étape 7, choix faits** :
 - **Étiquettes** : tables `tags` / `achievement_tags` (migration v5, 6 étiquettes proposées), communes à tous les jeux. Store `src/lib/tags.svelte.ts`, sélecteur `TagPicker.svelte` (cartes et liste), gestion dans `SettingsDialog.svelte`, filtre dans la liste.

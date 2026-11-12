@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, cardSizes, heroUrl, percent, sourceLabel, type AchievementRow, type GameSummary } from "./library";
+  import { api, cardSizes, heroUrl, isComplete, percent, sourceLabel, type AchievementRow, type GameSummary } from "./library";
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import AchievementList from "./AchievementList.svelte";
@@ -20,11 +20,14 @@
     imagesDir,
     onchanged,
     ondeleted,
+    oncelebrate,
   }: {
     game: GameSummary;
     imagesDir: string;
     onchanged: (g: GameSummary) => void;
     ondeleted: (appid: number) => void;
+    /** Rejouer la célébration du 100 % (jeu terminé). */
+    oncelebrate: () => void;
   } = $props();
 
   let achievements = $state<AchievementRow[]>([]);
@@ -192,13 +195,23 @@
       <div class="min-w-0 flex-1">
         <h1 class="truncate text-3xl font-bold drop-shadow">{game.name}</h1>
         <p class="mt-1 text-sm text-fg/80">
-          <span class="font-semibold {pct >= 100 ? 'text-gold' : ''}">{game.unlocked} / {game.total}</span>
-          succès · {pct} %
+          <span class="font-semibold {isComplete(game) ? 'text-gold' : ''}">{game.unlocked} / {game.total}</span>
+          succès · {isComplete(game) ? 100 : pct} %
           <span class="text-muted">· importé depuis le {sourceLabel[game.source]}</span>
           {#if !game.has_api_names}<span class="text-muted">· certains ID techniques manquent</span>{/if}
         </p>
       </div>
-      <ProgressRing value={pct} size={48} />
+      {#if isComplete(game)}
+        <button
+          onclick={oncelebrate}
+          title="Revoir le récap du 100 %"
+          class="gold-frame rounded-full bg-gold/15 px-3 py-1 text-sm font-bold text-gold backdrop-blur transition hover:bg-gold/25"
+        >
+          🏆 100 %
+        </button>
+      {:else}
+        <ProgressRing value={pct} size={48} />
+      {/if}
       <button
         onclick={() => openCompact(game.appid)}
         class="rounded-lg border border-line bg-panel/80 px-3 py-1.5 text-sm backdrop-blur transition hover:bg-raised"
