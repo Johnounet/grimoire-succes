@@ -4,6 +4,7 @@
   import GameView from "./lib/GameView.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
   import { api, type GameSummary } from "./lib/library";
+  import { loadSettings } from "./lib/settings.svelte";
 
   let games = $state<GameSummary[]>([]);
   let imagesDir = $state("");
@@ -15,7 +16,7 @@
 
   onMount(async () => {
     try {
-      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list()]);
+      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings()]);
       selected = games[0]?.appid ?? null;
       // Premier lancement : on ouvre directement l'ajout de jeu
       if (games.length === 0) adding = true;

@@ -45,7 +45,13 @@ export const api = {
   importGame: (appid: number) => invoke<GameSummary>("library_import", { appid }),
   deleteGame: (appid: number) => invoke<void>("library_delete", { appid }),
   achievements: (appid: number) => invoke<AchievementRow[]>("game_achievements", { appid }),
+  setUnlocked: (id: number, unlocked: boolean) =>
+    invoke<GameSummary>("achievement_set_unlocked", { id, unlocked }),
+  getSetting: (key: SettingKey) => invoke<string | null>("setting_get", { key }),
+  setSetting: (key: SettingKey, value: string) => invoke<void>("setting_set", { key, value }),
 };
+
+export type SettingKey = "anti_spoiler" | "language" | "country" | "profile_url";
 
 /** URL affichable d'une image enregistrée dans le dossier de données. */
 export function localImage(imagesDir: string, rel: string | null): string | null {

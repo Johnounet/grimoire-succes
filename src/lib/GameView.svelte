@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, heroUrl, percent, sourceLabel, type AchievementRow, type GameSummary } from "./library";
+  import AchievementList from "./AchievementList.svelte";
   import ProgressRing from "./ProgressRing.svelte";
 
   let {
@@ -18,10 +19,14 @@
   let error = $state("");
   let heroOk = $state(true);
 
+  // Valeurs dérivées : elles ne changent que si la valeur change, pas à chaque mise à jour de `game`
+  // (une coche renvoie un nouveau `game`, qui ne doit pas recharger la liste).
+  const appidKey = $derived(game.appid);
+  const refreshedKey = $derived(game.refreshed_at);
+
   $effect(() => {
-    const appid = game.appid;
-    const stamp = game.refreshed_at; // recharge aussi après une actualisation
-    void stamp;
+    const appid = appidKey;
+    void refreshedKey; // recharge aussi après une actualisation
     heroOk = true;
     confirmDelete = false;
     error = "";
@@ -53,11 +58,21 @@
     }
   }
 
-  const rarityClass = (r: number | null) =>
-    r == null ? "text-muted" : r < 5 ? "text-gold" : r < 20 ? "text-rare" : "text-muted";
-
-  const fmtDate = (t: number | null) =>
-    t ? new Date(t * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "";
+  /** Coche instantanée à l'écran, enregistrée ensuite ; annulée si l'enregistrement échoue. */
+  async function toggle(a: AchievementRow) {
+    const row = achievements.find((x) => x.id === a.id);
+    if (!row) return;
+    const before = { unlocked: row.unlocked, manual: row.manual, unlock_time: row.unlock_time };
+    row.unlocked = !row.unlocked;
+    row.manual = true;
+    if (!row.unlocked) row.unlock_time = null;
+    try {
+      onchanged(await api.setUnlocked(row.id, row.unlocked));
+    } catch (e) {
+      Object.assign(row, before);
+      error = `Enregistrement impossible : ${e}`;
+    }
+  }
 </script>
 
 <section class="flex min-w-0 flex-1 flex-col overflow-y-auto">
@@ -120,34 +135,8 @@
       {#if !game.has_api_names}· certains ID techniques manquent (re-lock indisponible pour ceux-là){/if}
     </p>
 
-    <!-- Liste simple ; la liste complète avec filtres arrive à l'étape 4 -->
-    <ul class="divide-y divide-line rounded-xl border border-line bg-panel">
-      {#each achievements as a (a.id)}
-        {@const icon = a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)}
-        <li class="flex items-center gap-3 p-3 {a.removed ? 'opacity-50' : ''}">
-          <div class="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-raised {a.unlocked ? 'shadow-[0_0_12px_-2px] shadow-accent/50' : ''}">
-            {#if icon}<img src={icon} alt="" loading="lazy" class="h-full w-full {a.unlocked ? '' : 'grayscale'}" />{/if}
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <span class="truncate font-medium {a.unlocked ? '' : 'text-fg/80'}">{a.name}</span>
-              {#if a.removed}<span class="rounded bg-raised px-1.5 text-[10px] text-muted">retiré</span>{/if}
-              {#if a.dlc_appid}<span class="rounded bg-raised px-1.5 text-[10px] text-muted">DLC</span>{/if}
-            </div>
-            <p class="truncate text-sm text-muted {a.hidden && !a.unlocked ? 'blur-[5px] select-none' : ''}">
-              {a.description || "—"}
-            </p>
-          </div>
-          <div class="shrink-0 text-right text-xs">
-            {#if a.rarity != null}
-              <div class="font-semibold {rarityClass(a.rarity)}">{a.rarity.toFixed(1)} %</div>
-            {/if}
-            {#if a.unlocked}
-              <div class="text-ok">✓ {fmtDate(a.unlock_time)}</div>
-            {/if}
-          </div>
-        </li>
-      {/each}
-    </ul>
+    {#key game.appid}
+      <AchievementList {achievements} ontoggle={toggle} />
+    {/key}
   </div>
 </section>

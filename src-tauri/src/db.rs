@@ -107,7 +107,6 @@ pub fn get_setting(conn: &Connection, key: &str) -> rusqlite::Result<Option<Stri
         .optional()
 }
 
-#[allow(dead_code)] // utilisé par les Réglages (étapes suivantes)
 pub fn set_setting(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
@@ -182,7 +181,8 @@ pub fn library_appids(conn: &Connection) -> rusqlite::Result<Vec<u32>> {
 /// Règles d'actualisation (SPEC, « Règles de sauvegarde ») :
 /// - les guides et étiquettes ne sont jamais touchés (ils référencent l'`id` du succès, qui reste stable) ;
 /// - un succès disparu de Steam est marqué `removed`, pas supprimé ;
-/// - un succès coché à la main reste coché si la source dit « non obtenu » ou ne sait pas.
+/// - un état posé à la main (coché ou décoché) est conservé tant que la source dit le contraire ;
+///   dès qu'elle est d'accord, il redevient un état « Steam » ordinaire.
 pub fn save_game(
     conn: &mut Connection,
     data: &GameAchievements,
@@ -245,10 +245,11 @@ pub fn save_game(
             let key = achievement_key(a);
             let (old_unlocked, old_manual, old_time) = existing.get(&key).copied().unwrap_or((false, false, None));
             let (unlocked, manual, time) = match a.unlocked {
-                Some(true) => (true, false, a.unlock_time.or(old_time)),
-                Some(false) if old_manual => (old_unlocked, true, old_time),
-                Some(false) => (false, false, None),
                 None => (old_unlocked, old_manual, old_time),
+                // La coche du joueur l'emporte tant que Steam n'est pas d'accord avec elle
+                Some(s) if old_manual && s != old_unlocked => (old_unlocked, true, old_time),
+                Some(true) => (true, false, a.unlock_time.or(old_time)),
+                Some(false) => (false, false, None),
             };
             upsert.execute(params![
                 data.appid,
@@ -282,6 +283,19 @@ pub fn delete_game(conn: &Connection, appid: u32) -> rusqlite::Result<Option<Str
 }
 
 // ---------- Succès ----------
+
+/// Coche ou décoche un succès à la main. Renvoie l'AppID du jeu concerné.
+pub fn set_unlocked(conn: &Connection, id: i64, unlocked: bool) -> rusqlite::Result<u32> {
+    conn.query_row(
+        "UPDATE achievements
+         SET unlocked = ?2, manual = 1,
+             unlock_time = CASE WHEN ?2 THEN unlock_time ELSE NULL END
+         WHERE id = ?1
+         RETURNING appid",
+        params![id, unlocked],
+        |r| r.get(0),
+    )
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AchievementRow {
@@ -385,6 +399,29 @@ mod tests {
         let g = get_game(&conn, 620).unwrap().unwrap();
         assert_eq!((g.total, g.unlocked), (2, 1), "A retiré n'est plus compté");
         assert_eq!(list_games(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn coche_manuelle_jusqu_a_accord_de_steam() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("B", Some(false))]), "P", None).unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+        let state = |conn: &Connection| -> Vec<(bool, bool)> {
+            list_achievements(conn, 620).unwrap().iter().map(|a| (a.unlocked, a.manual)).collect()
+        };
+
+        // Re-lock de A (décoché à la main) et B coché à la main
+        assert_eq!(set_unlocked(&conn, ids[0], false).unwrap(), 620);
+        set_unlocked(&conn, ids[1], true).unwrap();
+        assert_eq!(state(&conn), vec![(false, true), (true, true)]);
+
+        // Steam pas encore à jour : les choix du joueur tiennent
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("B", Some(false))]), "P", None).unwrap();
+        assert_eq!(state(&conn), vec![(false, true), (true, true)]);
+
+        // Steam d'accord : l'état redevient ordinaire
+        save_game(&mut conn, &game(vec![ach("A", Some(false)), ach("B", Some(true))]), "P", None).unwrap();
+        assert_eq!(state(&conn), vec![(false, false), (true, false)]);
     }
 
     #[test]

@@ -32,6 +32,9 @@ pub fn run() {
             library::library_import,
             library::library_delete,
             library::game_achievements,
+            library::achievement_set_unlocked,
+            library::setting_get,
+            library::setting_set,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

@@ -165,6 +165,37 @@ pub async fn library_import(state: State<'_, AppState>, appid: u32) -> Result<Ga
     db::get_game(&conn, appid).map_err(err)?.ok_or_else(|| "jeu introuvable après import".into())
 }
 
+/// Coche ou décoche un succès à la main. Renvoie le jeu avec sa progression à jour.
+#[tauri::command]
+pub fn achievement_set_unlocked(state: State<'_, AppState>, id: i64, unlocked: bool) -> Result<GameSummary, String> {
+    let conn = state.conn();
+    let appid = db::set_unlocked(&conn, id, unlocked).map_err(err)?;
+    db::get_game(&conn, appid).map_err(err)?.ok_or_else(|| "jeu introuvable".into())
+}
+
+/// Réglages modifiables depuis l'interface.
+const SETTINGS: &[&str] = &["anti_spoiler", "language", "country", "profile_url"];
+
+fn check_setting(key: &str) -> Result<(), String> {
+    if SETTINGS.contains(&key) {
+        Ok(())
+    } else {
+        Err(format!("réglage inconnu : {key}"))
+    }
+}
+
+#[tauri::command]
+pub fn setting_get(state: State<'_, AppState>, key: String) -> Result<Option<String>, String> {
+    check_setting(&key)?;
+    db::get_setting(&state.conn(), &key).map_err(err)
+}
+
+#[tauri::command]
+pub fn setting_set(state: State<'_, AppState>, key: String, value: String) -> Result<(), String> {
+    check_setting(&key)?;
+    db::set_setting(&state.conn(), &key, &value).map_err(err)
+}
+
 #[tauri::command]
 pub fn library_delete(state: State<'_, AppState>, appid: u32) -> Result<(), String> {
     if !db::game_exists(&state.conn(), appid).map_err(err)? {
