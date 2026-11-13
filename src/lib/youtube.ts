@@ -36,13 +36,15 @@ function parseStart(t: string | null): number {
   return m ? Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0) : 0;
 }
 
-export function embedUrl(ref: YouTubeRef): string {
+/** `autoplay` : lecture dès le chargement (vidéo lancée depuis le mode compact). */
+export function embedUrl(ref: YouTubeRef, autoplay = false): string {
   const params = new URLSearchParams({
     enablejsapi: "1",
     rel: "0",
     origin: window.location.origin,
   });
   if (ref.start) params.set("start", String(ref.start));
+  if (autoplay) params.set("autoplay", "1");
   return `https://www.youtube-nocookie.com/embed/${ref.id}?${params}`;
 }
 

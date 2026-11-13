@@ -25,7 +25,6 @@
   import type { GridPos, WorkspaceItem } from "./library";
   import ProgressRing from "./ProgressRing.svelte";
   import { openRelock, setPanelOpen, settings, ui } from "./settings.svelte";
-  import { releaseActive, shortcutContext } from "./shortcuts.svelte";
   import Workspace from "./Workspace.svelte";
 
   let {
@@ -106,11 +105,6 @@
     api.workspaceList(appid).then((w) => {
       if (appid === game.appid) workspace = w;
     });
-  });
-
-  // Bloc par défaut des raccourcis : pris dans l'espace de travail du jeu ouvert
-  $effect(() => {
-    shortcutContext.workspace = workspace;
   });
 
   // Coche faite dans la fenêtre compacte
@@ -207,7 +201,6 @@
   /** Appelé une fois la carte retirée de l'espace : supprime la carte et ses blocs. */
   async function deleteFreeCard(id: number) {
     try {
-      await releaseActive(-id);
       await api.freeCardDelete(id);
       freeCards = freeCards.filter((f) => f.id !== id);
       forgetCard(-id);

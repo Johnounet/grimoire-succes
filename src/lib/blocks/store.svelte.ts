@@ -3,7 +3,7 @@
 // - Une modification s'affiche tout de suite et part en base après un court délai
 //   (les frappes rapprochées sont regroupées) ; `flushBlocks()` force l'envoi immédiat.
 // - Une suppression peut être annulée quelques secondes (toast « Annuler »).
-// - Compteurs et chronos sont aussi affichés dans la fenêtre compacte : chaque changement
+// - Compteurs, chronos et listes sont aussi affichés dans la fenêtre compacte : chaque changement
 //   lui est annoncé (`block-changed`), et ceux qu'elle fait arrivent ici de la même façon.
 import { invoke } from "@tauri-apps/api/core";
 import { cardKey, ownerOf, type CardKey } from "../library";
@@ -102,7 +102,9 @@ export async function createBlock<K extends BlockKind>(
 export function saveBlock(block: Block) {
   const id = block.id;
   const push = () => invoke<void>("block_update", { id, data: $state.snapshot(block.data) }).catch(fail);
-  if (block.kind === "counter" || block.kind === "timer") send("block-changed", { block: $state.snapshot(block) as Block });
+  // Blocs affichés aussi dans la fenêtre compacte (hors vidéo, dont les données ne changent pas en jeu)
+  if (block.kind === "counter" || block.kind === "timer" || block.kind === "list")
+    send("block-changed", { block: $state.snapshot(block) as Block });
   clearTimeout(pending.get(id)?.timer);
   pending.set(id, {
     send: push,

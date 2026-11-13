@@ -254,9 +254,7 @@ const SETTINGS: &[&str] = &[
     "workspace_view",
     "panel_open",
     "sidebar_open",
-    // Raccourcis globaux : blocs « actifs », touches (JSON), retour sonore
-    "active_counter",
-    "active_timer",
+    // Raccourcis globaux du mode compact : touches (JSON), retour sonore
     "shortcuts",
     "shortcut_sound",
     // Mode compact

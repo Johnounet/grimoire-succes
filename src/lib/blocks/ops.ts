@@ -1,6 +1,6 @@
-// Gestes sur les compteurs et chronomètres, partagés par les blocs, le mode compact
+// Gestes sur les compteurs, chronomètres et listes, partagés par les blocs, le mode compact
 // et les raccourcis clavier globaux (logique pure : modifie `data` sur place).
-import type { CounterData, TimerData } from "./types";
+import type { CounterData, ListData, TimerData } from "./types";
 
 /** +1 / −1 (multiplié par le pas), jamais sous zéro. */
 export function counterAdd(d: CounterData, sign: 1 | -1) {
@@ -41,4 +41,20 @@ export function timerToggle(d: TimerData, now: number): "started" | "stopped" | 
 export function timerReset(d: TimerData) {
   d.elapsed_ms = 0;
   d.running_since = null;
+}
+
+/** Coche le premier élément non coché. Renvoie son texte, ou null si tout est coché. */
+export function listCheckNext(d: ListData): string | null {
+  const it = d.items.find((i) => !i.checked);
+  if (!it) return null;
+  it.checked = true;
+  return it.text;
+}
+
+/** Décoche le dernier élément coché (dans l'ordre de la liste). Renvoie son texte, ou null. */
+export function listUncheckLast(d: ListData): string | null {
+  const it = [...d.items].reverse().find((i) => i.checked);
+  if (!it) return null;
+  it.checked = false;
+  return it.text;
 }

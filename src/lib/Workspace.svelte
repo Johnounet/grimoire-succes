@@ -20,7 +20,6 @@
   } from "./library";
   import { setWorkspaceView, settings, ui } from "./settings.svelte";
   import { arrive, dur, leave } from "./motion.svelte";
-  import { releaseActive } from "./shortcuts.svelte";
   import WorkspaceCard from "./WorkspaceCard.svelte";
 
   /** Élément manipulé par svelte-dnd-action (qui exige un champ `id`). */
@@ -103,9 +102,7 @@
     if (isFreeKey(key)) ondeletefree(-key);
   }
   function togglePin(it: WorkspaceItem) {
-    const key = cardKey(it);
-    if (it.pinned) releaseActive(key);
-    update(key, { pinned: !it.pinned });
+    update(cardKey(it), { pinned: !it.pinned });
   }
   function toggle(a: AchievementRow) {
     justToggled = a.id;

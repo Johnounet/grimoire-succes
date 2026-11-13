@@ -17,16 +17,18 @@ export const windowLabel: string = (() => {
 })();
 
 export interface SyncEvents {
-  /** Un compteur ou chrono a changé (clic, raccourci). */
+  /** Un compteur, chrono ou liste a changé (clic, raccourci). */
   "block-changed": { block: Block };
   /** Changement de structure (cartes, blocs ajoutés ou supprimés, coche) : tout recharger. */
   "data-changed": { appid: number };
   /** Un succès a été coché ou décoché depuis la fenêtre compacte. */
   "achievement-changed": { id: number; unlocked: boolean; game: GameSummary };
-  /** Le compteur ou chrono actif a changé. */
-  "active-changed": { counter: number | null; timer: number | null };
-  /** Un raccourci global a agi (retour visuel). */
-  "shortcut-fired": { text: string; ok: boolean };
+  /** Réglage des raccourcis changé (fenêtre principale) : la fenêtre compacte les réenregistre. */
+  "shortcuts-changed": Record<string, never>;
+  /** Raccourcis enregistrés ou libérés par la fenêtre compacte, et refus du système. */
+  "shortcuts-status": { errors: Partial<Record<string, string>>; live: boolean };
+  /** Une vidéo démarre dans une fenêtre : l'autre met en pause sa copie du même bloc. */
+  "video-playing": { blockId: number };
   /** Jeu ouvert dans la fenêtre principale. */
   "compact-game": { appid: number };
   /** La fenêtre compacte vient de s'ouvrir et demande le jeu ouvert. */

@@ -82,9 +82,30 @@ const summary = () => ({
   celebrated,
 });
 
+/** Fenêtre compacte simulée (onglet « ?compact », données propres à l'onglet) : une carte épinglée
+ *  de démonstration avec un élément de chaque sorte, et le premier succès épinglé avec un compteur. */
+function seedCompact() {
+  freeCards = [{ id: nextFreeId++, title: "Route générale" }];
+  const free = freeCards[0].id;
+  const add = (owner: { achievement_id: number | null; card_id: number | null }, kind: string, data: unknown) =>
+    blocks.push({ id: nextBlockId++, ...owner, kind, position: blocks.filter((b) => ownerKey(b) === ownerKey(owner)).length, data });
+  const card = { achievement_id: null, card_id: free };
+  add(card, "counter", { label: "Cubes de stockage", value: 3, goal: 12, step: 1 });
+  add(card, "timer", { label: "Chambre 9", target_ms: 70000, best_ms: 82000, elapsed_ms: 0, running_since: null });
+  add(card, "list", { items: ["Radio 1", "Radio 2", "Radio 3", "Radio 4"].map((text, i) => ({ text, checked: i === 0 })) });
+  add(card, "video", { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", markers: [{ time: 5, label: "Les éléphants" }] });
+  const ach = { achievement_id: 3, card_id: null };
+  add(ach, "counter", { label: "", value: 0, goal: null, step: 1 });
+  workspace = [
+    { ...card, grid: null, column: "todo", collapsed: false, pinned: true } as MockItem,
+    { ...ach, grid: null, column: "todo", collapsed: false, pinned: true } as MockItem,
+  ];
+}
+
 export function installMock(label = "main") {
   mockConvertFileSrc("windows");
   mockWindows(label);
+  if (label === "compact") seedCompact();
   mockIPC(
     (cmd, payload) => {
     const args = (payload ?? {}) as Record<string, unknown>;

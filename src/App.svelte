@@ -13,7 +13,7 @@
   import { loadSettings } from "./lib/settings.svelte";
   import { applyMotionAttribute, loadMotion } from "./lib/motion.svelte";
   import { loadSound } from "./lib/sound.svelte";
-  import { active, applyShortcuts, loadActive, loadShortcuts } from "./lib/shortcuts.svelte";
+  import { loadShortcuts, shortcuts, type ShortcutAction } from "./lib/shortcuts.svelte";
   import { on, send } from "./lib/sync";
   import { loadTags } from "./lib/tags.svelte";
   import Toast from "./lib/Toast.svelte";
@@ -40,27 +40,26 @@
       /* hors de Tauri (interface simulée) */
     }
     try {
-      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings(), loadTags(), loadActive(), loadMotion(), loadSound()]);
+      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings(), loadTags(), loadMotion(), loadSound()]);
       selected = games[0]?.appid ?? null;
       // Premier lancement : on ouvre directement l'ajout de jeu
       if (games.length === 0) adding = true;
     } catch (e) {
       loadError = String(e);
     }
-    // Raccourcis globaux (fenêtre principale seulement)
-    loadShortcuts().then(applyShortcuts);
+    // Raccourcis globaux : réglés ici, enregistrés par la fenêtre compacte quand elle est ouverte
+    loadShortcuts();
   });
 
-  // Fenêtre compacte : compteurs et chronos modifiés, coches, demande du jeu ouvert
+  // Fenêtre compacte : compteurs, chronos et listes modifiés, coches, demande du jeu ouvert, raccourcis
   $effect(() => {
     const stops = [
       listenBlockChanges(),
       on("achievement-changed", ({ game }) => upsert(game)),
       on("compact-ready", () => selected != null && send("compact-game", { appid: selected })),
-      // Bloc actif choisi depuis la fenêtre compacte
-      on("active-changed", ({ counter, timer }) => {
-        active.counter = counter;
-        active.timer = timer;
+      on("shortcuts-status", ({ errors, live }) => {
+        shortcuts.errors = errors as Partial<Record<ShortcutAction, string>>;
+        shortcuts.live = live;
       }),
     ];
     return () => stops.forEach((s) => s());

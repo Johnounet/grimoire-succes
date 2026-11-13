@@ -207,16 +207,23 @@
 
       <!-- Raccourcis -->
       <section aria-labelledby="s-keys">
-        <h3 id="s-keys" class="text-sm font-semibold tracking-wide text-muted uppercase">Raccourcis clavier globaux</h3>
+        <h3 id="s-keys" class="text-sm font-semibold tracking-wide text-muted uppercase">Raccourcis du mode compact</h3>
         <p class="mt-1 text-xs text-muted">
-          Ils marchent même quand le jeu est au premier plan, sur le compteur et le chrono marqués ◎ actifs dans leurs blocs.
-          Sous Linux Wayland, ils peuvent ne pas fonctionner selon le bureau.
+          Ils marchent même quand le jeu est au premier plan, mais seulement pendant que la fenêtre compacte est ouverte :
+          le reste du temps, les touches restent libres pour les autres logiciels. Haut / Bas choisissent un élément
+          (compteur, chrono, vidéo, liste), Gauche / Droite agissent dessus.
+        </p>
+        <p class="mt-1 text-xs {shortcuts.live ? 'text-ok' : 'text-muted'}">
+          {shortcuts.live ? "● Actifs : la fenêtre compacte est ouverte." : "○ Inactifs : ouvrez le mode compact pour les utiliser."}
         </p>
         <table class="mt-3 w-full text-sm">
           <tbody>
             {#each shortcutActions as s (s.action)}
               <tr class="border-b border-line/50 last:border-0">
-                <td class="py-2 pr-3">{s.label}</td>
+                <td class="py-2 pr-3">
+                  {s.label}
+                  {#if s.hint}<span class="block text-[11px] text-muted">{s.hint}</span>{/if}
+                </td>
                 <td class="py-2">
                   <button
                     onclick={() => (capturing = capturing === s.action ? null : s.action)}
@@ -254,7 +261,7 @@
       <section aria-labelledby="s-compact">
         <h3 id="s-compact" class="text-sm font-semibold tracking-wide text-muted uppercase">Mode compact</h3>
         <p class="mt-1 text-xs text-muted">
-          Petite fenêtre toujours au premier plan : cartes épinglées (icône punaise), leurs compteurs et chronos, et les blocs actifs.
+          Petite fenêtre toujours au premier plan : cartes épinglées (icône punaise), avec leurs compteurs, chronos, vidéos et listes.
         </p>
         <label class="mt-3 flex items-center gap-3 text-sm">
           Opacité

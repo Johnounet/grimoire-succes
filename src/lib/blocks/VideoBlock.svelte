@@ -1,10 +1,11 @@
 <script lang="ts">
   // Vidéo YouTube intégrée (youtube-nocookie.com) avec repères de temps.
-  // Le lecteur est piloté par postMessage (API IFrame, enablejsapi=1) : pas de script externe à charger.
+  // Lecteur piloté par postMessage (voir player.svelte.ts).
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { tick } from "svelte";
   import { FIT_CARD_EVENT } from "../library";
   import { embedUrl, parseYouTube, watchUrl } from "../youtube";
+  import { YouTubePlayer } from "./player.svelte";
   import { saveBlock } from "./store.svelte";
   import { formatClock, parseClock, type Block } from "./types";
 
@@ -12,9 +13,9 @@
 
   let urlDraft = $state("");
   let urlError = $state("");
-  let iframe = $state<HTMLIFrameElement>();
-  /** Temps de lecture actuel, remonté par le lecteur. */
-  let current = $state(0);
+  // svelte-ignore state_referenced_locally (l'id d'un bloc ne change pas)
+  const player = new YouTubePlayer(block.id);
+  const current = $derived(player.current);
   let timeDraft = $state("");
   let labelDraft = $state("");
   let markerError = $state("");
@@ -34,38 +35,13 @@
     saveBlock(block);
     // Tableau : la carte s'agrandit pour montrer toute la vidéo (jamais ne rapetisse)
     await tick();
-    iframe?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true }));
+    player.iframe?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true }));
   }
 
-  function post(func: string, args: unknown[] = []) {
-    iframe?.contentWindow?.postMessage(JSON.stringify({ event: "command", func, args }), "*");
-  }
+  const seek = (t: number) => player.seek(t);
 
-  function seek(t: number) {
-    post("seekTo", [t, true]);
-    post("playVideo");
-  }
-
-  // Écoute la position de lecture (événements « infoDelivery » du lecteur)
-  $effect(() => {
-    const onMessage = (e: MessageEvent) => {
-      if (!iframe || e.source !== iframe.contentWindow) return;
-      try {
-        const msg = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
-        const t = msg?.info?.currentTime;
-        if (typeof t === "number") current = t;
-      } catch {
-        /* message d'un autre format */
-      }
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  });
-
-  function onLoad() {
-    // Demande au lecteur d'envoyer sa position
-    iframe?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: block.id, channel: "widget" }), "*");
-  }
+  // Position et état de lecture, pause quand la même vidéo démarre dans la fenêtre compacte
+  $effect(() => player.attach());
 
   function addMarker(e: SubmitEvent) {
     e.preventDefault();
@@ -109,8 +85,8 @@
   <div class="space-y-2">
     <div class="aspect-video overflow-hidden rounded-lg bg-black">
       <iframe
-        bind:this={iframe}
-        onload={onLoad}
+        bind:this={player.iframe}
+        onload={() => player.loaded()}
         src={embedUrl(ref)}
         title="Vidéo YouTube"
         class="h-full w-full"
