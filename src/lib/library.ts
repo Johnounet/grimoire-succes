@@ -50,6 +50,15 @@ export interface AchievementRow {
   manual: boolean;
   dlc_appid: number | null;
   removed: boolean;
+  /** Progression suivie par Steam (cache local), dernière valeur connue. */
+  progress: Progress | null;
+}
+
+/** Barre de progression d'un succès : valeur d'une statistique du jeu entre `min` et `max`. */
+export interface Progress {
+  value: number;
+  min: number;
+  max: number;
 }
 
 export const api = {

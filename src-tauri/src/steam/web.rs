@@ -110,6 +110,7 @@ fn build(appid: u32, queries: &[(Value, Value)], source: Source) -> Result<GameA
                 unlocked: user_entry.map(|u| u["unlocked"].as_bool().unwrap_or(false)),
                 unlock_time: user_entry.and_then(|u| u["unlock_time"].as_i64()).filter(|&t| t > 0),
                 dlc_appid: dlc,
+                progress: None,
             });
         }
     }

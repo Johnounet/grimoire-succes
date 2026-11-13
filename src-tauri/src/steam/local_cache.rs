@@ -1,10 +1,16 @@
 //! Lecture du cache local de Steam (`appcache/stats/`). Lecture seule.
 //!
 //! - `UserGameStatsSchema_<appid>.bin` : schéma complet (toutes langues, succès cachés compris).
-//! - `UserGameStats_<accountid>_<appid>.bin` : progression d'un compte (bits débloqués + dates).
+//! - `UserGameStats_<accountid>_<appid>.bin` : progression d'un compte (bits débloqués + dates,
+//!   valeurs des statistiques du jeu).
+//!
+//! Progression d'un succès (« 37 / 50 ») : dans le schéma, le bit du succès peut porter
+//! `progress { min_val, max_val, value { operation = "statvalue", operand1 = <nom de stat> } }` ;
+//! la stat est décrite dans `stats` (`name`, `type` INT / FLOAT) et sa valeur est le `data` de la même
+//! clé dans le fichier du compte (bits d'un f32 pour une stat FLOAT).
 
 use super::kv_binary::{self, Kv};
-use super::model::{icon_url, Achievement, GameAchievements, Source};
+use super::model::{icon_url, Achievement, GameAchievements, Progress, Source};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -74,7 +80,46 @@ fn localized(node: Option<&Kv>, lang: &str) -> Option<String> {
 struct SchemaEntry {
     stat_id: u32,
     bit: u32,
+    /// Barre de progression : (stat suivie, min, max)
+    progress: Option<(StatDef, f64, f64)>,
     achievement: Achievement,
+}
+
+/// Statistique du jeu (hors succès) : clé dans le fichier du compte, type, valeur par défaut.
+#[derive(Debug, Clone, Copy)]
+struct StatDef {
+    id: u32,
+    float: bool,
+    default: f64,
+}
+
+/// Statistiques du jeu par nom (`STAT_BULLDOZER`…).
+fn stat_defs(game: &Kv) -> HashMap<String, StatDef> {
+    let mut out = HashMap::new();
+    for (key, stat) in game.get("stats").map(Kv::children).unwrap_or_default() {
+        let (Ok(id), Some(name)) = (key.parse::<u32>(), stat.get("name").and_then(Kv::as_str)) else { continue };
+        let float = match stat.get("type") {
+            Some(Kv::Str(s)) => matches!(s.trim().to_ascii_uppercase().as_str(), "FLOAT" | "AVGRATE" | "2" | "3"),
+            Some(v) => matches!(v.as_i64(), Some(2 | 3)),
+            None => false,
+        };
+        let default = stat.get("default").and_then(Kv::as_f64).unwrap_or(0.0);
+        out.insert(name.to_string(), StatDef { id, float, default });
+    }
+    out
+}
+
+/// Progression déclarée sur un succès, reliée à sa statistique.
+fn progress_def(bit: &Kv, stats: &HashMap<String, StatDef>) -> Option<(StatDef, f64, f64)> {
+    let p = bit.get("progress")?;
+    let value = p.get("value")?;
+    if !value.get("operation").and_then(Kv::as_str).is_some_and(|o| o.eq_ignore_ascii_case("statvalue")) {
+        return None;
+    }
+    let stat = *stats.get(value.get("operand1")?.as_str()?)?;
+    let min = p.get("min_val").and_then(Kv::as_f64).unwrap_or(0.0);
+    let max = p.get("max_val").and_then(Kv::as_f64)?;
+    (max > min).then_some((stat, min, max))
 }
 
 fn is_achievement_stat(stat: &Kv) -> bool {
@@ -89,6 +134,7 @@ fn parse_schema(root: &Kv, appid: u32, lang: &str) -> (Option<String>, Vec<Schem
     let game = root.get(&appid.to_string()).unwrap_or(root);
     let game_name = game.get("gamename").and_then(Kv::as_str).map(str::to_string);
 
+    let stats = stat_defs(game);
     let mut entries = Vec::new();
     for (stat_key, stat) in game.get("stats").map(Kv::children).unwrap_or_default() {
         if !is_achievement_stat(stat) {
@@ -110,6 +156,7 @@ fn parse_schema(root: &Kv, appid: u32, lang: &str) -> (Option<String>, Vec<Schem
             entries.push(SchemaEntry {
                 stat_id,
                 bit,
+                progress: progress_def(b, &stats),
                 achievement: Achievement {
                     name: localized(field("name"), lang)
                         .or_else(|| api_name.clone())
@@ -125,6 +172,7 @@ fn parse_schema(root: &Kv, appid: u32, lang: &str) -> (Option<String>, Vec<Schem
                     unlocked: None,
                     unlock_time: None,
                     dlc_appid: None,
+                    progress: None,
                 },
             });
         }
@@ -132,12 +180,36 @@ fn parse_schema(root: &Kv, appid: u32, lang: &str) -> (Option<String>, Vec<Schem
     (game_name, entries)
 }
 
+/// Fichier du compte lu : succès débloqués et valeurs brutes des statistiques.
+struct UserStats {
+    /// Date d'obtention par (stat, bit), 0 si inconnue
+    unlocked: HashMap<(u32, u32), i64>,
+    /// `data` de chaque statistique
+    values: HashMap<u32, Kv>,
+}
+
+impl UserStats {
+    /// Valeur actuelle d'une statistique (défaut du schéma si le jeu ne l'a jamais écrite).
+    fn value(&self, stat: StatDef) -> f64 {
+        match self.values.get(&stat.id) {
+            Some(Kv::Float(f)) => *f as f64,
+            Some(v) if stat.float => v.as_i64().map_or(stat.default, |bits| f32::from_bits(bits as u32) as f64),
+            Some(v) => v.as_i64().map_or(stat.default, |i| i as f64),
+            None => stat.default,
+        }
+    }
+}
+
 /// État débloqué par (stat, bit) : `data` est un champ de bits, `AchievementTimes` les dates.
-fn parse_progress(root: &Kv) -> HashMap<(u32, u32), i64> {
+fn parse_progress(root: &Kv) -> UserStats {
     let cache = root.get("cache").unwrap_or(root);
     let mut out = HashMap::new();
+    let mut values = HashMap::new();
     for (stat_key, stat) in cache.children() {
         let Ok(stat_id) = stat_key.parse::<u32>() else { continue };
+        if let Some(data) = stat.get("data") {
+            values.insert(stat_id, data.clone());
+        }
         let bits = stat.get("data").and_then(Kv::as_i64).unwrap_or(0) as u32;
         let times = stat.get("AchievementTimes");
         for bit in 0..32 {
@@ -150,7 +222,7 @@ fn parse_progress(root: &Kv) -> HashMap<(u32, u32), i64> {
             }
         }
     }
-    out
+    UserStats { unlocked: out, values }
 }
 
 /// Charge les succès d'un jeu depuis le cache local.
@@ -178,9 +250,10 @@ pub fn load(steam: &Path, appid: u32, account_id: Option<u32>, lang: &str) -> Re
         .map(|e| {
             let mut a = e.achievement;
             if let Some(p) = &progress {
-                let t = p.get(&(e.stat_id, e.bit));
+                let t = p.unlocked.get(&(e.stat_id, e.bit));
                 a.unlocked = Some(t.is_some());
                 a.unlock_time = t.copied().filter(|&t| t > 0);
+                a.progress = e.progress.map(|(stat, min, max)| Progress { value: p.value(stat), min, max });
             }
             a
         })
@@ -193,4 +266,23 @@ pub fn load(steam: &Path, appid: u32, account_id: Option<u32>, lang: &str) -> Re
         language: lang.to_string(),
         achievements,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valeur_des_statistiques() {
+        let stats = UserStats {
+            unlocked: HashMap::new(),
+            // Terraria : stat INT, et stat FLOAT rangée en bits de f32 (10 000,0)
+            values: HashMap::from([(6, Kv::Int(3)), (9, Kv::Int(1_176_256_512))]),
+        };
+        let def = |id, float| StatDef { id, float, default: 0.0 };
+        assert_eq!(stats.value(def(6, false)), 3.0);
+        assert_eq!(stats.value(def(9, true)), 10_000.0);
+        // Jamais écrite par le jeu : valeur par défaut du schéma
+        assert_eq!(stats.value(StatDef { id: 42, float: false, default: 5.0 }), 5.0);
+    }
 }

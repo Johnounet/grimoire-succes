@@ -146,6 +146,15 @@ impl Kv {
         }
     }
 
+    /// Valeur numérique (entière, flottante ou texte).
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Kv::Float(v) => Some(*v as f64),
+            Kv::Str(s) => s.trim().parse().ok(),
+            _ => self.as_i64().map(|v| v as f64),
+        }
+    }
+
     pub fn as_bool(&self) -> Option<bool> {
         self.as_i64().map(|v| v != 0)
     }

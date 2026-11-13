@@ -4,7 +4,7 @@
 //! fait passer la base à la version suivante. Ne jamais modifier une migration publiée,
 //! toujours en ajouter une nouvelle.
 
-use crate::steam::model::{Achievement, GameAchievements, Source};
+use crate::steam::model::{Achievement, GameAchievements, Progress, Source};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -189,6 +189,13 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX blocks_by_achievement ON blocks (achievement_id, position);
     CREATE INDEX blocks_by_card ON blocks (card_id, position);
     CREATE INDEX blocks_by_game ON blocks (appid);
+    "#,
+    // v9 : progression suivie par Steam (« 37 / 50 »), lue dans le cache local. Dernière valeur connue,
+    // gardée quand la source n'en donne pas (profil public, page publique).
+    r#"
+    ALTER TABLE achievements ADD COLUMN progress_value REAL;
+    ALTER TABLE achievements ADD COLUMN progress_min REAL;
+    ALTER TABLE achievements ADD COLUMN progress_max REAL;
     "#,
 ];
 
@@ -377,8 +384,9 @@ pub fn save_game(
         let mut upsert = tx.prepare(
             "INSERT INTO achievements (appid, key, api_name, name, description, hidden, icon_url,
                                        icon_gray_url, rarity, unlocked, unlock_time, manual,
-                                       dlc_appid, steam_order, removed)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0)
+                                       dlc_appid, steam_order, removed,
+                                       progress_value, progress_min, progress_max)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0, ?15, ?16, ?17)
              ON CONFLICT(appid, key) DO UPDATE SET
                 api_name = excluded.api_name, name = excluded.name,
                 description = excluded.description, hidden = excluded.hidden,
@@ -386,7 +394,10 @@ pub fn save_game(
                 rarity = COALESCE(excluded.rarity, achievements.rarity),
                 unlocked = excluded.unlocked, unlock_time = excluded.unlock_time,
                 manual = excluded.manual, dlc_appid = excluded.dlc_appid,
-                steam_order = excluded.steam_order, removed = 0",
+                steam_order = excluded.steam_order, removed = 0,
+                progress_value = COALESCE(excluded.progress_value, achievements.progress_value),
+                progress_min = COALESCE(excluded.progress_min, achievements.progress_min),
+                progress_max = COALESCE(excluded.progress_max, achievements.progress_max)",
         )?;
 
         for (order, a) in data.achievements.iter().enumerate() {
@@ -414,6 +425,9 @@ pub fn save_game(
                 manual,
                 a.dlc_appid,
                 order as i64,
+                a.progress.map(|p| p.value),
+                a.progress.map(|p| p.min),
+                a.progress.map(|p| p.max),
             ])?;
         }
     }
@@ -555,12 +569,15 @@ pub struct AchievementRow {
     pub manual: bool,
     pub dlc_appid: Option<u32>,
     pub removed: bool,
+    /// Progression suivie par Steam, dernière valeur connue.
+    pub progress: Option<Progress>,
 }
 
 pub fn list_achievements(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<AchievementRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, api_name, name, description, hidden, icon_url, icon_gray_url, rarity,
-                unlocked, unlock_time, manual, dlc_appid, removed
+                unlocked, unlock_time, manual, dlc_appid, removed,
+                progress_value, progress_min, progress_max
          FROM achievements WHERE appid = ?1 ORDER BY removed, steam_order",
     )?;
     let rows = stmt.query_map([appid], |r| {
@@ -578,6 +595,10 @@ pub fn list_achievements(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<
             manual: r.get(10)?,
             dlc_appid: r.get(11)?,
             removed: r.get(12)?,
+            progress: match (r.get::<_, Option<f64>>(13)?, r.get::<_, Option<f64>>(14)?, r.get::<_, Option<f64>>(15)?) {
+                (Some(value), Some(min), Some(max)) => Some(Progress { value, min, max }),
+                _ => None,
+            },
         })
     })?;
     rows.collect()
@@ -1061,6 +1082,7 @@ mod tests {
             unlocked,
             unlock_time: unlocked.filter(|&u| u).map(|_| 1000),
             dlc_appid: None,
+            progress: None,
         }
     }
 

@@ -4,6 +4,9 @@
 //! bibliothèque, et un changement relit le seul cache local (sans réseau : la rareté déjà en base est
 //! gardée). Les règles d'actualisation de `db::save_game` s'appliquent (coches manuelles comprises).
 //!
+//! Le même fichier porte les statistiques du jeu : une progression suivie par Steam (« 37 / 50 ») qui
+//! change est enregistrée aussi, et annoncée par le même événement (sans succès débloqué).
+//!
 //! Lecture seule côté Steam : on ne lit que des dates de fichiers et le cache, jamais d'écriture.
 
 use crate::db::{self, GameSummary};
@@ -46,9 +49,9 @@ fn run(app: AppHandle) {
     let mut last_detect: Option<Instant> = None;
     // Date de modification vue en dernier, par jeu (la première vue sert de référence)
     let mut seen: HashMap<u32, SystemTime> = HashMap::new();
-    // États lus en dernier dans chaque fichier : un fichier réécrit sans changement de succès
-    // (statistiques du jeu) ne touche pas à la base
-    let mut states: HashMap<u32, Vec<(String, Option<bool>)>> = HashMap::new();
+    // États lus en dernier dans chaque fichier : un fichier réécrit sans changement d'état ni de
+    // progression des succès (autres statistiques du jeu) ne touche pas à la base
+    let mut states: HashMap<u32, Vec<Signature>> = HashMap::new();
 
     loop {
         std::thread::sleep(POLL);
@@ -84,15 +87,21 @@ fn run(app: AppHandle) {
     }
 }
 
-/// État de chaque succès dans le fichier (clé : ID technique, sinon nom).
-fn signature(data: &GameAchievements) -> Vec<(String, Option<bool>)> {
+/// État et progression d'un succès dans le fichier (clé : ID technique, sinon nom).
+type Signature = (String, Option<bool>, Option<f64>);
+
+fn signature(data: &GameAchievements) -> Vec<Signature> {
     data.achievements
         .iter()
-        .map(|a| (a.api_name.clone().unwrap_or_else(|| format!("name:{}", a.name)), a.unlocked))
+        .map(|a| {
+            let key = a.api_name.clone().unwrap_or_else(|| format!("name:{}", a.name));
+            (key, a.unlocked, a.progress.map(|p| p.value))
+        })
         .collect()
 }
 
-/// Enregistre la progression lue. Renvoie l'événement à envoyer si l'état des succès a changé en base.
+/// Enregistre la progression lue. Renvoie l'événement à envoyer si l'état ou la progression des succès
+/// a changé en base.
 fn refresh(state: &AppState, appid: u32, data: &GameAchievements) -> rusqlite::Result<Option<ProgressEvent>> {
     let mut conn = state.conn();
     let Some(game) = db::get_game(&conn, appid)? else { return Ok(None) };
@@ -101,8 +110,8 @@ fn refresh(state: &AppState, appid: u32, data: &GameAchievements) -> rusqlite::R
     let after = db::list_achievements(&conn, appid)?;
 
     let unlocked = newly_unlocked(&before, &after);
-    let changed = before.iter().map(|a| (a.id, a.unlocked)).collect::<Vec<_>>()
-        != after.iter().map(|a| (a.id, a.unlocked)).collect::<Vec<_>>();
+    let state = |list: &[db::AchievementRow]| list.iter().map(|a| (a.id, a.unlocked, a.progress)).collect::<Vec<_>>();
+    let changed = state(&before) != state(&after);
     if !changed {
         return Ok(None);
     }
@@ -123,7 +132,7 @@ fn newly_unlocked(before: &[db::AchievementRow], after: &[db::AchievementRow]) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::steam::model::{Achievement, Source};
+    use crate::steam::model::{Achievement, Progress, Source};
 
     fn ach(api: &str, unlocked: Option<bool>) -> Achievement {
         Achievement {
@@ -137,6 +146,7 @@ mod tests {
             unlocked,
             unlock_time: None,
             dlc_appid: None,
+            progress: None,
         }
     }
 
@@ -172,6 +182,20 @@ mod tests {
 
         // Jeu absent de la bibliothèque : ignoré
         assert!(refresh(&state, 999, &game(vec![ach("A", Some(true))])).unwrap().is_none());
-        assert_eq!(signature(&game(vec![ach("A", None)])), vec![("A".to_string(), None)]);
+        assert_eq!(signature(&game(vec![ach("A", None)])), vec![("A".to_string(), None, None)]);
+
+        // Progression qui avance sans succès débloqué : événement sans succès
+        let with = |v: f64| {
+            let mut g = game(vec![ach("A", Some(false)), ach("B", Some(true))]);
+            g.achievements[0].progress = Some(Progress { value: v, min: 0.0, max: 50.0 });
+            g
+        };
+        let ev = refresh(&state, 620, &with(37.0)).unwrap().unwrap();
+        assert!(ev.unlocked.is_empty());
+        assert_eq!(db::list_achievements(&state.conn(), 620).unwrap()[0].progress.map(|p| p.value), Some(37.0));
+        assert!(refresh(&state, 620, &with(37.0)).unwrap().is_none());
+        // Source sans progression (profil public) : la dernière valeur connue est gardée
+        refresh(&state, 620, &game(vec![ach("A", Some(false)), ach("B", Some(true))])).unwrap();
+        assert_eq!(db::list_achievements(&state.conn(), 620).unwrap()[0].progress.map(|p| p.value), Some(37.0));
     }
 }

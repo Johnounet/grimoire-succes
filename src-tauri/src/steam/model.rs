@@ -27,6 +27,16 @@ pub struct Achievement {
     pub unlock_time: Option<i64>,
     /// AppID du DLC qui apporte ce succès, si connu.
     pub dlc_appid: Option<u32>,
+    /// Progression suivie par Steam (« 37 / 50 »), seulement depuis le cache local.
+    pub progress: Option<Progress>,
+}
+
+/// Barre de progression d'un succès : valeur actuelle d'une statistique du jeu, entre `min` et `max`.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+pub struct Progress {
+    pub value: f64,
+    pub min: f64,
+    pub max: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]

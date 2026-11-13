@@ -13,6 +13,7 @@
   import TagPicker from "./TagPicker.svelte";
   import { rarityText } from "./filters";
   import { columns, type AchievementRow, type CardKey, type Column, type FreeCard } from "./library";
+  import SteamProgress from "./SteamProgress.svelte";
 
   let {
     a = null,
@@ -259,6 +260,7 @@
         </button>
       {:else}
         <p class="text-sm text-muted">{a.description || "—"}</p>
+        {#if a.progress && !a.unlocked}<SteamProgress progress={a.progress} />{/if}
       {/if}
 
       <div class="flex flex-wrap items-center gap-2">

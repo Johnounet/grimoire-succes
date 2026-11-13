@@ -509,6 +509,7 @@ mod tests {
             unlocked: Some(api == "A"),
             unlock_time: None,
             dlc_appid: None,
+            progress: None,
         }
     }
 

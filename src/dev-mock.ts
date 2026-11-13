@@ -25,6 +25,8 @@ const achievements = [
   manual: false,
   dlc_appid: null,
   removed: false,
+  // Progression suivie par Steam (cache local) : sur « Le pont le vit » seulement
+  progress: api_name === "ACH.BRIDGE" ? { value: 37, min: 0, max: 50 } : null,
 }));
 
 const cardSizes = new Map<number, { w: number; h: number }>();
@@ -92,7 +94,7 @@ let gameOrder = [620, ...otherGames.map((g) => g.appid)];
 const allGames = () => gameOrder.map((id) => (id === 620 ? summary() : otherGames.find((g) => g.appid === id)!));
 
 /** Fenêtre compacte simulée (onglet « ?compact », données propres à l'onglet) : une carte épinglée
- *  de démonstration avec un élément de chaque sorte, et le premier succès épinglé avec un compteur. */
+ *  de démonstration avec un élément de chaque sorte, et « Le pont le vit » épinglé avec un compteur (il a une progression Steam). */
 function seedCompact() {
   freeCards = [{ id: nextFreeId++, title: "Route générale" }];
   const free = freeCards[0].id;
@@ -103,7 +105,7 @@ function seedCompact() {
   add(card, "timer", { label: "Chambre 9", target_ms: 70000, best_ms: 82000, elapsed_ms: 0, running_since: null });
   add(card, "list", { items: ["Radio 1", "Radio 2", "Radio 3", "Radio 4"].map((text, i) => ({ text, checked: i === 0 })) });
   add(card, "video", { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", markers: [{ time: 5, label: "Les éléphants" }] });
-  const ach = { achievement_id: 3, card_id: null };
+  const ach = { achievement_id: 4, card_id: null };
   add(ach, "counter", { label: "", value: 0, goal: null, step: 1 });
   workspace = [
     { ...card, grid: null, column: "todo", collapsed: false, pinned: true } as MockItem,

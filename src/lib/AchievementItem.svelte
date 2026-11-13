@@ -5,6 +5,7 @@
   import TagPicker from "./TagPicker.svelte";
   import { rarityBar, rarityText } from "./filters";
   import type { AchievementRow } from "./library";
+  import SteamProgress from "./SteamProgress.svelte";
 
   let {
     a,
@@ -119,6 +120,7 @@
         {#if a.removed}<span class="shrink-0 rounded bg-raised px-1.5 py-0.5 text-[10px] text-muted">retiré de Steam</span>{/if}
       </div>
       <p class="text-sm text-muted">{a.description || "—"}</p>
+      {#if a.progress && !a.unlocked}<div class="mt-1 max-w-64"><SteamProgress progress={a.progress} /></div>{/if}
     {/if}
     <div class="mt-0.5 flex flex-wrap items-center gap-1.5">
       {#if a.api_name}<CopyId id={a.api_name} />{/if}

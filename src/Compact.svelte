@@ -38,6 +38,7 @@
   import { appearance, applyTheme, loadAppearance, type ThemeId } from "./lib/theme.svelte";
   import { beep, chime, loadSound, sound } from "./lib/sound.svelte";
   import { on, send } from "./lib/sync";
+  import SteamProgress from "./lib/SteamProgress.svelte";
 
   let appid = $state(0);
   let game = $state<GameSummary | null>(null);
@@ -431,7 +432,11 @@
             {#if icon}<img src={icon} alt="" class="h-7 w-7 shrink-0 rounded {a.unlocked ? '' : 'opacity-70 grayscale'}" />{/if}
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm font-medium {spoiler(a) ? 'blur-[5px]' : ''}">{a.name}</div>
-              {#if a.rarity != null}<div class="text-[10px] {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</div>{/if}
+              {#if a.progress && !a.unlocked && !spoiler(a)}
+                <SteamProgress progress={a.progress} small />
+              {:else if a.rarity != null}
+                <div class="text-[10px] {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</div>
+              {/if}
             </div>
           </div>
         {/if}

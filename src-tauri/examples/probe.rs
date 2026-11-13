@@ -47,6 +47,16 @@ fn main() {
                         a.unlock_time.map(|t| t.to_string()).unwrap_or_default(),
                     );
                 }
+                // Progression suivie par Steam (cache local seulement), succès non obtenus d'abord
+                let mut tracked: Vec<_> = g.achievements.iter().filter(|a| a.progress.is_some()).collect();
+                tracked.sort_by_key(|a| a.unlocked == Some(true));
+                if !tracked.is_empty() {
+                    println!("  {} succès avec progression Steam :", tracked.len());
+                    for a in tracked.iter().take(8) {
+                        let p = a.progress.unwrap();
+                        println!("    {:<40} {} / {} (min {})", a.name, p.value, p.max, p.min);
+                    }
+                }
             }
         }
     }
