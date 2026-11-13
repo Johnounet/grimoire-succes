@@ -2,6 +2,16 @@
   // Réglages : interface (animations, son), étiquettes, raccourcis clavier globaux, mode compact.
   import { backdrop, motion, pop, setMotionPref, type MotionPref } from "./motion.svelte";
   import { chime, setCheckSound, sound } from "./sound.svelte";
+  import {
+    appearance,
+    currentTheme,
+    darkThemes,
+    lightThemes,
+    paletteStyle,
+    setAppearance,
+    type AppearanceMode,
+    type Theme,
+  } from "./theme.svelte";
   import { setCompactOpacity, settings } from "./settings.svelte";
   import {
     accelFromEvent,
@@ -16,6 +26,13 @@
   import { createTag, deleteTag, TAG_COLORS, tags, tagStyle, updateTag, type Tag } from "./tags.svelte";
 
   let { onclose }: { onclose: () => void } = $props();
+
+  // ----- Apparence -----
+  const modeChoices: { v: AppearanceMode; l: string }[] = [
+    { v: "system", l: "Selon Windows" },
+    { v: "dark", l: "Sombre" },
+    { v: "light", l: "Clair" },
+  ];
 
   // ----- Interface -----
   const motionChoices: { v: MotionPref; l: string }[] = [
@@ -74,6 +91,45 @@
   }
 </script>
 
+{#snippet themeRow(label: string, list: Theme[], family: "dark" | "light")}
+  <h4 class="mt-4 text-sm">{label}</h4>
+  <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label={label}>
+    {#each list as t (t.id)}
+      {@const chosen = appearance[family] === t.id}
+      <button
+        role="radio"
+        aria-checked={chosen}
+        onclick={() => setAppearance(family === "dark" ? { dark: t.id } : { light: t.id })}
+        title={t.hint}
+        class="rounded-xl p-1 text-left transition {chosen ? 'ring-2 ring-accent' : 'ring-1 ring-line hover:ring-muted'}"
+      >
+        <!-- Aperçu dans les couleurs du thème -->
+        <div style={paletteStyle(t.colors)} class="overflow-hidden rounded-lg border border-line bg-bg p-1.5" aria-hidden="true">
+          <div class="flex gap-1.5">
+            <div class="w-3 space-y-1">
+              <div class="h-3 rounded-sm bg-accent"></div>
+              <div class="h-3 rounded-sm bg-raised"></div>
+            </div>
+            <div class="min-w-0 flex-1 space-y-1 rounded-md border border-line bg-panel p-1">
+              <div class="flex items-center gap-1">
+                <span class="h-2 w-2 shrink-0 rounded-full bg-ok"></span>
+                <span class="h-1.5 flex-1 rounded-full bg-fg/80"></span>
+              </div>
+              <div class="h-1.5 w-2/3 rounded-full bg-muted/70"></div>
+              <div class="flex justify-end gap-1">
+                <span class="h-2 w-3 rounded-sm bg-gold"></span>
+                <span class="h-2 w-4 rounded-sm bg-accent"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-1 px-1 text-xs font-medium">{t.name}</div>
+        <div class="px-1 text-[11px] leading-tight text-muted">{t.hint}</div>
+      </button>
+    {/each}
+  </div>
+{/snippet}
+
 <div
   class="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
   role="presentation"
@@ -93,6 +149,36 @@
     </header>
 
     <div class="space-y-8 overflow-y-auto px-5 py-4">
+      <!-- Apparence -->
+      <section aria-labelledby="s-look">
+        <h3 id="s-look" class="text-sm font-semibold tracking-wide text-muted uppercase">Apparence</h3>
+        <div class="mt-3 flex flex-wrap items-center gap-3 text-sm">
+          <span id="mode-label">Mode</span>
+          <div class="inline-flex rounded-lg border border-line bg-bg p-0.5" role="radiogroup" aria-labelledby="mode-label">
+            {#each modeChoices as o (o.v)}
+              <button
+                role="radio"
+                aria-checked={appearance.mode === o.v}
+                onclick={() => setAppearance({ mode: o.v })}
+                class="rounded-md px-3 py-1 transition
+                  {appearance.mode === o.v ? 'bg-raised font-medium text-fg' : 'text-muted hover:text-fg'}"
+              >
+                {o.l}
+              </button>
+            {/each}
+          </div>
+        </div>
+        <p class="mt-1 text-xs text-muted">
+          {#if appearance.mode === "system"}
+            Windows est en mode {appearance.systemDark ? "sombre" : "clair"} : thème « {currentTheme().name} ».
+          {:else}
+            Thème « {currentTheme().name} », quel que soit le réglage de Windows.
+          {/if}
+        </p>
+        {@render themeRow("Thème sombre", darkThemes, "dark")}
+        {@render themeRow("Thème clair", lightThemes, "light")}
+      </section>
+
       <!-- Interface -->
       <section aria-labelledby="s-ui">
         <h3 id="s-ui" class="text-sm font-semibold tracking-wide text-muted uppercase">Interface</h3>
@@ -198,7 +284,7 @@
             aria-label="Nom de la nouvelle étiquette"
             class="min-w-0 flex-1 rounded-md border border-line bg-bg px-2 py-1 text-sm outline-none focus:border-accent"
           />
-          <button type="submit" disabled={!newName.trim()} class="rounded-md bg-accent px-3 py-1 text-sm font-medium text-white disabled:opacity-50">
+          <button type="submit" disabled={!newName.trim()} class="rounded-md bg-accent px-3 py-1 text-sm font-medium text-on-accent disabled:opacity-50">
             Créer
           </button>
         </form>

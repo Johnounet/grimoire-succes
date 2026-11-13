@@ -38,6 +38,8 @@ export interface SyncEvents {
   "compact-opacity": { value: number };
   /** Réglage des animations changé. */
   "motion-changed": { pref: "system" | "on" | "off" };
+  /** Apparence ou thème changé. */
+  "theme-changed": { mode: "system" | "dark" | "light"; dark: string; light: string };
   /** Réglage du carillon à la coche changé. */
   "sound-changed": { check: boolean };
 }

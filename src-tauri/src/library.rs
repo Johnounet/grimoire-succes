@@ -262,6 +262,10 @@ const SETTINGS: &[&str] = &[
     // Animations (system / on / off) et carillon à la coche
     "animations",
     "check_sound",
+    // Apparence (system / dark / light) et thème choisi dans chaque famille
+    "appearance",
+    "theme_dark",
+    "theme_light",
 ];
 
 fn check_setting(key: &str) -> Result<(), String> {

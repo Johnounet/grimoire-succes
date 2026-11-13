@@ -89,7 +89,10 @@ export type SettingKey =
   | "shortcut_sound"
   | "compact_opacity"
   | "animations"
-  | "check_sound";
+  | "check_sound"
+  | "appearance"
+  | "theme_dark"
+  | "theme_light";
 
 export type Column = "todo" | "doing" | "done";
 

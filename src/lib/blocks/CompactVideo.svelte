@@ -68,7 +68,7 @@
     <button
       onclick={right}
       disabled={!ref}
-      class="h-8 w-8 rounded-md font-semibold text-white hover:brightness-110 disabled:opacity-40 {open && player.playing ? 'bg-danger' : 'bg-accent'}"
+      class="h-8 w-8 rounded-md font-semibold hover:brightness-110 disabled:opacity-40 {open && player.playing ? 'bg-danger text-white' : 'bg-accent text-on-accent'}"
       aria-label={open && player.playing ? "Pause" : "Lecture"}
       title={open && player.playing ? "Pause" : "Lecture"}
     >

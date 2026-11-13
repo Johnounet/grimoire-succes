@@ -12,6 +12,7 @@
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import { loadSettings } from "./lib/settings.svelte";
   import { applyMotionAttribute, loadMotion } from "./lib/motion.svelte";
+  import { applyTheme, loadAppearance } from "./lib/theme.svelte";
   import { chime, loadSound } from "./lib/sound.svelte";
   import { loadShortcuts, shortcuts, type ShortcutAction } from "./lib/shortcuts.svelte";
   import { on, send } from "./lib/sync";
@@ -40,7 +41,7 @@
       /* hors de Tauri (interface simulée) */
     }
     try {
-      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings(), loadTags(), loadMotion(), loadSound()]);
+      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings(), loadTags(), loadMotion(), loadSound(), loadAppearance()]);
       selected = games[0]?.appid ?? null;
       // Premier lancement : on ouvre directement l'ajout de jeu
       if (games.length === 0) adding = true;
@@ -80,6 +81,7 @@
     if (selected != null) send("compact-game", { appid: selected });
   });
   $effect(applyMotionAttribute);
+  $effect(applyTheme);
 
   function upsert(g: GameSummary) {
     const i = games.findIndex((x) => x.appid === g.appid);
@@ -168,7 +170,7 @@
           <p class="text-sm text-muted">Ajoutez un jeu pour importer ses succès.</p>
           <button
             onclick={() => (adding = true)}
-            class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:brightness-110"
+            class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:brightness-110"
           >
             Ajouter un jeu
           </button>

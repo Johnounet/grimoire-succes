@@ -35,6 +35,7 @@
     type ShortcutAction,
   } from "./lib/shortcuts.svelte";
   import { applyMotionAttribute, loadMotion, motion } from "./lib/motion.svelte";
+  import { appearance, applyTheme, loadAppearance, type ThemeId } from "./lib/theme.svelte";
   import { beep, chime, loadSound, sound } from "./lib/sound.svelte";
   import { on, send } from "./lib/sync";
 
@@ -215,6 +216,7 @@
   }
 
   $effect(applyMotionAttribute);
+  $effect(applyTheme);
 
   onMount(() => {
     document.documentElement.classList.add("compact");
@@ -247,6 +249,7 @@
       }),
       on("compact-opacity", ({ value }) => (settings.compactOpacity = clampOpacity(value))),
       on("motion-changed", ({ pref }) => (motion.pref = pref)),
+      on("theme-changed", ({ mode, dark, light }) => Object.assign(appearance, { mode, dark: dark as ThemeId, light: light as ThemeId })),
       on("sound-changed", ({ check }) => (sound.check = check)),
     ];
     const tick = setInterval(() => (now = Date.now()), 100);
@@ -260,7 +263,7 @@
       /* interface simulée */
     }
 
-    Promise.all([loadSettings(), loadMotion(), loadSound(), registerShortcuts()]).then(async () => {
+    Promise.all([loadSettings(), loadMotion(), loadSound(), loadAppearance(), registerShortcuts()]).then(async () => {
       send("compact-ready", {});
       // Sans réponse de la fenêtre principale (interface simulée) : premier jeu de la bibliothèque
       setTimeout(async () => {
@@ -312,7 +315,7 @@
           </div>
         </div>
         <button onclick={() => counter(b, -1)} disabled={d.value <= 0} class="h-8 w-8 rounded-md border border-line font-semibold hover:bg-raised disabled:opacity-40" aria-label="Retirer">−</button>
-        <button onclick={() => counter(b, 1)} class="h-8 w-8 rounded-md bg-accent font-semibold text-white hover:brightness-110" aria-label="Ajouter">+</button>
+        <button onclick={() => counter(b, 1)} class="h-8 w-8 rounded-md bg-accent font-semibold text-on-accent hover:brightness-110" aria-label="Ajouter">+</button>
       </div>
     {:else if b.kind === "timer"}
       {@const d = b.data as TimerData}
@@ -328,7 +331,7 @@
         </div>
         <button
           onclick={() => timer(b)}
-          class="h-8 rounded-md px-2 text-sm font-semibold text-white hover:brightness-110 {running ? 'bg-danger' : 'bg-accent'}"
+          class="h-8 rounded-md px-2 text-sm font-semibold hover:brightness-110 {running ? 'bg-danger text-white' : 'bg-accent text-on-accent'}"
         >
           {running ? "Stop" : "Go"}
         </button>

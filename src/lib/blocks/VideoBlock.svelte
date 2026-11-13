@@ -77,7 +77,7 @@
         aria-label="Lien de la vidéo YouTube"
         class="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent"
       />
-      <button class="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:brightness-110">OK</button>
+      <button class="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:brightness-110">OK</button>
     </div>
     {#if urlError}<p class="text-xs text-danger">{urlError}</p>{/if}
   </form>

@@ -74,7 +74,7 @@
     <button
       onclick={() => add(1)}
       aria-label={`Ajouter ${d.step}`}
-      class="h-10 w-10 shrink-0 rounded-lg bg-accent text-lg font-semibold text-white transition hover:brightness-110"
+      class="h-10 w-10 shrink-0 rounded-lg bg-accent text-lg font-semibold text-on-accent transition hover:brightness-110"
     >
       +
     </button>

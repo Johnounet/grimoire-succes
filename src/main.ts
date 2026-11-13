@@ -11,6 +11,8 @@ async function start() {
   }
   // Interface importée après le simulateur : elle lit le nom de la fenêtre au chargement
   const { windowLabel } = await import("./lib/sync");
+  // Dernier thème utilisé, posé avant le premier affichage
+  (await import("./lib/theme.svelte")).applyCachedTheme();
   compact = windowLabel === "compact";
   const target = document.getElementById("app")!;
   if (compact) {

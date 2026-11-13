@@ -204,7 +204,7 @@
     <div class="sticky bottom-0 flex items-center gap-2 border-t border-line bg-raised px-3 py-2.5 shadow-[0_-8px_20px_-12px] shadow-black">
       <span class="flex-1 text-sm">{selected.size} sélectionné{selected.size > 1 ? "s" : ""}</span>
       <button onclick={() => selected.clear()} class="rounded-md px-2.5 py-1 text-sm text-muted hover:text-fg">Annuler</button>
-      <button onclick={addSelected} class="rounded-md bg-accent px-3 py-1 text-sm font-medium text-white hover:brightness-110">
+      <button onclick={addSelected} class="rounded-md bg-accent px-3 py-1 text-sm font-medium text-on-accent hover:brightness-110">
         Ajouter à l'espace
       </button>
     </div>

@@ -69,7 +69,7 @@
 
     <div class="mt-5 flex justify-end gap-2">
       <button onclick={onclose} class="rounded-lg px-3 py-1.5 text-sm text-muted hover:bg-raised hover:text-fg">Annuler</button>
-      <button onclick={run} disabled={busy} class="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-60">
+      <button onclick={run} disabled={busy} class="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:brightness-110 disabled:opacity-60">
         {busy ? "Export…" : "Exporter…"}
       </button>
     </div>

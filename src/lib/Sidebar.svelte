@@ -51,7 +51,7 @@
       onclick={onadd}
       title="Ajouter un jeu"
       aria-label="Ajouter un jeu"
-      class="flex items-center justify-center gap-2 rounded-lg bg-accent py-2 text-sm font-medium text-white transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent
+      class="flex items-center justify-center gap-2 rounded-lg bg-accent py-2 text-sm font-medium text-on-accent transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent
         {open ? 'flex-1 px-3' : 'w-10'}"
     >
       <span class="text-lg leading-none">+</span>{#if open}Ajouter un jeu{/if}

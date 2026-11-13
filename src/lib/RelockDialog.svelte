@@ -94,7 +94,7 @@
     {:else}
       <div class="mt-4 flex items-center gap-2">
         <code class="min-w-0 flex-1 truncate rounded-lg border border-line bg-bg px-3 py-2 font-mono text-sm select-all">{command}</code>
-        <button onclick={copy} class="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:brightness-110">
+        <button onclick={copy} class="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-on-accent hover:brightness-110">
           {copied ? "Copiée ✓" : "Copier"}
         </button>
       </div>
