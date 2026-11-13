@@ -57,7 +57,7 @@ cd src-tauri && cargo run --example probe -- <appid> [french|english] [profil]  
 
 Étapes 1 à 7 du SPEC validées sous Windows (2026-11-12). **Étape 8 (finitions) en cours**, validés sous Windows : 100 % et célébration, animations, cartes libres, refonte du mode compact, actualisation automatique, export / import de guides, thèmes. Faits aussi : progression Steam des succès, sauvegardes, dossier `Grimoire`.
 
-- [ ] Page d'accueil, réouverture du dernier jeu, suppression de la vitrine (2026-11-13) : à tester sous Windows
+- [x] Page d'accueil, réouverture du dernier jeu, suppression de la vitrine : validées par l'utilisateur sous Windows (2026-11-13)
 - [ ] Traduction (en dernier)
 
 ## Index de docs/choix.md
