@@ -122,6 +122,7 @@ Diagnostic sans interface : `cd src-tauri && cargo run --example probe -- <appid
 - La langue des pages se choisit par le cookie `Steam_Language=<langue>` (le paramètre `?l=` est ignoré).
 - Profil public + jeu non possédé : la progression arrive quand même, tout à « non obtenu ». Ne pas confondre avec « possédé, rien obtenu ».
 - Cache local : bit débloqué = `(stat, bit)` du schéma ↔ champ de bits `data` de la progression ; dates dans `AchievementTimes`.
+- Le `gamename` du schéma local est choisi par le développeur et peut être un nom de code (Yakuza 3 Remastered → « RINO », constat de l'utilisateur 2026-11-13) : `library_import` prend d'abord le nom du magasin (`store::app_name`), celui de la source seulement hors ligne. La liste « jeux lancés sur ce PC » garde le nom du schéma (pas d'appel réseau par jeu).
 
 ## Nom
 

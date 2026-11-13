@@ -146,9 +146,11 @@ pub async fn library_import(state: State<'_, AppState>, appid: u32) -> Result<Ga
     let profile = state.profile();
     let data = steam::load_best(appid, &lang, profile.as_deref()).await?;
 
-    let name = match &data.game_name {
-        Some(n) => n.clone(),
-        None => store::app_name(appid, &lang).await.ok().flatten().unwrap_or_else(|| format!("AppID {appid}")),
+    // Nom officiel du magasin d'abord : celui du schéma des succès (cache local) est choisi par le
+    // développeur et peut être un nom de code (Yakuza 3 Remastered → « RINO »). Hors ligne, celui de la source.
+    let name = match store::app_name(appid, &lang).await {
+        Ok(Some(n)) => n,
+        _ => data.game_name.clone().unwrap_or_else(|| format!("AppID {appid}")),
     };
 
     // Jaquette : téléchargée une seule fois, pour fonctionner hors ligne
