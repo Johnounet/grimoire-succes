@@ -12,7 +12,7 @@
   import { GridStack, type GridItemHTMLElement, type GridStackNode } from "gridstack";
   import "gridstack/dist/gridstack.min.css";
   import { tick, untrack, type Snippet } from "svelte";
-  import { CARD_MENU_EVENT, cardSizes, DRAG_MIME, FIT_CARD_EVENT, type GridPos, type WorkspaceItem } from "./library";
+  import { CARD_MENU_EVENT, cardKey, cardSizes, DRAG_MIME, FIT_CARD_EVENT, type CardKey, type GridPos, type WorkspaceItem } from "./library";
   import { arrive, reduced } from "./motion.svelte";
   import { ui } from "./settings.svelte";
 
@@ -24,8 +24,8 @@
   }: {
     items: WorkspaceItem[];
     card: Snippet<[WorkspaceItem]>;
-    /** Nouvelles positions après un déplacement ou un redimensionnement. */
-    onlayout: (positions: Map<number, GridPos>) => void;
+    /** Nouvelles positions après un déplacement ou un redimensionnement, par `cardKey`. */
+    onlayout: (positions: Map<CardKey, GridPos>) => void;
     /** Succès glissés depuis le panneau et déposés sur la case (x, y). */
     ondropids: (ids: number[], at: { x: number; y: number }) => void;
   } = $props();
@@ -35,9 +35,9 @@
   let hover = $state(false);
 
   /** Cartes que le joueur retire : leur place sera comblée par les cartes du dessous. */
-  const closing = new Set<number>();
+  const closing = new Set<CardKey>();
 
-  export function willRemove(id: number) {
+  export function willRemove(id: CardKey) {
     closing.add(id);
   }
 
@@ -81,7 +81,7 @@
 
   function emitLayout() {
     if (!grid) return;
-    const positions = new Map<number, GridPos>();
+    const positions = new Map<CardKey, GridPos>();
     for (const n of grid.engine.nodes) {
       const id = Number(n.el?.dataset.id);
       if (Number.isFinite(id)) positions.set(id, { x: n.x ?? 0, y: n.y ?? 0, w: n.w ?? DEFAULT.w, h: n.h ?? DEFAULT.h });
@@ -266,7 +266,7 @@
         if (item.fresh) requestAnimationFrame(() => fitCard(node));
       });
       const stopWatch = watchGrowth(node);
-      const id = item.achievement_id;
+      const id = cardKey(item);
       return () => {
         stopWatch();
         const n = node.gridstackNode;
@@ -371,9 +371,9 @@
   style:padding-bottom="{DROP_ROWS * 40}px"
 >
   <div class="grid-stack" bind:this={gridEl} {@attach setupGrid}>
-    {#each items as item (item.achievement_id)}
-      <div class="grid-stack-item" data-id={item.achievement_id} {@attach (el) => setupItem(el, () => item)}>
-        <div class="grid-stack-item-content" data-card={item.achievement_id} {@attach (el) => arrive(el, item.achievement_id)}>
+    {#each items as item (cardKey(item))}
+      <div class="grid-stack-item" data-id={cardKey(item)} {@attach (el) => setupItem(el, () => item)}>
+        <div class="grid-stack-item-content" data-card={cardKey(item)} {@attach (el) => arrive(el, cardKey(item))}>
           {@render card(item)}
         </div>
       </div>

@@ -223,6 +223,28 @@ pub fn workspace_save(state: State<'_, AppState>, appid: u32, items: Vec<db::Wor
     db::save_workspace(&mut state.conn(), appid, &items).map_err(err)
 }
 
+#[tauri::command]
+pub fn free_cards_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<db::FreeCard>, String> {
+    db::list_free_cards(&state.conn(), appid).map_err(err)
+}
+
+/// Nouvelle carte libre du jeu (l'interface l'ajoute ensuite à l'espace de travail).
+#[tauri::command]
+pub fn free_card_create(state: State<'_, AppState>, appid: u32, title: String) -> Result<db::FreeCard, String> {
+    db::create_free_card(&state.conn(), appid, &title).map_err(err)
+}
+
+#[tauri::command]
+pub fn free_card_rename(state: State<'_, AppState>, id: i64, title: String) -> Result<(), String> {
+    db::rename_free_card(&state.conn(), id, &title).map_err(err)
+}
+
+/// Supprime une carte libre et ses blocs (leurs images partent au prochain démarrage).
+#[tauri::command]
+pub fn free_card_delete(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    db::delete_free_card(&state.conn(), id).map_err(err)
+}
+
 /// Réglages modifiables depuis l'interface.
 const SETTINGS: &[&str] = &[
     "anti_spoiler",

@@ -6,6 +6,7 @@
 // - Compteurs et chronos sont aussi affichés dans la fenêtre compacte : chaque changement
 //   lui est annoncé (`block-changed`), et ceux qu'elle fait arrivent ici de la même façon.
 import { invoke } from "@tauri-apps/api/core";
+import { cardKey, ownerOf, type CardKey } from "../library";
 import { on, send } from "../sync";
 import { defaultData, kindInfo, type Block, type BlockKind } from "./types";
 
@@ -14,8 +15,8 @@ const UNDO_MS = 8000;
 
 export const blocks = $state({
   appid: 0,
-  /** Blocs par succès, dans l'ordre. */
-  byAch: {} as Record<number, Block[]>,
+  /** Blocs par carte (`cardKey` : succès ou carte libre), dans l'ordre. */
+  byCard: {} as Record<CardKey, Block[]>,
   error: "",
 });
 
@@ -33,24 +34,24 @@ function fail(e: unknown) {
 export async function loadBlocks(appid: number) {
   await flushBlocks();
   blocks.appid = appid;
-  blocks.byAch = {};
+  blocks.byCard = {};
   blocks.error = "";
   try {
     const list = await invoke<Block[]>("blocks_list", { appid });
     if (blocks.appid !== appid) return;
-    const grouped: Record<number, Block[]> = {};
-    for (const b of list) (grouped[b.achievement_id] ??= []).push(b);
-    blocks.byAch = grouped;
+    const grouped: Record<CardKey, Block[]> = {};
+    for (const b of list) (grouped[cardKey(b)] ??= []).push(b);
+    blocks.byCard = grouped;
   } catch (e) {
     blocks.error = `Chargement des blocs impossible : ${e}`;
   }
 }
 
-export const blocksOf = (achievementId: number): Block[] => blocks.byAch[achievementId] ?? [];
+export const blocksOf = (key: CardKey): Block[] => blocks.byCard[key] ?? [];
 
 /** Bloc du jeu ouvert, ou undefined s'il n'est pas chargé ici. */
 export function findBlock(id: number): Block | undefined {
-  for (const list of Object.values(blocks.byAch)) {
+  for (const list of Object.values(blocks.byCard)) {
     const b = list.find((x) => x.id === id);
     if (b) return b;
   }
@@ -68,17 +69,25 @@ export function listenBlockChanges(): () => void {
   });
 }
 
+/** Nouveau bloc sur la carte `key` (succès ou carte libre). */
 export async function createBlock<K extends BlockKind>(
-  achievementId: number,
+  key: CardKey,
   kind: K,
   data = defaultData(kind),
   position?: number,
 ): Promise<Block | null> {
   try {
-    const b = await invoke<Block>("block_create", { achievementId, kind, data, position: position ?? null });
+    const o = ownerOf(key);
+    const b = await invoke<Block>("block_create", {
+      achievementId: o.achievement_id,
+      cardId: o.card_id,
+      kind,
+      data,
+      position: position ?? null,
+    });
     // Pas de `??=` ici : sur un état réactif il renverrait le tableau brut, pas sa version suivie
-    if (!blocks.byAch[achievementId]) blocks.byAch[achievementId] = [];
-    const list = blocks.byAch[achievementId];
+    if (!blocks.byCard[key]) blocks.byCard[key] = [];
+    const list = blocks.byCard[key];
     list.splice(position ?? list.length, 0, b);
     renumber(list);
     structureChanged();
@@ -119,7 +128,8 @@ export async function deleteBlock(block: Block) {
     pending.delete(block.id);
   }
   const snapshot = $state.snapshot(block) as Block;
-  const list = blocks.byAch[block.achievement_id] ?? [];
+  const key = cardKey(block);
+  const list = blocks.byCard[key] ?? [];
   const index = list.findIndex((b) => b.id === block.id);
   try {
     await invoke("block_delete", { id: block.id });
@@ -131,24 +141,38 @@ export async function deleteBlock(block: Block) {
   renumber(list);
   structureChanged();
   showToast(`Bloc « ${kindInfo(snapshot.kind).label} » supprimé`, () =>
-    createBlock(snapshot.achievement_id, snapshot.kind, snapshot.data, index),
+    createBlock(key, snapshot.kind, snapshot.data, index),
   );
 }
 
 export function duplicateBlock(block: Block) {
-  const list = blocks.byAch[block.achievement_id] ?? [];
+  const key = cardKey(block);
+  const list = blocks.byCard[key] ?? [];
   const index = list.findIndex((b) => b.id === block.id);
   const data = $state.snapshot(block.data);
   // Un chronomètre dupliqué repart à l'arrêt
   if (block.kind === "timer") Object.assign(data, { running_since: null });
-  return createBlock(block.achievement_id, block.kind, data, index + 1);
+  return createBlock(key, block.kind, data, index + 1);
 }
 
 /** Nouvel ordre après un glisser-déposer. */
-export function reorderBlocks(achievementId: number, ordered: Block[]) {
-  blocks.byAch[achievementId] = ordered;
+export function reorderBlocks(key: CardKey, ordered: Block[]) {
+  blocks.byCard[key] = ordered;
   renumber(ordered);
-  invoke("blocks_reorder", { achievementId, ids: ordered.map((b) => b.id) }).then(structureChanged, fail);
+  const o = ownerOf(key);
+  invoke("blocks_reorder", { achievementId: o.achievement_id, cardId: o.card_id, ids: ordered.map((b) => b.id) }).then(
+    structureChanged,
+    fail,
+  );
+}
+
+/** Carte libre supprimée : ses blocs disparaissent aussi de l'affichage. */
+export function forgetCard(key: CardKey) {
+  for (const b of blocks.byCard[key] ?? []) {
+    clearTimeout(pending.get(b.id)?.timer);
+    pending.delete(b.id);
+  }
+  delete blocks.byCard[key];
 }
 
 function renumber(list: Block[]) {

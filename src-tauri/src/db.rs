@@ -134,6 +134,62 @@ const MIGRATIONS: &[&str] = &[
         WHERE EXISTS (SELECT 1 FROM achievements a WHERE a.appid = games.appid AND a.removed = 0)
           AND NOT EXISTS (SELECT 1 FROM achievements a WHERE a.appid = games.appid AND a.removed = 0 AND a.unlocked = 0);
     "#,
+    // v8 : cartes libres (titrées, rattachées au jeu et non à un succès). Une carte de l'espace de travail
+    // et un bloc appartiennent désormais soit à un succès, soit à une carte libre : les deux tables sont
+    // reconstruites (SQLite ne sait pas rendre une colonne facultative). Les `id` des blocs sont conservés
+    // (le compteur et le chrono « actifs » les référencent).
+    r#"
+    CREATE TABLE free_cards (
+        id         INTEGER PRIMARY KEY,
+        appid      INTEGER NOT NULL REFERENCES games(appid) ON DELETE CASCADE,
+        title      TEXT    NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+    );
+    CREATE INDEX free_cards_by_game ON free_cards (appid);
+
+    CREATE TABLE workspace_items_v8 (
+        id             INTEGER PRIMARY KEY,
+        achievement_id INTEGER UNIQUE REFERENCES achievements(id) ON DELETE CASCADE,
+        card_id        INTEGER UNIQUE REFERENCES free_cards(id) ON DELETE CASCADE,
+        appid          INTEGER NOT NULL REFERENCES games(appid) ON DELETE CASCADE,
+        column_name    TEXT    NOT NULL DEFAULT 'todo' CHECK (column_name IN ('todo', 'doing', 'done')),
+        position       INTEGER NOT NULL,
+        collapsed      INTEGER NOT NULL DEFAULT 0,
+        grid_x         INTEGER,
+        grid_y         INTEGER,
+        grid_w         INTEGER,
+        grid_h         INTEGER,
+        pinned         INTEGER NOT NULL DEFAULT 0,
+        CHECK ((achievement_id IS NULL) <> (card_id IS NULL))
+    );
+    INSERT INTO workspace_items_v8
+        (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned)
+        SELECT achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned
+        FROM workspace_items;
+    DROP TABLE workspace_items;
+    ALTER TABLE workspace_items_v8 RENAME TO workspace_items;
+    CREATE INDEX workspace_items_by_game ON workspace_items (appid, position);
+
+    CREATE TABLE blocks_v8 (
+        id             INTEGER PRIMARY KEY,
+        achievement_id INTEGER REFERENCES achievements(id) ON DELETE CASCADE,
+        card_id        INTEGER REFERENCES free_cards(id) ON DELETE CASCADE,
+        appid          INTEGER NOT NULL REFERENCES games(appid) ON DELETE CASCADE,
+        kind           TEXT    NOT NULL CHECK (kind IN ('video', 'image', 'text', 'list', 'counter', 'timer')),
+        position       INTEGER NOT NULL,
+        data           TEXT    NOT NULL DEFAULT '{}',
+        created_at     INTEGER NOT NULL,
+        updated_at     INTEGER NOT NULL,
+        CHECK ((achievement_id IS NULL) <> (card_id IS NULL))
+    );
+    INSERT INTO blocks_v8 (id, achievement_id, appid, kind, position, data, created_at, updated_at)
+        SELECT id, achievement_id, appid, kind, position, data, created_at, updated_at FROM blocks;
+    DROP TABLE blocks;
+    ALTER TABLE blocks_v8 RENAME TO blocks;
+    CREATE INDEX blocks_by_achievement ON blocks (achievement_id, position);
+    CREATE INDEX blocks_by_card ON blocks (card_id, position);
+    CREATE INDEX blocks_by_game ON blocks (appid);
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -498,9 +554,14 @@ pub struct GridPos {
     pub h: i64,
 }
 
+/// Carte de l'espace de travail : celle d'un succès (`achievement_id`) ou une carte libre (`card_id`),
+/// jamais les deux.
 #[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq)]
 pub struct WorkspaceItem {
-    pub achievement_id: i64,
+    #[serde(default)]
+    pub achievement_id: Option<i64>,
+    #[serde(default)]
+    pub card_id: Option<i64>,
     /// Statut : `todo`, `doing` ou `done`
     pub column: String,
     pub collapsed: bool,
@@ -513,26 +574,47 @@ pub struct WorkspaceItem {
 }
 
 /// Cartes de l'espace de travail d'un jeu, dans l'ordre.
+///
+/// Une carte libre n'existe que dans l'espace de travail : si elle n'y figure plus (enregistrement
+/// interrompu), elle est remise à la fin plutôt que perdue avec ses blocs.
 pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<WorkspaceItem>> {
     let mut stmt = conn.prepare(
-        "SELECT achievement_id, column_name, collapsed, grid_x, grid_y, grid_w, grid_h, pinned FROM workspace_items
-         WHERE appid = ?1 ORDER BY position",
+        "SELECT achievement_id, card_id, column_name, collapsed, grid_x, grid_y, grid_w, grid_h, pinned
+         FROM workspace_items WHERE appid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map([appid], |r| {
         let (x, y, w, h): (Option<i64>, Option<i64>, Option<i64>, Option<i64>) =
-            (r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?);
+            (r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?);
         Ok(WorkspaceItem {
             achievement_id: r.get(0)?,
-            column: r.get(1)?,
-            collapsed: r.get(2)?,
+            card_id: r.get(1)?,
+            column: r.get(2)?,
+            collapsed: r.get(3)?,
             grid: match (x, y, w, h) {
                 (Some(x), Some(y), Some(w), Some(h)) => Some(GridPos { x, y, w, h }),
                 _ => None,
             },
-            pinned: r.get(7)?,
+            pinned: r.get(8)?,
         })
     })?;
-    rows.collect()
+    let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut stray = conn.prepare(
+        "SELECT id FROM free_cards f WHERE appid = ?1
+           AND NOT EXISTS (SELECT 1 FROM workspace_items w WHERE w.card_id = f.id)
+         ORDER BY id",
+    )?;
+    for id in stray.query_map([appid], |r| r.get::<_, i64>(0))? {
+        items.push(WorkspaceItem {
+            achievement_id: None,
+            card_id: Some(id?),
+            column: "todo".into(),
+            collapsed: false,
+            grid: None,
+            pinned: false,
+        });
+    }
+    Ok(items)
 }
 
 /// Taille mémorisée d'une carte du tableau (y compris des cartes retirées de l'espace de travail).
@@ -550,7 +632,8 @@ pub fn card_sizes(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<CardSiz
 }
 
 /// Remplace l'espace de travail d'un jeu par `items` (dans l'ordre donné).
-/// Les succès qui n'appartiennent pas à ce jeu sont ignorés.
+/// Les succès et cartes libres qui n'appartiennent pas à ce jeu sont ignorés. Une carte libre absente
+/// de `items` n'est pas supprimée pour autant (voir `delete_free_card`).
 pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM workspace_items WHERE appid = ?1", [appid])?;
@@ -559,6 +642,11 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
             "INSERT OR IGNORE INTO workspace_items
                  (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned)
              SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 FROM achievements WHERE id = ?1 AND appid = ?2",
+        )?;
+        let mut insert_free = tx.prepare(
+            "INSERT OR IGNORE INTO workspace_items
+                 (card_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned)
+             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 FROM free_cards WHERE id = ?1 AND appid = ?2",
         )?;
         let mut remember = tx.prepare(
             "INSERT INTO card_sizes (achievement_id, appid, w, h)
@@ -575,8 +663,13 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
                 let w = g.w.clamp(1, 12);
                 GridPos { x: g.x.clamp(0, 12 - w), y: g.y.max(0), w, h: g.h.clamp(1, 200) }
             });
-            insert.execute(params![
-                it.achievement_id,
+            let (stmt, id) = match (it.achievement_id, it.card_id) {
+                (Some(id), None) => (&mut insert, id),
+                (None, Some(id)) => (&mut insert_free, id),
+                _ => continue,
+            };
+            stmt.execute(params![
+                id,
                 appid,
                 column,
                 pos as i64,
@@ -587,12 +680,55 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
                 g.map(|g| g.h),
                 it.pinned,
             ])?;
-            if let Some(g) = g {
-                remember.execute(params![it.achievement_id, appid, g.w, g.h])?;
+            // Taille mémorisée : cartes de succès seulement (une carte libre retirée est supprimée)
+            if let (Some(g), Some(id)) = (g, it.achievement_id) {
+                remember.execute(params![id, appid, g.w, g.h])?;
             }
         }
     }
     tx.commit()
+}
+
+// ---------- Cartes libres ----------
+
+/// Carte de l'espace de travail qui n'est rattachée à aucun succès : un titre et des blocs.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct FreeCard {
+    pub id: i64,
+    pub title: String,
+}
+
+const MAX_TITLE_CHARS: usize = 200;
+
+fn clean_title(title: &str) -> String {
+    title.trim().chars().take(MAX_TITLE_CHARS).collect()
+}
+
+pub fn list_free_cards(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<FreeCard>> {
+    let mut stmt = conn.prepare("SELECT id, title FROM free_cards WHERE appid = ?1 ORDER BY id")?;
+    let rows = stmt.query_map([appid], |r| Ok(FreeCard { id: r.get(0)?, title: r.get(1)? }))?;
+    rows.collect()
+}
+
+/// Crée une carte libre. L'interface l'ajoute ensuite à l'espace de travail (à défaut, `list_workspace`
+/// l'y remet).
+pub fn create_free_card(conn: &Connection, appid: u32, title: &str) -> rusqlite::Result<FreeCard> {
+    conn.query_row(
+        "INSERT INTO free_cards (appid, title, created_at) VALUES (?1, ?2, ?3) RETURNING id, title",
+        params![appid, clean_title(title), now()],
+        |r| Ok(FreeCard { id: r.get(0)?, title: r.get(1)? }),
+    )
+}
+
+pub fn rename_free_card(conn: &Connection, id: i64, title: &str) -> rusqlite::Result<()> {
+    conn.execute("UPDATE free_cards SET title = ?2 WHERE id = ?1", params![id, clean_title(title)])?;
+    Ok(())
+}
+
+/// Supprime une carte libre, sa place dans l'espace de travail et ses blocs.
+pub fn delete_free_card(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM free_cards WHERE id = ?1", [id])?;
+    Ok(())
 }
 
 // ---------- Blocs ----------
@@ -602,55 +738,104 @@ pub const BLOCK_KINDS: &[&str] = &["video", "image", "text", "list", "counter", 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Block {
     pub id: i64,
-    pub achievement_id: i64,
+    /// Succès qui porte le bloc, ou `None` pour un bloc de carte libre
+    pub achievement_id: Option<i64>,
+    /// Carte libre qui porte le bloc
+    pub card_id: Option<i64>,
     pub kind: String,
     pub position: i64,
     pub data: serde_json::Value,
 }
 
+const BLOCK_COLUMNS: &str = "b.id, b.achievement_id, b.card_id, b.kind, b.position, b.data";
+
 fn block_row(r: &rusqlite::Row) -> rusqlite::Result<Block> {
-    let raw: String = r.get(4)?;
+    let raw: String = r.get(5)?;
     Ok(Block {
         id: r.get(0)?,
         achievement_id: r.get(1)?,
-        kind: r.get(2)?,
-        position: r.get(3)?,
+        card_id: r.get(2)?,
+        kind: r.get(3)?,
+        position: r.get(4)?,
         data: serde_json::from_str(&raw).unwrap_or(serde_json::Value::Object(Default::default())),
     })
 }
 
-/// Tous les blocs d'un jeu, groupés par succès puis dans l'ordre.
+/// Ce qui porte un bloc : un succès ou une carte libre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Owner {
+    Achievement(i64),
+    Card(i64),
+}
+
+impl Owner {
+    /// Exactement l'un des deux identifiants (forme reçue de l'interface).
+    pub fn from_ids(achievement_id: Option<i64>, card_id: Option<i64>) -> Result<Owner, String> {
+        match (achievement_id, card_id) {
+            (Some(a), None) => Ok(Owner::Achievement(a)),
+            (None, Some(c)) => Ok(Owner::Card(c)),
+            _ => Err("un bloc appartient à un succès ou à une carte libre, pas aux deux".into()),
+        }
+    }
+
+    fn column(self) -> &'static str {
+        match self {
+            Owner::Achievement(_) => "achievement_id",
+            Owner::Card(_) => "card_id",
+        }
+    }
+
+    fn id(self) -> i64 {
+        match self {
+            Owner::Achievement(id) | Owner::Card(id) => id,
+        }
+    }
+
+    fn table(self) -> &'static str {
+        match self {
+            Owner::Achievement(_) => "achievements",
+            Owner::Card(_) => "free_cards",
+        }
+    }
+}
+
+/// Tous les blocs d'un jeu, groupés par succès ou carte libre puis dans l'ordre.
 pub fn list_blocks(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Block>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, achievement_id, kind, position, data FROM blocks
-         WHERE appid = ?1 ORDER BY achievement_id, position",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {BLOCK_COLUMNS} FROM blocks b WHERE appid = ?1 ORDER BY achievement_id, card_id, position"
+    ))?;
     let rows = stmt.query_map([appid], block_row)?;
     rows.collect()
 }
 
-/// Un bloc et le succès qui le porte (compteur ou chrono « actif », qui peut être d'un autre jeu).
+/// Un bloc et la carte qui le porte (compteur ou chrono « actif », qui peut être d'un autre jeu).
 #[derive(Debug, Clone, Serialize)]
 pub struct BlockInfo {
     pub block: Block,
     pub appid: u32,
-    pub achievement_name: String,
+    /// Nom du succès, ou titre de la carte libre
+    pub card_title: String,
 }
 
 pub fn get_block(conn: &Connection, id: i64) -> rusqlite::Result<Option<BlockInfo>> {
     conn.query_row(
-        "SELECT b.id, b.achievement_id, b.kind, b.position, b.data, b.appid, a.name
-         FROM blocks b JOIN achievements a ON a.id = b.achievement_id WHERE b.id = ?1",
+        &format!(
+            "SELECT {BLOCK_COLUMNS}, b.appid, COALESCE(a.name, f.title, '')
+             FROM blocks b
+             LEFT JOIN achievements a ON a.id = b.achievement_id
+             LEFT JOIN free_cards f ON f.id = b.card_id
+             WHERE b.id = ?1"
+        ),
         [id],
-        |r| Ok(BlockInfo { block: block_row(r)?, appid: r.get(5)?, achievement_name: r.get(6)? }),
+        |r| Ok(BlockInfo { block: block_row(r)?, appid: r.get(6)?, card_title: r.get(7)? }),
     )
     .optional()
 }
 
-/// Crée un bloc sous un succès, à la fin ou à `position` (les suivants sont décalés).
+/// Crée un bloc sous un succès ou une carte libre, à la fin ou à `position` (les suivants sont décalés).
 pub fn create_block(
     conn: &mut Connection,
-    achievement_id: i64,
+    owner: Owner,
     kind: &str,
     data: &serde_json::Value,
     position: Option<i64>,
@@ -658,30 +843,29 @@ pub fn create_block(
     if !BLOCK_KINDS.contains(&kind) {
         return Err(rusqlite::Error::InvalidParameterName(format!("type de bloc inconnu : {kind}")));
     }
+    let (col, oid) = (owner.column(), owner.id());
     let tx = conn.transaction()?;
-    let appid: u32 = tx.query_row("SELECT appid FROM achievements WHERE id = ?1", [achievement_id], |r| r.get(0))?;
+    let appid: u32 = tx.query_row(&format!("SELECT appid FROM {} WHERE id = ?1", owner.table()), [oid], |r| r.get(0))?;
     let end: i64 = tx.query_row(
-        "SELECT COALESCE(MAX(position) + 1, 0) FROM blocks WHERE achievement_id = ?1",
-        [achievement_id],
+        &format!("SELECT COALESCE(MAX(position) + 1, 0) FROM blocks WHERE {col} = ?1"),
+        [oid],
         |r| r.get(0),
     )?;
     let pos = position.map(|p| p.clamp(0, end)).unwrap_or(end);
     tx.execute(
-        "UPDATE blocks SET position = position + 1 WHERE achievement_id = ?1 AND position >= ?2",
-        params![achievement_id, pos],
+        &format!("UPDATE blocks SET position = position + 1 WHERE {col} = ?1 AND position >= ?2"),
+        params![oid, pos],
     )?;
     let t = now();
     tx.execute(
-        "INSERT INTO blocks (achievement_id, appid, kind, position, data, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-        params![achievement_id, appid, kind, pos, data.to_string(), t],
+        &format!(
+            "INSERT INTO blocks ({col}, appid, kind, position, data, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)"
+        ),
+        params![oid, appid, kind, pos, data.to_string(), t],
     )?;
     let id = tx.last_insert_rowid();
-    let block = tx.query_row(
-        "SELECT id, achievement_id, kind, position, data FROM blocks WHERE id = ?1",
-        [id],
-        block_row,
-    )?;
+    let block = tx.query_row(&format!("SELECT {BLOCK_COLUMNS} FROM blocks b WHERE b.id = ?1"), [id], block_row)?;
     tx.commit()?;
     Ok(block)
 }
@@ -699,13 +883,14 @@ pub fn delete_block(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// Nouvel ordre des blocs d'un succès. Les blocs d'autres succès sont ignorés.
-pub fn reorder_blocks(conn: &mut Connection, achievement_id: i64, ids: &[i64]) -> rusqlite::Result<()> {
+/// Nouvel ordre des blocs d'un succès ou d'une carte libre. Les blocs d'ailleurs sont ignorés.
+pub fn reorder_blocks(conn: &mut Connection, owner: Owner, ids: &[i64]) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     {
-        let mut stmt = tx.prepare("UPDATE blocks SET position = ?3 WHERE id = ?1 AND achievement_id = ?2")?;
+        let mut stmt =
+            tx.prepare(&format!("UPDATE blocks SET position = ?3 WHERE id = ?1 AND {} = ?2", owner.column()))?;
         for (pos, id) in ids.iter().enumerate() {
-            stmt.execute(params![id, achievement_id, pos as i64])?;
+            stmt.execute(params![id, owner.id(), pos as i64])?;
         }
     }
     tx.commit()
@@ -909,7 +1094,14 @@ mod tests {
         let mut conn = open_in_memory().unwrap();
         save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None)]), "P", None).unwrap();
         let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
-        let item = |id, col: &str| WorkspaceItem { achievement_id: id, column: col.into(), collapsed: false, grid: None, pinned: false };
+        let item = |id, col: &str| WorkspaceItem {
+            achievement_id: Some(id),
+            card_id: None,
+            column: col.into(),
+            collapsed: false,
+            grid: None,
+            pinned: false,
+        };
 
         let mut wanted = vec![item(ids[2], "doing"), item(ids[0], "todo")];
         wanted[0].grid = Some(GridPos { x: 4, y: 0, w: 8, h: 10 });
@@ -950,17 +1142,17 @@ mod tests {
         save_game(&mut conn, &game(vec![ach("A", None), ach("B", None)]), "P", None).unwrap();
         let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
 
-        let t = create_block(&mut conn, ids[0], "text", &json!({"markdown": "**coffre**"}), None).unwrap();
-        let c = create_block(&mut conn, ids[0], "counter", &json!({"value": 3, "goal": 50, "step": 1}), None).unwrap();
+        let t = create_block(&mut conn, Owner::Achievement(ids[0]), "text", &json!({"markdown": "**coffre**"}), None).unwrap();
+        let c = create_block(&mut conn, Owner::Achievement(ids[0]), "counter", &json!({"value": 3, "goal": 50, "step": 1}), None).unwrap();
         // Duplication / annulation : insertion au milieu
-        let i = create_block(&mut conn, ids[0], "image", &json!({"file": "blocks/x.png"}), Some(1)).unwrap();
-        assert!(create_block(&mut conn, ids[0], "pas-un-type", &json!({}), None).is_err());
+        let i = create_block(&mut conn, Owner::Achievement(ids[0]), "image", &json!({"file": "blocks/x.png"}), Some(1)).unwrap();
+        assert!(create_block(&mut conn, Owner::Achievement(ids[0]), "pas-un-type", &json!({}), None).is_err());
 
         let order = |conn: &Connection| list_blocks(conn, 620).unwrap().iter().map(|b| b.id).collect::<Vec<_>>();
         assert_eq!(order(&conn), vec![t.id, i.id, c.id]);
 
         update_block(&conn, c.id, &json!({"value": 4, "goal": 50, "step": 1})).unwrap();
-        reorder_blocks(&mut conn, ids[0], &[c.id, t.id, i.id]).unwrap();
+        reorder_blocks(&mut conn, Owner::Achievement(ids[0]), &[c.id, t.id, i.id]).unwrap();
         let list = list_blocks(&conn, 620).unwrap();
         assert_eq!(list.iter().map(|b| b.id).collect::<Vec<_>>(), vec![c.id, t.id, i.id]);
         assert_eq!(list[0].data["value"], 4);
@@ -1021,9 +1213,9 @@ mod tests {
         let list = list_achievements(&conn, 620).unwrap();
         assert!(list.iter().all(|a| !a.unlocked && a.manual && a.unlock_time.is_none()));
 
-        let c = create_block(&mut conn, list[0].id, "counter", &json!({"value": 1}), None).unwrap();
+        let c = create_block(&mut conn, Owner::Achievement(list[0].id), "counter", &json!({"value": 1}), None).unwrap();
         let info = get_block(&conn, c.id).unwrap().unwrap();
-        assert_eq!((info.appid, info.achievement_name.as_str(), info.block.id), (620, "a", c.id));
+        assert_eq!((info.appid, info.card_title.as_str(), info.block.id), (620, "a", c.id));
         assert!(get_block(&conn, 9999).unwrap().is_none());
     }
 
@@ -1059,6 +1251,102 @@ mod tests {
         // Reset complet
         lock_all(&conn, 620).unwrap();
         assert_eq!(get_game(&conn, 620).unwrap().unwrap().completed_at, None);
+    }
+
+    #[test]
+    fn cartes_libres() {
+        use serde_json::json;
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None)]), "P", None).unwrap();
+        let id_a = list_achievements(&conn, 620).unwrap()[0].id;
+
+        let f = create_free_card(&conn, 620, "  Route générale ").unwrap();
+        assert_eq!(f.title, "Route générale");
+        rename_free_card(&conn, f.id, "Objets à ne pas rater").unwrap();
+        assert_eq!(list_free_cards(&conn, 620).unwrap(), vec![FreeCard { id: f.id, title: "Objets à ne pas rater".into() }]);
+
+        // Pas encore enregistrée dans l'espace : elle y est remise plutôt que perdue
+        let ws = list_workspace(&conn, 620).unwrap();
+        assert_eq!((ws.len(), ws[0].card_id, ws[0].achievement_id), (1, Some(f.id), None));
+
+        // Espace mêlant succès et carte libre ; un élément sans (ou avec deux) rattachement est ignoré
+        let free = WorkspaceItem {
+            achievement_id: None,
+            card_id: Some(f.id),
+            column: "doing".into(),
+            collapsed: false,
+            grid: Some(GridPos { x: 0, y: 0, w: 6, h: 6 }),
+            pinned: true,
+        };
+        let ach_item = WorkspaceItem { achievement_id: Some(id_a), card_id: None, pinned: false, ..free.clone() };
+        let bad = WorkspaceItem { achievement_id: Some(id_a), ..free.clone() };
+        let none = WorkspaceItem { card_id: None, ..free.clone() };
+        save_workspace(&mut conn, 620, &[free.clone(), bad, ach_item.clone(), none]).unwrap();
+        assert_eq!(list_workspace(&conn, 620).unwrap(), vec![free.clone(), ach_item.clone()]);
+        assert!(!card_sizes(&conn, 620).unwrap().is_empty(), "la carte du succès garde sa taille");
+        assert_eq!(card_sizes(&conn, 620).unwrap().len(), 1, "pas la carte libre");
+
+        // Blocs de la carte libre, distincts de ceux du succès
+        let b1 = create_block(&mut conn, Owner::Card(f.id), "counter", &json!({"value": 1}), None).unwrap();
+        let b2 = create_block(&mut conn, Owner::Card(f.id), "text", &json!({}), Some(0)).unwrap();
+        create_block(&mut conn, Owner::Achievement(id_a), "text", &json!({}), None).unwrap();
+        assert_eq!((b1.card_id, b1.achievement_id, b2.position), (Some(f.id), None, 0));
+        reorder_blocks(&mut conn, Owner::Card(f.id), &[b1.id, b2.id]).unwrap();
+        let mine: Vec<i64> = list_blocks(&conn, 620).unwrap().iter().filter(|b| b.card_id == Some(f.id)).map(|b| b.id).collect();
+        assert_eq!(mine, vec![b1.id, b2.id]);
+        assert_eq!(get_block(&conn, b1.id).unwrap().unwrap().card_title, "Objets à ne pas rater");
+        assert!(Owner::from_ids(Some(1), Some(2)).is_err() && Owner::from_ids(None, None).is_err());
+
+        // L'actualisation n'y touche pas ; la suppression emporte place et blocs, pas ceux du succès
+        save_game(&mut conn, &game(vec![ach("A", Some(true))]), "P", None).unwrap();
+        assert_eq!(list_workspace(&conn, 620).unwrap().len(), 2);
+        delete_free_card(&conn, f.id).unwrap();
+        assert_eq!(list_workspace(&conn, 620).unwrap(), vec![ach_item]);
+        assert_eq!(list_blocks(&conn, 620).unwrap().len(), 1);
+
+        // Supprimer le jeu supprime ses cartes libres
+        create_free_card(&conn, 620, "x").unwrap();
+        delete_game(&conn, 620).unwrap();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM free_cards", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    /// Une base en v7 garde son espace de travail et ses blocs (avec leurs `id`) en passant en v8.
+    #[test]
+    fn migration_v8_conserve_les_donnees() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        for (i, sql) in MIGRATIONS.iter().take(7).enumerate() {
+            conn.execute_batch(sql).unwrap();
+            conn.pragma_update(None, "user_version", i as i64 + 1).unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO games (appid, name, source, language, imported_at, refreshed_at) VALUES (620, 'P', 'local_cache', 'french', 0, 0);
+             INSERT INTO achievements (id, appid, key, name, steam_order) VALUES (5, 620, 'A', 'a', 0);
+             INSERT INTO workspace_items (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned)
+                 VALUES (5, 620, 'doing', 0, 1, 2, 3, 4, 5, 1);
+             INSERT INTO blocks (id, achievement_id, appid, kind, position, data, created_at, updated_at)
+                 VALUES (42, 5, 620, 'counter', 0, '{\"value\":7}', 0, 0);",
+        )
+        .unwrap();
+        migrate(&mut conn).unwrap();
+
+        let ws = list_workspace(&conn, 620).unwrap();
+        assert_eq!(
+            ws,
+            vec![WorkspaceItem {
+                achievement_id: Some(5),
+                card_id: None,
+                column: "doing".into(),
+                collapsed: true,
+                grid: Some(GridPos { x: 2, y: 3, w: 4, h: 5 }),
+                pinned: true,
+            }]
+        );
+        let b = get_block(&conn, 42).unwrap().unwrap();
+        assert_eq!((b.block.achievement_id, b.block.data["value"].as_i64(), b.card_title.as_str()), (Some(5), Some(7), "a"));
+        let fk: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();
+        assert_eq!(fk, 0);
     }
 
     #[test]

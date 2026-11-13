@@ -1,4 +1,5 @@
 // Types des blocs de guide (miroir de la table `blocks`, champ `data` en JSON).
+import type { CardOwner } from "../library";
 
 export type BlockKind = "video" | "image" | "text" | "list" | "counter" | "timer";
 
@@ -44,9 +45,9 @@ export interface DataByKind {
   timer: TimerData;
 }
 
-export interface Block<K extends BlockKind = BlockKind> {
+/** `achievement_id` ou `card_id` (carte libre) : voir `cardKey`. */
+export interface Block<K extends BlockKind = BlockKind> extends CardOwner {
   id: number;
-  achievement_id: number;
   kind: K;
   position: number;
   data: DataByKind[K];

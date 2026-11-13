@@ -48,8 +48,15 @@ npm run check          # vérification des types Svelte/TS
 **Étape 8 en cours** (finitions). **Décision de l'utilisateur (2026-11-12)** : la traduction français / anglais se fera tout à la fin.
 - [x] 100 % et vitrine : validé par l'utilisateur sous Windows (2026-11-12)
 - [x] Animations (réglage, transitions, carillon à la coche) : validé par l'utilisateur (2026-11-12)
+- [x] Cartes libres (demande de l'utilisateur) : validées par l'utilisateur sous Windows (2026-11-13)
 - [ ] Thèmes, export / import de guides, clé API optionnelle
 - [ ] Traduction (en dernier)
+
+**Cartes libres, choix faits** (blocs sans succès, choisis plutôt que des blocs isolés dans le Tableau) :
+- Table `free_cards` (migration v8 : `id`, `appid`, `title`). `workspace_items` et `blocks` reconstruites : chaque ligne a soit `achievement_id`, soit `card_id` (contrainte CHECK), les `id` des blocs sont conservés. Côté Rust, `db::Owner` (succès ou carte) pour créer et réordonner les blocs ; commandes `free_cards_list`, `free_card_create`, `free_card_rename`, `free_card_delete`.
+- Interface : une carte est repérée par sa **`cardKey`** (`library.ts`) : id du succès (positif) ou opposé de l'id de la carte libre (négatif). Blocs groupés par `cardKey` (`blocks.byCard`), tableau, liste, raccourcis et mode compact l'utilisent ; `ownerOf(key)` redonne la forme attendue par Rust. Ne plus utiliser `achievement_id` comme identifiant de carte.
+- Une carte libre n'existe que dans l'espace de travail : la retirer la **supprime** avec ses blocs (confirmation dans la carte si elle a des blocs, pas de taille mémorisée dans `card_sizes`). Si elle manque dans `workspace_items`, `list_workspace` la remet à la fin plutôt que de la perdre.
+- Titre modifiable directement dans l'en-tête (focus à la création) ; pas de coche, description, étiquettes ni re-lock ; statut, épingle au mode compact et tous les types de blocs conservés. Bouton « + Carte libre » dans la barre de l'espace de travail.
 
 **Animations, choix faits** :
 - Module `src/lib/motion.svelte.ts` : réglage `animations` (`system` = selon Windows, par défaut / `on` / `off`), section « Interface » des Réglages, synchronisé avec la fenêtre compacte (`motion-changed`). Animations réduites → attribut `data-reduced-motion` sur `<html>` (coupe tout le CSS, `app.css`) **et** `dur()` qui renvoie 0 pour ce qui est lancé en JS (transitions Svelte, `flip`, svelte-dnd-action, gridstack via `setAnimation`). Toute nouvelle animation JS doit passer par `dur()` / `reduced()`, jamais `matchMedia` directement.

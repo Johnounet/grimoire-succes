@@ -65,6 +65,10 @@ export const api = {
   workspaceSave: (appid: number, items: WorkspaceItem[]) => invoke<void>("workspace_save", { appid, items }),
   workspaceCardSizes: (appid: number) =>
     invoke<{ achievement_id: number; w: number; h: number }[]>("workspace_card_sizes", { appid }),
+  freeCards: (appid: number) => invoke<FreeCard[]>("free_cards_list", { appid }),
+  freeCardCreate: (appid: number, title: string) => invoke<FreeCard>("free_card_create", { appid, title }),
+  freeCardRename: (id: number, title: string) => invoke<void>("free_card_rename", { id, title }),
+  freeCardDelete: (id: number) => invoke<void>("free_card_delete", { id }),
   getSetting: (key: SettingKey) => invoke<string | null>("setting_get", { key }),
   setSetting: (key: SettingKey, value: string) => invoke<void>("setting_set", { key, value }),
 };
@@ -95,8 +99,32 @@ export interface GridPos {
   h: number;
 }
 
-export interface WorkspaceItem {
-  achievement_id: number;
+/** Carte libre : un titre et des blocs, rattachée au jeu et non à un succès. */
+export interface FreeCard {
+  id: number;
+  title: string;
+}
+
+/** Ce qui porte une carte de l'espace de travail ou un bloc : un succès ou une carte libre (l'un des deux). */
+export interface CardOwner {
+  achievement_id: number | null;
+  card_id: number | null;
+}
+
+/**
+ * Clé d'une carte dans l'interface, un seul nombre pour les deux sortes de cartes :
+ * l'id du succès (positif), ou l'opposé de l'id de la carte libre (négatif).
+ * Sert d'identifiant pour les listes, le tableau, les blocs groupés, etc.
+ */
+export type CardKey = number;
+
+export const cardKey = (o: CardOwner): CardKey => (o.card_id != null ? -o.card_id : (o.achievement_id ?? 0));
+export const isFreeKey = (key: CardKey) => key < 0;
+/** Clé → forme attendue par le cœur Rust. */
+export const ownerOf = (key: CardKey): CardOwner =>
+  key < 0 ? { achievement_id: null, card_id: -key } : { achievement_id: key, card_id: null };
+
+export interface WorkspaceItem extends CardOwner {
   /** Statut de la carte. */
   column: Column;
   collapsed: boolean;
@@ -110,8 +138,8 @@ export interface WorkspaceItem {
   fresh?: boolean;
 }
 
-/** Dernière taille connue des cartes du jeu ouvert dans le tableau, y compris celles retirées de
- *  l'espace de travail (table `card_sizes`). Tenu à jour par la vue du jeu. */
+/** Dernière taille connue des cartes de succès du jeu ouvert dans le tableau, y compris celles retirées
+ *  de l'espace de travail (table `card_sizes`), par id du succès. Tenu à jour par la vue du jeu. */
 export const cardSizes = new Map<number, { w: number; h: number }>();
 
 /** Statuts possibles d'une carte (anciennement les colonnes de la vue Colonnes). */

@@ -28,7 +28,10 @@ const achievements = [
 }));
 
 const cardSizes = new Map<number, { w: number; h: number }>();
-let workspace: { achievement_id: number; column: string; collapsed: boolean; pinned?: boolean }[] = [];
+type MockItem = { achievement_id: number | null; card_id: number | null; grid: { w: number; h: number } | null };
+let workspace: MockItem[] = [];
+let freeCards: { id: number; title: string }[] = [];
+let nextFreeId = 1;
 let tags = [
   ["ratable", "#ef5b5b"],
   ["grind", "#f2994a"],
@@ -40,13 +43,17 @@ let tags = [
 let nextTagId = tags.length + 1;
 let achievementTags: { achievement_id: number; tag_id: number }[] = [];
 const settings = new Map<string, string>();
-type MockBlock = { id: number; achievement_id: number; kind: string; position: number; data: unknown };
+type MockBlock = { id: number; achievement_id: number | null; card_id: number | null; kind: string; position: number; data: unknown };
 let blocks: MockBlock[] = [];
 let nextBlockId = 1;
+/** Comme `cardKey` de l'interface : succès positif, carte libre négative. */
+const ownerKey = (o: { achievement_id: number | null; card_id: number | null }) => (o.card_id != null ? -o.card_id : (o.achievement_id ?? 0));
+const argsKey = (args: Record<string, unknown>) =>
+  ownerKey({ achievement_id: (args.achievementId as number | null) ?? null, card_id: (args.cardId as number | null) ?? null });
 
-function renumber(achievementId: number) {
+function renumber(key: number) {
   blocks
-    .filter((b) => b.achievement_id === achievementId)
+    .filter((b) => ownerKey(b) === key)
     .sort((a, b) => a.position - b.position)
     .forEach((b, i) => (b.position = i));
 }
@@ -112,18 +119,34 @@ export function installMock(label = "main") {
         return null;
       case "workspace_list":
         return workspace;
+      case "free_cards_list":
+        return freeCards.map((f) => ({ ...f }));
+      case "free_card_create": {
+        const f = { id: nextFreeId++, title: String(args.title).trim() };
+        freeCards.push(f);
+        return { ...f };
+      }
+      case "free_card_rename": {
+        const f = freeCards.find((x) => x.id === args.id);
+        if (f) f.title = String(args.title).trim();
+        return null;
+      }
+      case "free_card_delete":
+        freeCards = freeCards.filter((f) => f.id !== args.id);
+        workspace = workspace.filter((it) => it.card_id !== args.id);
+        blocks = blocks.filter((b) => b.card_id !== args.id);
+        return null;
       case "workspace_card_sizes":
         return [...cardSizes].map(([achievement_id, size]) => ({ achievement_id, ...size }));
       case "workspace_save":
-        workspace = args.items as typeof workspace;
-        for (const it of args.items as { achievement_id: number; grid: { w: number; h: number } | null }[])
-          if (it.grid) cardSizes.set(it.achievement_id, { w: it.grid.w, h: it.grid.h });
+        workspace = (args.items as MockItem[]).filter((it) => it.card_id == null || freeCards.some((f) => f.id === it.card_id));
+        for (const it of workspace) if (it.grid && it.achievement_id != null) cardSizes.set(it.achievement_id, { w: it.grid.w, h: it.grid.h });
         console.info("[mock] workspace_save", JSON.stringify(workspace));
         return null;
       case "block_get": {
         const b = blocks.find((x) => x.id === args.id);
-        const a = b && achievements.find((x) => x.id === b.achievement_id);
-        return b && a ? { block: structuredClone(b), appid: 620, achievement_name: a.name } : null;
+        const name = b && (achievements.find((x) => x.id === b.achievement_id)?.name ?? freeCards.find((f) => f.id === b.card_id)?.title);
+        return b && name != null ? { block: structuredClone(b), appid: 620, card_title: name } : null;
       }
       case "tags_list":
         return tags.map((t) => ({ ...t }));
@@ -159,13 +182,20 @@ export function installMock(label = "main") {
       case "plugin:global-shortcut|unregister_all":
         return null;
       case "blocks_list":
-        return [...blocks].sort((a, b) => a.achievement_id - b.achievement_id || a.position - b.position);
+        return [...blocks].sort((a, b) => ownerKey(a) - ownerKey(b) || a.position - b.position);
       case "block_create": {
-        const achievementId = args.achievementId as number;
-        const mine = blocks.filter((b) => b.achievement_id === achievementId);
+        const key = argsKey(args);
+        const mine = blocks.filter((b) => ownerKey(b) === key);
         const pos = (args.position as number | null) ?? mine.length;
         mine.filter((b) => b.position >= pos).forEach((b) => b.position++);
-        const b = { id: nextBlockId++, achievement_id: achievementId, kind: args.kind as string, position: pos, data: args.data };
+        const b = {
+          id: nextBlockId++,
+          achievement_id: (args.achievementId as number | null) ?? null,
+          card_id: (args.cardId as number | null) ?? null,
+          kind: args.kind as string,
+          position: pos,
+          data: args.data,
+        };
         blocks.push(b);
         console.info("[mock] block_create", b.kind, b.id);
         return structuredClone(b);
@@ -179,7 +209,7 @@ export function installMock(label = "main") {
       case "block_delete": {
         const b = blocks.find((x) => x.id === args.id);
         blocks = blocks.filter((x) => x.id !== args.id);
-        if (b) renumber(b.achievement_id);
+        if (b) renumber(ownerKey(b));
         return null;
       }
       case "blocks_reorder":

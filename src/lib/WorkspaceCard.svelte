@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Carte d'un succès dans l'espace de travail.
+  // Carte de l'espace de travail : celle d'un succès (`a`), ou une carte libre (`free`) avec un titre
+  // modifiable et des blocs, sans coche, description ni étiquettes.
   // - Vue liste : repliable, déplacée par sa poignée (svelte-dnd-action).
   // - Vue tableau : remplit sa case de la grille (gridstack), déplacée par la poignée ou le titre
   //   (classe `card-drag`), contenu qui défile si la carte est petite.
@@ -11,10 +12,12 @@
   import { openRelock } from "./settings.svelte";
   import TagPicker from "./TagPicker.svelte";
   import { rarityText } from "./filters";
-  import { columns, type AchievementRow, type Column } from "./library";
+  import { columns, type AchievementRow, type CardKey, type Column, type FreeCard } from "./library";
 
   let {
-    a,
+    a = null,
+    free = null,
+    focusTitle = false,
     column,
     collapsed,
     pinned,
@@ -28,8 +31,12 @@
     onremove,
     oncolumn,
     onpin,
+    onrename,
   }: {
-    a: AchievementRow;
+    a?: AchievementRow | null;
+    free?: FreeCard | null;
+    /** Carte libre qui vient d'être créée : son titre prend le focus. */
+    focusTitle?: boolean;
     column: Column;
     collapsed: boolean;
     /** Affichée dans le mode compact. */
@@ -45,11 +52,26 @@
     onremove: () => void;
     oncolumn: (c: Column) => void;
     onpin: () => void;
+    /** Nouveau titre d'une carte libre. */
+    onrename?: (title: string) => void;
   } = $props();
 
-  const icon = $derived(a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url));
-  const label = $derived(spoiler ? "succès caché" : a.name);
-  const blockCount = $derived(blocksOf(a.id).length);
+  const key: CardKey = $derived(a ? a.id : -(free?.id ?? 0));
+  const icon = $derived(a ? (a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)) : null);
+  const label = $derived(a ? (spoiler ? "succès caché" : a.name) : free?.title || "Carte sans titre");
+  const blockCount = $derived(blocksOf(key).length);
+  /** Carte libre avec des blocs : la suppression demande confirmation (rien ne les garde ailleurs). */
+  let confirming = $state(false);
+
+  function rename(input: HTMLInputElement) {
+    const title = input.value.trim();
+    if (free && title !== free.title) onrename?.(title);
+  }
+
+  function askRemove() {
+    if (free && blockCount > 0) confirming = true;
+    else onremove();
+  }
 
   /** Ctrl+V d'une capture n'importe où sur la carte (hors champ de texte) : nouveau bloc image. */
   async function paste(e: ClipboardEvent) {
@@ -58,7 +80,7 @@
     const file = imageFrom(e.clipboardData);
     if (!file) return;
     e.preventDefault();
-    const b = await createBlock(a.id, "image");
+    const b = await createBlock(key, "image");
     if (!b || b.kind !== "image") return;
     try {
       (b.data as { file: string | null }).file = await uploadImage(file);
@@ -72,7 +94,7 @@
 <article
   class="rounded-xl border bg-panel transition-colors
     {board ? 'flex h-full flex-col overflow-hidden' : ''}
-    {a.unlocked ? 'border-ok/30' : 'border-line'}"
+    {a?.unlocked ? 'border-ok/30' : 'border-line'}"
   aria-label={label}
   onpaste={paste}
 >
@@ -93,6 +115,7 @@
       >
     {/if}
 
+    {#if a}
     <button
       onclick={ontoggle}
       aria-pressed={a.unlocked}
@@ -119,7 +142,30 @@
         <img src={icon} alt="" draggable="false" class="h-full w-full {a.unlocked ? '' : 'opacity-70 grayscale'}" />
       {/if}
     </div>
+    {/if}
 
+    {#if free}
+      <!-- Titre modifiable : la carte se déplace par sa poignée ⠿ -->
+      <input
+        value={free.title}
+        placeholder="Carte sans titre"
+        aria-label="Titre de la carte"
+        maxlength="200"
+        onchange={(e) => rename(e.currentTarget)}
+        onkeydown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            e.currentTarget.value = free.title;
+            e.currentTarget.blur();
+          }
+        }}
+        {@attach (el) => {
+          if (focusTitle) el.focus();
+        }}
+        class="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 font-medium outline-none
+          placeholder:text-muted hover:border-line focus:border-accent focus:bg-bg"
+      />
+    {:else if a}
     <div class="min-w-0 flex-1 {board ? 'card-drag cursor-grab active:cursor-grabbing' : ''}">
       {#if spoiler}
         <button onclick={onreveal} class="block max-w-full text-left" title="Succès caché : cliquer pour révéler">
@@ -136,6 +182,7 @@
         {#if collapsed && !board && blockCount > 0}<span class="text-muted">· {blockCount} bloc{blockCount > 1 ? "s" : ""}</span>{/if}
       </div>
     </div>
+    {/if}
 
     {#if pinned}
       <!-- Visible seulement une fois épinglée, pour ne pas encombrer les petites cartes -->
@@ -159,11 +206,15 @@
           hint: "Cartes suivies dans la petite fenêtre au premier plan",
           onclick: onpin,
         },
-        {
-          label: "Reverrouiller dans Steam…",
-          hint: "Prépare la commande console achievement_clear",
-          onclick: () => openRelock(a),
-        },
+        ...(a
+          ? [
+              {
+                label: "Reverrouiller dans Steam…",
+                hint: "Prépare la commande console achievement_clear",
+                onclick: () => openRelock(a),
+              },
+            ]
+          : []),
       ]}
     />
     {#if !board}
@@ -178,20 +229,30 @@
       </button>
     {/if}
     <button
-      onclick={onremove}
-      aria-label="Retirer de l'espace de travail"
-      title="Retirer de l'espace de travail (ses blocs sont conservés)"
+      onclick={askRemove}
+      aria-label={free ? "Supprimer la carte" : "Retirer de l'espace de travail"}
+      title={free ? "Supprimer la carte et ses blocs" : "Retirer de l'espace de travail (ses blocs sont conservés)"}
       class="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-raised hover:text-danger"
     >
       ✕
     </button>
   </header>
 
+  {#if confirming}
+    <div class="mx-2.5 mb-2.5 flex flex-wrap items-center gap-2 rounded-lg border border-danger/40 bg-danger/10 p-2 text-sm">
+      <span class="min-w-0 flex-1">Supprimer cette carte et {blockCount > 1 ? `ses ${blockCount} blocs` : "son bloc"} ?</span>
+      <button onclick={() => (confirming = false)} class="rounded-md px-2 py-0.5 hover:bg-raised">Annuler</button>
+      <button onclick={onremove} class="rounded-md bg-danger px-2 py-0.5 font-medium text-white">Supprimer</button>
+    </div>
+  {/if}
+
   {#if board || !collapsed}
     <div class="border-t border-line px-3 pt-2 pb-3 {board ? 'min-h-0 flex-1 overflow-y-auto' : ''}">
       <!-- Contenu mesuré par le tableau : la carte grandit quand il grandit (Board.svelte, watchGrowth) -->
       <div class="space-y-2" data-card-content>
-      {#if spoiler}
+      {#if !a}
+        <!-- Carte libre : pas de description -->
+      {:else if spoiler}
         <button onclick={onreveal} class="block text-left text-sm text-muted">
           <span class="blur-[6px] select-none" aria-hidden="true">{a.description || "—"}</span>
           <span class="ml-1 rounded bg-raised px-1.5 py-0.5 text-[10px]">caché · cliquer pour révéler</span>
@@ -201,8 +262,8 @@
       {/if}
 
       <div class="flex flex-wrap items-center gap-2">
-        {#if a.api_name}<CopyId id={a.api_name} />{/if}
-        <TagPicker achievementId={a.id} />
+        {#if a?.api_name}<CopyId id={a.api_name} />{/if}
+        {#if a}<TagPicker achievementId={a.id} />{/if}
         <select
           value={column}
           onchange={(e) => oncolumn((e.currentTarget as HTMLSelectElement).value as Column)}
@@ -215,7 +276,7 @@
         </select>
       </div>
 
-      <BlockList achievementId={a.id} {imagesDir} />
+      <BlockList cardKey={key} {imagesDir} />
       </div>
     </div>
   {/if}

@@ -1,9 +1,20 @@
 <script lang="ts">
-  import { api, cardSizes, heroUrl, isComplete, percent, sourceLabel, type AchievementRow, type GameSummary } from "./library";
+  import {
+    api,
+    cardSizes,
+    heroUrl,
+    isComplete,
+    percent,
+    sourceLabel,
+    type AchievementRow,
+    type CardKey,
+    type FreeCard,
+    type GameSummary,
+  } from "./library";
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import AchievementList from "./AchievementList.svelte";
-  import { blocks, loadBlocks } from "./blocks/store.svelte";
+  import { blocks, forgetCard, loadBlocks } from "./blocks/store.svelte";
   import { openCompact } from "./compact";
   import MoreMenu from "./MoreMenu.svelte";
   import { appear, arrivals } from "./motion.svelte";
@@ -14,7 +25,7 @@
   import type { GridPos, WorkspaceItem } from "./library";
   import ProgressRing from "./ProgressRing.svelte";
   import { openRelock, setPanelOpen, settings, ui } from "./settings.svelte";
-  import { shortcutContext } from "./shortcuts.svelte";
+  import { releaseActive, shortcutContext } from "./shortcuts.svelte";
   import Workspace from "./Workspace.svelte";
 
   let {
@@ -38,11 +49,17 @@
   let error = $state("");
   let heroOk = $state(true);
   let workspace = $state.raw<WorkspaceItem[]>([]);
+  let freeCards = $state<FreeCard[]>([]);
+  const freeById = $derived(new Map(freeCards.map((f) => [f.id, f])));
+  /** Carte libre qui vient d'être créée : son titre prend le focus. */
+  let focusKey = $state<CardKey | null>(null);
   /** Succès cachés révélés (liste et cartes), oubliés en changeant de jeu. */
   const revealed = new SvelteSet<number>();
 
   const byId = $derived(new Map(achievements.map((a) => [a.id, a])));
-  const personalOrder = $derived(new Map(workspace.map((it, i) => [it.achievement_id, i])));
+  const personalOrder = $derived(
+    new Map(workspace.filter((it) => it.achievement_id != null).map((it, i) => [it.achievement_id!, i])),
+  );
 
   // Valeurs dérivées : elles ne changent que si la valeur change, pas à chaque mise à jour de `game`
   // (une coche renvoie un nouveau `game`, qui ne doit pas recharger la liste).
@@ -73,6 +90,8 @@
     revealed.clear();
     arrivals.clear();
     workspace = [];
+    freeCards = [];
+    focusKey = null;
     untrack(() => (ui.relock.open = false));
     loadBlocks(appid);
     loadGameTags(appid);
@@ -80,6 +99,9 @@
     api.workspaceCardSizes(appid).then((sizes) => {
       if (appid !== game.appid) return;
       for (const s of sizes) if (!cardSizes.has(s.achievement_id)) cardSizes.set(s.achievement_id, { w: s.w, h: s.h });
+    });
+    api.freeCards(appid).then((f) => {
+      if (appid === game.appid) freeCards = f;
     });
     api.workspaceList(appid).then((w) => {
       if (appid === game.appid) workspace = w;
@@ -104,7 +126,7 @@
   function saveWorkspace(items: WorkspaceItem[]) {
     const appid = game.appid;
     workspace = items;
-    for (const it of items) if (it.grid) cardSizes.set(it.achievement_id, { w: it.grid.w, h: it.grid.h });
+    for (const it of items) if (it.grid && it.achievement_id != null) cardSizes.set(it.achievement_id, { w: it.grid.w, h: it.grid.h });
     saving = saving
       .then(() => api.workspaceSave(appid, items))
       .then(() => send("data-changed", { appid }))
@@ -125,6 +147,7 @@
       ...workspace,
       ...fresh.map((id, i) => ({
         achievement_id: id,
+        card_id: null,
         column: "todo" as const,
         collapsed: false,
         grid: place(id, i),
@@ -133,6 +156,65 @@
         fresh: true,
       })),
     ]);
+  }
+
+  // ----- Cartes libres -----
+
+  async function addFreeCard() {
+    const appid = game.appid;
+    try {
+      const card = await api.freeCardCreate(appid, "");
+      if (appid !== game.appid) return;
+      freeCards.push(card);
+      arrivals.add(-card.id);
+      focusKey = -card.id;
+      // Le focus ne vaut qu'à la création, pas quand la carte réapparaît (changement de vue)
+      setTimeout(() => {
+        if (focusKey === -card.id) focusKey = null;
+      }, 1000);
+      saveWorkspace([
+        ...workspace,
+        {
+          achievement_id: null,
+          card_id: card.id,
+          column: "todo",
+          collapsed: false,
+          grid: null,
+          pinned: false,
+          size: { w: 4, h: 6 },
+          fresh: true,
+        },
+      ]);
+    } catch (e) {
+      error = `Création de la carte impossible : ${e}`;
+    }
+  }
+
+  async function renameFreeCard(id: number, title: string) {
+    const card = freeCards.find((f) => f.id === id);
+    if (!card) return;
+    const before = card.title;
+    card.title = title;
+    try {
+      await api.freeCardRename(id, title);
+      send("data-changed", { appid: game.appid });
+    } catch (e) {
+      card.title = before;
+      error = `Enregistrement du titre impossible : ${e}`;
+    }
+  }
+
+  /** Appelé une fois la carte retirée de l'espace : supprime la carte et ses blocs. */
+  async function deleteFreeCard(id: number) {
+    try {
+      await releaseActive(-id);
+      await api.freeCardDelete(id);
+      freeCards = freeCards.filter((f) => f.id !== id);
+      forgetCard(-id);
+      send("data-changed", { appid: game.appid });
+    } catch (e) {
+      error = `Suppression de la carte impossible : ${e}`;
+    }
   }
 
   /** Re-lock confirmé par le joueur : décoche dans le logiciel, sans toucher aux guides. */
@@ -290,11 +372,16 @@
       <Workspace
         items={workspace}
         {byId}
+        {freeById}
+        {focusKey}
         {revealed}
         {imagesDir}
         ontoggle={toggle}
         onchange={saveWorkspace}
         onadd={addToWorkspace}
+        onaddfree={addFreeCard}
+        onrename={renameFreeCard}
+        ondeletefree={deleteFreeCard}
       />
     </div>
 

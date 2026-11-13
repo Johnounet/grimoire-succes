@@ -13,7 +13,7 @@ import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { counterAdd, timerReset, timerToggle } from "./blocks/ops";
 import { blocksOf, findBlock, saveBlock, showToast } from "./blocks/store.svelte";
 import { formatDuration, type Block, type CounterData, type TimerData } from "./blocks/types";
-import { api, type WorkspaceItem } from "./library";
+import { api, cardKey, type CardKey, type WorkspaceItem } from "./library";
 import { beep } from "./sound.svelte";
 import { send } from "./sync";
 
@@ -50,7 +50,7 @@ export function target(kind: Kind): { id: number; chosen: boolean } | null {
   if (chosen != null) return { id: chosen, chosen: true };
   for (const c of shortcutContext.workspace) {
     if (!c.pinned) continue;
-    const b = blocksOf(c.achievement_id).find((x) => x.kind === kind);
+    const b = blocksOf(cardKey(c)).find((x) => x.kind === kind);
     if (b) return { id: b.id, chosen: false };
   }
   return null;
@@ -80,10 +80,11 @@ export async function toggleActive(kind: Kind, id: number) {
 }
 
 /** Carte retirée du mode compact : ses blocs cessent d'être visés par les raccourcis. */
-export async function releaseActive(achievementId: number) {
+export async function releaseActive(key: CardKey) {
   for (const kind of ["counter", "timer"] as const) {
     const id = active[kind];
-    if (id != null && findBlock(id)?.achievement_id === achievementId) await toggleActive(kind, id);
+    const b = id != null ? findBlock(id) : undefined;
+    if (id != null && b && cardKey(b) === key) await toggleActive(kind, id);
   }
 }
 
@@ -154,14 +155,14 @@ export async function run(action: ShortcutAction) {
   let block = findBlock(id);
   let label = "";
   if (!block) {
-    const info = await invoke<{ block: Block; achievement_name: string } | null>("block_get", { id }).catch(() => null);
+    const info = await invoke<{ block: Block; card_title: string } | null>("block_get", { id }).catch(() => null);
     if (!info || info.block.kind !== kind) {
       // Bloc supprimé entre-temps
       await toggleActive(kind, id);
       return feedback(false, kind === "counter" ? "Le compteur actif n'existe plus" : "Le chrono actif n'existe plus");
     }
     block = info.block;
-    label = info.achievement_name;
+    label = info.card_title;
   }
 
   const text = apply(action, block, Date.now());

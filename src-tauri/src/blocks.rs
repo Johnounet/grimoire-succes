@@ -1,6 +1,6 @@
 //! Blocs des guides (vidéo, image, texte, liste, compteur, chronomètre) et leurs images.
 
-use crate::db::{self, Block, BlockInfo};
+use crate::db::{self, Block, BlockInfo, Owner};
 use crate::library::AppState;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,21 +15,24 @@ pub fn blocks_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<Block>,
     db::list_blocks(&state.conn(), appid).map_err(err)
 }
 
-/// Un bloc et son succès, quel que soit le jeu (compteur ou chrono « actif »).
+/// Un bloc et sa carte (succès ou carte libre), quel que soit le jeu (compteur ou chrono « actif »).
 #[tauri::command]
 pub fn block_get(state: State<'_, AppState>, id: i64) -> Result<Option<BlockInfo>, String> {
     db::get_block(&state.conn(), id).map_err(err)
 }
 
+/// Crée un bloc sous un succès (`achievement_id`) ou une carte libre (`card_id`).
 #[tauri::command]
 pub fn block_create(
     state: State<'_, AppState>,
-    achievement_id: i64,
+    achievement_id: Option<i64>,
+    card_id: Option<i64>,
     kind: String,
     data: serde_json::Value,
     position: Option<i64>,
 ) -> Result<Block, String> {
-    db::create_block(&mut state.conn(), achievement_id, &kind, &data, position).map_err(err)
+    let owner = Owner::from_ids(achievement_id, card_id)?;
+    db::create_block(&mut state.conn(), owner, &kind, &data, position).map_err(err)
 }
 
 #[tauri::command]
@@ -45,8 +48,14 @@ pub fn block_delete(state: State<'_, AppState>, id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn blocks_reorder(state: State<'_, AppState>, achievement_id: i64, ids: Vec<i64>) -> Result<(), String> {
-    db::reorder_blocks(&mut state.conn(), achievement_id, &ids).map_err(err)
+pub fn blocks_reorder(
+    state: State<'_, AppState>,
+    achievement_id: Option<i64>,
+    card_id: Option<i64>,
+    ids: Vec<i64>,
+) -> Result<(), String> {
+    let owner = Owner::from_ids(achievement_id, card_id)?;
+    db::reorder_blocks(&mut state.conn(), owner, &ids).map_err(err)
 }
 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];

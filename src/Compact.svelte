@@ -10,7 +10,7 @@
   import { blocks, blocksOf, findBlock, flushBlocks, listenBlockChanges, loadBlocks, saveBlock } from "./lib/blocks/store.svelte";
   import { formatDuration, type Block, type CounterData, type TimerData } from "./lib/blocks/types";
   import { rarityText } from "./lib/filters";
-  import { api, type AchievementRow, type GameSummary, type WorkspaceItem } from "./lib/library";
+  import { api, cardKey, type AchievementRow, type FreeCard, type GameSummary, type WorkspaceItem } from "./lib/library";
   import { clampOpacity, loadSettings, setCompactOpacity, settings } from "./lib/settings.svelte";
   import { active, formatAccel, loadActive, shortcutContext, shortcuts, target, toggleActive } from "./lib/shortcuts.svelte";
   import { applyMotionAttribute, loadMotion, motion } from "./lib/motion.svelte";
@@ -21,6 +21,7 @@
   let game = $state<GameSummary | null>(null);
   let achievements = $state<AchievementRow[]>([]);
   let workspace = $state.raw<WorkspaceItem[]>([]);
+  let freeCards = $state.raw<FreeCard[]>([]);
   /** Blocs actifs d'un autre jeu (ceux du jeu ouvert sont dans le store). */
   let outside = $state<Record<number, { block: Block; name: string }>>({});
   let now = $state(Date.now());
@@ -28,7 +29,19 @@
   let error = $state("");
 
   const byId = $derived(new Map(achievements.map((a) => [a.id, a])));
-  const pinned = $derived(workspace.filter((it) => it.pinned && byId.has(it.achievement_id)));
+  const freeById = $derived(new Map(freeCards.map((f) => [f.id, f])));
+  /** Cartes épinglées : succès ou cartes libres. */
+  const pinned = $derived(
+    workspace.flatMap((it) => {
+      if (!it.pinned) return [];
+      const a = it.achievement_id != null ? byId.get(it.achievement_id) : undefined;
+      const free = it.card_id != null ? freeById.get(it.card_id) : undefined;
+      return a || free ? [{ key: cardKey(it), a, free }] : [];
+    }),
+  );
+  /** Nom de la carte qui porte un bloc du jeu ouvert. */
+  const cardName = (b: Block) =>
+    b.achievement_id != null ? (byId.get(b.achievement_id)?.name ?? "") : (freeById.get(b.card_id ?? 0)?.title || "Carte sans titre");
   const tracked = (b: Block) => b.kind === "counter" || b.kind === "timer";
 
   async function load(id: number) {
@@ -36,11 +49,18 @@
     appid = id;
     error = "";
     try {
-      const [games, ach, ws] = await Promise.all([api.list(), api.achievements(id), api.workspaceList(id), loadBlocks(id)]);
+      const [games, ach, ws, free] = await Promise.all([
+        api.list(),
+        api.achievements(id),
+        api.workspaceList(id),
+        api.freeCards(id),
+        loadBlocks(id),
+      ]);
       if (appid !== id) return;
       game = games.find((g) => g.appid === id) ?? null;
       achievements = ach;
       workspace = ws;
+      freeCards = free;
       shortcutContext.workspace = ws;
       await loadOutside();
     } catch (e) {
@@ -52,8 +72,8 @@
     const next: typeof outside = {};
     for (const id of [active.counter, active.timer]) {
       if (id == null || findBlock(id)) continue;
-      const info = await invoke<{ block: Block; achievement_name: string } | null>("block_get", { id }).catch(() => null);
-      if (info) next[id] = { block: info.block, name: info.achievement_name };
+      const info = await invoke<{ block: Block; card_title: string } | null>("block_get", { id }).catch(() => null);
+      if (info) next[id] = { block: info.block, name: info.card_title };
     }
     outside = next;
   }
@@ -62,7 +82,7 @@
   function activeBlock(id: number | null): { block: Block; name: string } | null {
     if (id == null) return null;
     const b = findBlock(id);
-    if (b) return { block: b, name: byId.get(b.achievement_id)?.name ?? "" };
+    if (b) return { block: b, name: cardName(b) };
     return outside[id] ?? null;
   }
 
@@ -256,10 +276,17 @@
     {/if}
 
     <!-- Cartes épinglées -->
-    {#each pinned as it (it.achievement_id)}
-      {@const a = byId.get(it.achievement_id)!}
-      {@const icon = a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)}
+    {#each pinned as { key, a, free } (key)}
       <section class="space-y-1.5">
+        {#if free}
+          <div class="flex items-center gap-2">
+            <span class="grid h-5 w-5 shrink-0 place-items-center text-xs text-muted" aria-hidden="true">✎</span>
+            <div class="min-w-0 flex-1 truncate text-sm font-medium {free.title ? '' : 'text-muted'}">
+              {free.title || "Carte sans titre"}
+            </div>
+          </div>
+        {:else if a}
+        {@const icon = a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)}
         <div class="flex items-center gap-2">
           <button
             onclick={() => toggle(a)}
@@ -276,7 +303,8 @@
             {#if a.rarity != null}<div class="text-[10px] {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</div>{/if}
           </div>
         </div>
-        {#each blocksOf(a.id).filter(tracked) as b (b.id)}
+        {/if}
+        {#each blocksOf(key).filter(tracked) as b (b.id)}
           {#if b.id !== active.counter && b.id !== active.timer}{@render blockRow(b, "", false)}{/if}
         {/each}
       </section>

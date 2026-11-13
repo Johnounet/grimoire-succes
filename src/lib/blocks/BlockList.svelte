@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Blocs d'un succès : affichage, réordonnancement, ajout, duplication, suppression.
+  // Blocs d'une carte (succès ou carte libre) : affichage, réordonnancement, ajout, duplication, suppression.
   //
   // Réordonnancement par glisser HTML natif (poignée ⠿) et boutons ↑ ↓ au clavier.
   // Pas svelte-dnd-action ici : ses poignées partagent un état global, et une poignée de bloc
@@ -14,11 +14,12 @@
   import TextBlock from "./TextBlock.svelte";
   import TimerBlock from "./TimerBlock.svelte";
   import { tick } from "svelte";
-  import { CARD_MENU_EVENT, FIT_CARD_EVENT } from "../library";
+  import { CARD_MENU_EVENT, FIT_CARD_EVENT, type CardKey } from "../library";
   import { blockKinds, kindInfo, type Block, type BlockKind } from "./types";
   import VideoBlock from "./VideoBlock.svelte";
 
-  let { achievementId, imagesDir }: { achievementId: number; imagesDir: string } = $props();
+  /** `cardKey` : carte d'un succès ou carte libre. */
+  let { cardKey, imagesDir }: { cardKey: CardKey; imagesDir: string } = $props();
 
   const FLIP = 150;
   const MIME = "application/x-chasse-succes-block";
@@ -35,7 +36,7 @@
     menuWrap?.dispatchEvent(new CustomEvent(CARD_MENU_EVENT, { bubbles: true, detail: { open } }));
   });
 
-  const list = $derived(blocksOf(achievementId));
+  const list = $derived(blocksOf(cardKey));
 
   /** Bloc dont la poignée est enfoncée (seul lui devient « draggable »). */
   let armed = $state<number | null>(null);
@@ -48,7 +49,7 @@
     const next = [...list];
     const [b] = next.splice(from, 1);
     next.splice(to > from ? to - 1 : to, 0, b);
-    reorderBlocks(achievementId, next);
+    reorderBlocks(cardKey, next);
   }
 
   function dragStart(e: DragEvent, b: Block) {
@@ -85,7 +86,7 @@
 
   async function add(kind: BlockKind) {
     menuOpen = false;
-    await createBlock(achievementId, kind);
+    await createBlock(cardKey, kind);
     // Tableau : la carte, revenue à sa taille d'avant le menu, grandit pour montrer le nouveau bloc
     await tick();
     menuWrap?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true }));
