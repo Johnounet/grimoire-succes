@@ -1,10 +1,11 @@
 <script lang="ts">
   // Panneau de gauche : jeux importés. Repliable : il ne montre alors que les jaquettes (avec un
   // liseré de progression), pour garder le changement de jeu à portée de clic.
-  // Un jeu terminé à 100 % passe en version dorée (bordure, reflet, badge « 100 % »).
+  // Un jeu terminé à 100 % passe en version dorée (bordure, reflet, badge « 100 % »). Les jeux à 100 %
+  // peuvent être masqués ici (réglage `hide_completed`) : ils restent dans la vitrine.
   import { isComplete, localImage, percent, type GameSummary } from "./library";
   import ProgressRing from "./ProgressRing.svelte";
-  import { setSidebarOpen, settings } from "./settings.svelte";
+  import { setHideCompleted, setSidebarOpen, settings } from "./settings.svelte";
 
   let {
     games,
@@ -31,6 +32,11 @@
 
   const open = $derived(settings.sidebarOpen);
   const trophies = $derived(games.filter(isComplete).length);
+  // Le jeu ouvert reste affiché même terminé : il ne disparaît pas sous les yeux au moment du 100 %
+  const shown = $derived(
+    settings.hideCompleted ? games.filter((g) => !isComplete(g) || (g.appid === selected && !showcase)) : games,
+  );
+  const hiddenCount = $derived(games.length - shown.length);
 </script>
 
 {#snippet cover(g: GameSummary, gold: boolean, i: number)}
@@ -90,7 +96,7 @@
     </button>
 
     <ul class="space-y-1">
-      {#each games as g, i (g.appid)}
+      {#each shown as g, i (g.appid)}
         {@const pct = percent(g)}
         {@const gold = isComplete(g)}
         <li>
@@ -125,6 +131,21 @@
         </li>
       {/each}
     </ul>
+
+    {#if open && trophies}
+      <button
+        onclick={() => setHideCompleted(!settings.hideCompleted)}
+        class="mt-2 w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted transition hover:bg-raised hover:text-fg"
+      >
+        {#if !settings.hideCompleted}
+          Masquer les jeux à 100 %
+        {:else if hiddenCount}
+          Afficher les jeux à 100 % ({hiddenCount} masqué{hiddenCount > 1 ? "s" : ""})
+        {:else}
+          Afficher les jeux à 100 %
+        {/if}
+      </button>
+    {/if}
   </nav>
 
   <div class="flex gap-1 border-t border-line p-2 {open ? '' : 'flex-col items-center'}">

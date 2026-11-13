@@ -199,7 +199,7 @@
           </div>
         </div>
         <p class="mt-1 text-xs text-muted">
-          Coche, apparitions, déplacements des cartes, confettis du 100 %.
+          Coche, apparitions, déplacements des cartes, éclat doré du 100 %.
           {#if motion.pref === "system"}
             Windows demande en ce moment {motion.system ? "de réduire les animations : elles sont coupées" : "des animations normales"}.
           {/if}

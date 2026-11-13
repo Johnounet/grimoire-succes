@@ -254,6 +254,8 @@ const SETTINGS: &[&str] = &[
     "workspace_view",
     "panel_open",
     "sidebar_open",
+    // Jeux à 100 % masqués dans le panneau de gauche
+    "hide_completed",
     // Raccourcis globaux du mode compact : touches (JSON), retour sonore
     "shortcuts",
     "shortcut_sound",

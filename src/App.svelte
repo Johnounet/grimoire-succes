@@ -10,7 +10,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { flushBlocks, listenBlockChanges, showToast } from "./lib/blocks/store.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
-  import { loadSettings } from "./lib/settings.svelte";
+  import { loadSettings, settings } from "./lib/settings.svelte";
   import { applyMotionAttribute, loadMotion } from "./lib/motion.svelte";
   import { applyTheme, loadAppearance } from "./lib/theme.svelte";
   import { chime, loadSound } from "./lib/sound.svelte";
@@ -42,7 +42,8 @@
     }
     try {
       [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings(), loadTags(), loadMotion(), loadSound(), loadAppearance()]);
-      selected = games[0]?.appid ?? null;
+      // Premier jeu affiché dans le panneau (les jeux à 100 % peuvent y être masqués)
+      selected = (settings.hideCompleted ? games.find((g) => !isComplete(g)) : null)?.appid ?? games[0]?.appid ?? null;
       // Premier lancement : on ouvre directement l'ajout de jeu
       if (games.length === 0) adding = true;
     } catch (e) {
@@ -85,9 +86,9 @@
 
   function upsert(g: GameSummary) {
     const i = games.findIndex((x) => x.appid === g.appid);
-    // Le jeu vient de passer à 100 % (coche, fenêtre compacte, actualisation) : célébration, une fois par jeu.
-    // Un jeu importé déjà terminé rejoint la vitrine sans célébration.
-    if (i >= 0 && !isComplete(games[i]) && isComplete(g) && !g.celebrated) {
+    // Le jeu vient de passer à 100 % (coche, fenêtre compacte, actualisation) ou vient d'être ajouté
+    // déjà terminé : célébration, une fois par jeu.
+    if ((i < 0 || !isComplete(games[i])) && isComplete(g) && !g.celebrated) {
       g = { ...g, celebrated: true };
       celebrating = g.appid;
       api.markCelebrated(g.appid).catch(() => {});

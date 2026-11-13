@@ -89,6 +89,7 @@ export type SettingKey =
   | "workspace_view"
   | "panel_open"
   | "sidebar_open"
+  | "hide_completed"
   | "shortcuts"
   | "shortcut_sound"
   | "compact_opacity"

@@ -1,9 +1,9 @@
 <script lang="ts">
-  // Célébration du 100 % : pluie de confettis aux couleurs de la jaquette, puis le récap
-  // (date du 100 %, temps de jeu Steam, succès le plus rare). Rejouable depuis la vitrine.
-  import { backdrop, reduced } from "./motion.svelte";
+  // Célébration du 100 % : le récap (date du 100 %, temps de jeu Steam, succès le plus rare) dans une
+  // boîte entourée d'un éclat doré (liseré qui tourne, halo qui respire, reflet à l'apparition,
+  // `.gold-aura` dans app.css). Rejouable depuis la vitrine.
+  import { backdrop } from "./motion.svelte";
   import { onMount } from "svelte";
-  import { coverPalette, rain } from "./confetti";
   import { rarityText } from "./filters";
   import { api, formatDate, formatPlaytime, localImage, type Recap } from "./library";
 
@@ -22,28 +22,19 @@
 
   let recap = $state<Recap | null>(null);
   let error = $state("");
-  let canvas: HTMLCanvasElement;
   let closeButton = $state<HTMLButtonElement>();
 
   const cover = $derived(recap ? localImage(imagesDir, recap.game.cover_file) : null);
 
   onMount(() => {
-    let stop: (() => void) | null = null;
-    let dead = false;
     api
       .recap(appid)
-      .then(async (r) => {
+      .then((r) => {
         recap = r;
-        closeButton?.focus();
-        if (reduced()) return;
-        const colors = await coverPalette(localImage(imagesDir, r.game.cover_file));
-        if (!dead) stop = rain(canvas, colors);
+        // Après le rendu de la boîte
+        queueMicrotask(() => closeButton?.focus());
       })
       .catch((e) => (error = String(e)));
-    return () => {
-      dead = true;
-      stop?.();
-    };
   });
 </script>
 
@@ -60,11 +51,12 @@
   {:else if recap}
     {@const g = recap.game}
     {@const r = recap.rarest}
+    <div class="gold-aura pop-in w-full max-w-lg rounded-2xl">
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="celebration-title"
-      class="pop-in flex w-full max-w-lg flex-col items-center gap-5 rounded-2xl border border-gold/40 bg-panel px-6 pt-8 pb-6 text-center shadow-2xl shadow-gold/10 sm:flex-row sm:items-stretch sm:text-left"
+      class="gold-aura-box relative flex flex-col items-center gap-5 overflow-hidden rounded-2xl bg-panel px-6 pt-8 pb-6 text-center shadow-2xl sm:flex-row sm:items-stretch sm:text-left"
     >
       <!-- Jaquette dorée -->
       <div class="gold-frame w-36 shrink-0 self-center rounded-xl bg-raised" style:aspect-ratio="2 / 3">
@@ -124,8 +116,6 @@
         </div>
       </div>
     </div>
+    </div>
   {/if}
 </div>
-
-<!-- Au-dessus de tout, sans intercepter la souris -->
-<canvas bind:this={canvas} class="pointer-events-none fixed inset-0 z-[60] h-full w-full" aria-hidden="true"></canvas>
