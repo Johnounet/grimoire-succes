@@ -1,6 +1,7 @@
 //! Sauvegardes de sécurité des données du joueur (guides, coches, étiquettes, réglages).
 //!
-//! Une sauvegarde est un dossier `sauvegardes/<horodatage>-<sorte>/` dans le dossier des données :
+//! Une sauvegarde est un dossier `backups/<horodatage>-<sorte>/` dans le dossier des données (nom
+//! neutre, qui ne changera pas avec la langue ; l'ancien `sauvegardes/` est renommé au démarrage) :
 //! - `donnees.sqlite` : copie cohérente de la base (API de sauvegarde de SQLite, base ouverte) ;
 //! - `images/blocks/` : images des blocs utilisées par cette base, en liens physiques (elles ne sont
 //!   jamais réécrites : un nom par image), copiées si le lien est impossible ;
@@ -27,7 +28,7 @@ const DAY: i64 = 24 * 3600;
 /// Coup d'œil pendant que l'application reste ouverte.
 const CHECK_EVERY: Duration = Duration::from_secs(3600);
 
-const DB_FILE: &str = "donnees.sqlite";
+use crate::data_dir::DB_FILE;
 const INFO_FILE: &str = "info.json";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -70,7 +71,15 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 
 pub fn backups_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join("sauvegardes")
+    data_dir.join("backups")
+}
+
+/// Premières versions : le dossier s'appelait `sauvegardes`.
+fn rename_old_dir(data_dir: &Path) {
+    let old = data_dir.join("sauvegardes");
+    if old.is_dir() && !backups_dir(data_dir).exists() {
+        let _ = std::fs::rename(old, backups_dir(data_dir));
+    }
 }
 
 /// Dossier d'une sauvegarde d'après son identifiant, refusé s'il sort du dossier des sauvegardes.
@@ -233,6 +242,7 @@ pub fn start(app: AppHandle) {
         .spawn(move || loop {
             {
                 let state = app.state::<AppState>();
+                rename_old_dir(&state.data_dir);
                 let conn = state.conn();
                 if let Err(e) = auto_if_due(&conn, &state.data_dir, &state.images_dir) {
                     eprintln!("sauvegarde automatique : {e}");
@@ -314,6 +324,13 @@ mod tests {
         let data = temp_dir("sauvegardes");
         let images = data.join("images");
         let mut conn = db::open(&data.join(DB_FILE)).unwrap();
+
+        // Ancien nom du dossier repris
+        std::fs::create_dir_all(data.join("sauvegardes/1-manuel")).unwrap();
+        std::fs::write(data.join("sauvegardes/1-manuel").join(INFO_FILE), br#"{"created_at":1,"kind":"manuel","games":0}"#).unwrap();
+        rename_old_dir(&data);
+        assert_eq!(list(&data).iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["1-manuel"]);
+        delete(&data, "1-manuel").unwrap();
 
         // Bibliothèque vide : pas de sauvegarde automatique
         assert!(auto_if_due(&conn, &data, &images).unwrap().is_none());

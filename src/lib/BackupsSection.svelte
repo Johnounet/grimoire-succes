@@ -102,7 +102,11 @@
           <div class="flex items-center gap-3">
             <div class="min-w-0 flex-1">
               <div class="font-medium first-letter:uppercase">{when(b.created_at)}</div>
-              <div class="text-xs text-muted">{KIND[b.kind]} · {games(b.games)} · {size(b.size)}</div>
+              <div class="text-xs text-muted">
+                {KIND[b.kind]} · {games(b.games)} · {size(b.size)} ·
+                <!-- Nom du dossier, pour retrouver la sauvegarde dans « Ouvrir le dossier » -->
+                <span class="font-mono select-all" title="Nom du dossier de cette sauvegarde">{b.id}</span>
+              </div>
             </div>
             <button
               onclick={() => (confirm = { id: b.id, action: "restore" })}

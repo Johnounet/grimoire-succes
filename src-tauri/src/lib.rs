@@ -10,6 +10,7 @@
 
 pub mod backup;
 pub mod blocks;
+pub mod data_dir;
 pub mod db;
 pub mod guides;
 pub mod library;
@@ -27,11 +28,12 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // %APPDATA%\<identifiant> sous Windows, ~/.local/share/<identifiant> sous Linux
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-            let conn = db::open(&data_dir.join("donnees.sqlite"))?;
+            // %APPDATA%\Grimoire sous Windows, ~/.local/share/Grimoire sous Linux (data_dir.rs)
+            let data_dir = data_dir::resolve(&app.path().data_dir()?, &app.path().app_data_dir()?)?;
+            let conn = db::open(&data_dir.join(data_dir::DB_FILE))?;
             let images_dir = data_dir.join("images");
+            // Jaquettes et images des blocs servies par le protocole asset : ce dossier seulement
+            app.asset_protocol_scope().allow_directory(&images_dir, true)?;
             blocks::cleanup_orphan_images(&conn, &images_dir);
             app.manage(library::AppState { db: Mutex::new(conn), data_dir, images_dir });
             watch::start(app.handle().clone());
