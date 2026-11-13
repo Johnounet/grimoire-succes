@@ -18,7 +18,7 @@ export interface GameSummary {
   /** Date du 100 % (secondes Unix) ; null tant que le jeu n'est pas terminé. */
   completed_at: number | null;
   playtime_minutes: number | null;
-  /** La célébration du 100 % a déjà été montrée (elle ne revient que depuis la vitrine). */
+  /** La célébration du 100 % a déjà été montrée (elle ne revient que depuis le badge « 100 % » du jeu). */
   celebrated: boolean;
 }
 
@@ -128,7 +128,6 @@ export type SettingKey =
   | "workspace_view"
   | "panel_open"
   | "sidebar_open"
-  | "hide_completed"
   | "shortcuts"
   | "shortcut_sound"
   | "compact_opacity"

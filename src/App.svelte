@@ -5,13 +5,12 @@
   import Celebration from "./lib/Celebration.svelte";
   import GameView from "./lib/GameView.svelte";
   import Home from "./lib/Home.svelte";
-  import Showcase from "./lib/Showcase.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
   import { api, completedSlot, importSummary, isComplete, type GameSummary } from "./lib/library";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { flushBlocks, listenBlockChanges, showToast } from "./lib/blocks/store.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
-  import { loadSettings, settings } from "./lib/settings.svelte";
+  import { loadSettings } from "./lib/settings.svelte";
   import { applyMotionAttribute, loadMotion } from "./lib/motion.svelte";
   import { applyTheme, loadAppearance } from "./lib/theme.svelte";
   import { chime, loadSound } from "./lib/sound.svelte";
@@ -27,8 +26,8 @@
   let settingsOpen = $state(false);
   let aboutOpen = $state(false);
   let loadError = $state("");
-  /** Page affichée à droite du panneau : le jeu choisi, l'accueil ou la vitrine des trophées. */
-  let page = $state<"game" | "home" | "showcase">("game");
+  /** Page affichée à droite du panneau : le jeu choisi ou l'accueil. */
+  let page = $state<"game" | "home">("game");
   /** Jeu dont la célébration du 100 % est affichée. */
   let celebrating = $state<number | null>(null);
 
@@ -53,13 +52,9 @@
         loadSound(),
         loadAppearance(),
       ]);
-      // Dernier jeu consulté ; sinon le premier affiché dans le panneau (les jeux à 100 % peuvent y être
-      // masqués). Bibliothèque vide (premier lancement) : page d'accueil de bienvenue.
-      selected =
-        games.find((g) => g.appid === Number(last))?.appid ??
-        (settings.hideCompleted ? games.find((g) => !isComplete(g)) : null)?.appid ??
-        games[0]?.appid ??
-        null;
+      // Dernier jeu consulté, sinon le premier du panneau. Bibliothèque vide (premier lancement) :
+      // page d'accueil de bienvenue.
+      selected = games.find((g) => g.appid === Number(last))?.appid ?? games[0]?.appid ?? null;
     } catch (e) {
       loadError = String(e);
     }
@@ -173,16 +168,13 @@
     {page}
     onselect={select}
     onreorder={reorder}
-    onshowcase={() => (page = "showcase")}
     onhome={() => (page = "home")}
     onadd={() => (adding = true)}
     onsettings={() => (settingsOpen = true)}
     onabout={() => (aboutOpen = true)}
   />
 
-  {#if page === "showcase"}
-    <Showcase {games} {imagesDir} onopen={select} oncelebrate={(id) => (celebrating = id)} />
-  {:else if current && page === "game"}
+  {#if current && page === "game"}
     {#key viewVersion}
       <GameView
         game={current}
@@ -218,12 +210,10 @@
       appid={celebrating}
       {imagesDir}
       onclose={() => (celebrating = null)}
-      onshowcase={page === "showcase"
-        ? undefined
-        : () => {
-            celebrating = null;
-            page = "showcase";
-          }}
+      onremoved={(appid) => {
+        celebrating = null;
+        onDeleted(appid);
+      }}
     />
   {/key}
 {/if}

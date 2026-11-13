@@ -125,7 +125,7 @@ const MIGRATIONS: &[&str] = &[
         WHERE grid_w IS NOT NULL AND grid_h IS NOT NULL;
     "#,
     // v7 : 100 %. `completed_at` (colonne de la v1) est désormais tenue à jour ; `celebrated` retient que
-    // la célébration a déjà été montrée (une seule fois par jeu, rejouable depuis la vitrine)
+    // la célébration a déjà été montrée (une seule fois par jeu, rejouable depuis le badge « 100 % »)
     r#"
     ALTER TABLE games ADD COLUMN celebrated INTEGER NOT NULL DEFAULT 0;
     UPDATE games SET completed_at = COALESCE(

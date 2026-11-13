@@ -11,8 +11,6 @@ export const settings = $state({
   panelOpen: true,
   /** Panneau de gauche (liste des jeux) déplié ; replié, il ne montre que les jaquettes. */
   sidebarOpen: true,
-  /** Jeux à 100 % masqués dans le panneau de gauche (ils restent dans la vitrine). */
-  hideCompleted: false,
   /** Opacité de la fenêtre compacte (0,3 à 1). */
   compactOpacity: 0.95,
 });
@@ -36,8 +34,8 @@ export function openRelock(target: AchievementRow | null) {
 }
 
 export async function loadSettings() {
-  const [spoiler, view, panel, opacity, sidebar, hideCompleted] = await Promise.all(
-    (["anti_spoiler", "workspace_view", "panel_open", "compact_opacity", "sidebar_open", "hide_completed"] as const).map((k) =>
+  const [spoiler, view, panel, opacity, sidebar] = await Promise.all(
+    (["anti_spoiler", "workspace_view", "panel_open", "compact_opacity", "sidebar_open"] as const).map((k) =>
       api.getSetting(k).catch(() => null),
     ),
   );
@@ -47,7 +45,6 @@ export async function loadSettings() {
   settings.workspaceView = view === "list" ? "list" : "board";
   settings.panelOpen = panel !== "0";
   settings.sidebarOpen = sidebar !== "0";
-  settings.hideCompleted = hideCompleted === "1";
 }
 
 export async function setAntiSpoiler(on: boolean) {
@@ -74,9 +71,4 @@ export async function setPanelOpen(open: boolean) {
 export async function setSidebarOpen(open: boolean) {
   settings.sidebarOpen = open;
   await api.setSetting("sidebar_open", open ? "1" : "0");
-}
-
-export async function setHideCompleted(hide: boolean) {
-  settings.hideCompleted = hide;
-  await api.setSetting("hide_completed", hide ? "1" : "0");
 }

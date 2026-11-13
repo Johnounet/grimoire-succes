@@ -65,7 +65,7 @@ export function pop(_node: Element, { y = 0, start = 0.96 }: { y?: number; start
 // `appear` et `arrive` lisent le réglage sans dépendance (`untrack`) : appelées depuis des
 // attachements, elles ne doivent pas se rejouer quand le réglage change.
 
-/** Apparition douce d'une zone (changement de jeu, vitrine). */
+/** Apparition douce d'une zone (changement de jeu, accueil). */
 export function appear(el: Element, y = 6) {
   if (untrack(reduced)) return;
   el.animate(

@@ -31,7 +31,7 @@ De l'ouverture au premier guide, il faut moins d'une minute et aucun réglage.
 5. **Construire ses guides** : sous chaque succès, un bouton « + » ajoute un bloc : vidéo YouTube, image, texte, liste, compteur ou chronomètre. Les blocs se réorganisent par glisser-déposer.
 6. **Jouer** : le joueur coche ses succès, fait +1 sur ses compteurs ou lance un chrono, éventuellement en mode compact ou par raccourci clavier sans quitter le jeu.
 7. **Changer de jeu** : la barre latérale liste les jeux importés. Passer de l'un à l'autre ne perd rien.
-8. **100 %** : le dernier succès coché déclenche la célébration, et le jeu rejoint la vitrine des trophées.
+8. **100 %** : le dernier succès coché déclenche la célébration ; le joueur peut alors exporter son guide et retirer le jeu.
 
 ## Fonctionnalités V1
 
@@ -204,8 +204,8 @@ L'interface vise l'esprit d'une bibliothèque de jeux moderne : sombre, aérée,
 - Pluie de confettis aux couleurs de la jaquette du jeu.
 - La carte du jeu passe en **version dorée** : bordure et reflet dorés, badge « 100 % ».
 - Récap affiché : date du 100 %, temps de jeu Steam, succès le plus rare obtenu.
-- Le jeu rejoint la **vitrine des trophées** : une galerie des jeux terminés, jaquettes dorées, triées par date.
-- La célébration ne se déclenche qu'une fois par jeu (rejouable depuis la vitrine).
+- ~~Vitrine des trophées~~ : abandonnée (décision de l'utilisateur, 2026-11-13) ; un jeu fini est retiré de l'application.
+- La célébration ne se déclenche qu'une fois par jeu (rejouable depuis le badge « 100 % » du jeu).
 
 ## Choix techniques et architecture
 
@@ -290,7 +290,7 @@ On avance en neuf étapes, chacune livrant un logiciel qui fonctionne et se test
 5. **Espace de travail** : sélection et glisser-déposer des succès, cartes, vue liste puis vue colonnes.
 6. **Blocs** : texte, liste, compteur, image (avec Ctrl+V), vidéo YouTube avec repères, chronomètre. *Validé quand* tout est retrouvé à l'identique après redémarrage et en changeant de jeu.
 7. **Étiquettes, re-lock, raccourcis globaux, mode compact**.
-8. **Finitions** : 100 % et vitrine, animations, thèmes, traduction français / anglais, export / import de guides, clé API optionnelle.
+8. **Finitions** : 100 %, animations, thèmes, traduction français / anglais, export / import de guides, clé API optionnelle.
 9. **Publication** : compilation automatique par GitHub Actions pour Windows (`.msi` / `.exe`), page de release sur GitHub. Pas de version Linux (voir Vision).
 
 **Règles à rappeler à Claude Code**

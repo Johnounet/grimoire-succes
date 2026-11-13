@@ -148,6 +148,9 @@ export function installMock(label = "main") {
       case "backup_restore":
       case "backups_open_folder":
         return null;
+      case "library_delete":
+        gameOrder = gameOrder.filter((id) => id !== args.appid);
+        return null;
       case "library_reorder":
         gameOrder = [...(args.appids as number[])];
         return null;

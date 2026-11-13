@@ -123,13 +123,13 @@
       <dl class="mt-6 grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4">
         {#each [
           { label: "Progression", value: `${total ? Math.floor((unlocked / total) * 100) : 0} %` },
-          { label: "Jeux à 100 %", value: nf(completed), gold: completed > 0 },
+          { label: "Succès restants", value: nf(total - unlocked) },
           { label: "Jeux en cours", value: nf(games.length - completed) },
           { label: "Temps de jeu", value: playtime ? formatPlaytime(playtime) : "—" },
         ] as s (s.label)}
           <div class="rounded-xl border border-line bg-panel px-4 py-3">
             <dt class="text-xs text-muted">{s.label}</dt>
-            <dd class="mt-0.5 text-xl font-semibold {s.gold ? 'text-gold' : ''}">{s.value}</dd>
+            <dd class="mt-0.5 text-xl font-semibold">{s.value}</dd>
           </div>
         {/each}
       </dl>

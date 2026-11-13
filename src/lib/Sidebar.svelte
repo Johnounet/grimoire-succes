@@ -1,15 +1,15 @@
 <script lang="ts">
   // Panneau de gauche : jeux importés. Repliable : il ne montre alors que les jaquettes (avec un
   // liseré de progression), pour garder le changement de jeu à portée de clic.
-  // Un jeu terminé à 100 % passe en version dorée (bordure, reflet, badge « 100 % »). Les jeux à 100 %
-  // peuvent être masqués ici (réglage `hide_completed`) : ils restent dans la vitrine.
+  // Un jeu terminé à 100 % passe en version dorée (bordure, reflet, badge « 100 % ») jusqu'à ce que le
+  // joueur le retire de la bibliothèque.
   // Ordre libre par glisser-déposer (svelte-dnd-action), enregistré par le parent.
   import { flip } from "svelte/animate";
   import { dndzone, SHADOW_ITEM_MARKER_PROPERTY_NAME, type DndEvent } from "svelte-dnd-action";
   import { isComplete, localImage, percent, type GameSummary } from "./library";
   import { dur } from "./motion.svelte";
   import ProgressRing from "./ProgressRing.svelte";
-  import { setHideCompleted, setSidebarOpen, settings } from "./settings.svelte";
+  import { setSidebarOpen, settings } from "./settings.svelte";
 
   let {
     games,
@@ -18,7 +18,6 @@
     page,
     onselect,
     onreorder,
-    onshowcase,
     onhome,
     onadd,
     onsettings,
@@ -27,12 +26,11 @@
     games: GameSummary[];
     imagesDir: string;
     selected: number | null;
-    /** Page affichée : le jeu choisi, l'accueil ou la vitrine des trophées. */
-    page: "game" | "home" | "showcase";
+    /** Page affichée : le jeu choisi ou l'accueil. */
+    page: "game" | "home";
     onselect: (appid: number) => void;
     /** Nouvel ordre de tous les jeux (masqués compris). */
     onreorder: (games: GameSummary[]) => void;
-    onshowcase: () => void;
     onhome: () => void;
     onadd: () => void;
     onsettings: () => void;
@@ -40,12 +38,6 @@
   } = $props();
 
   const open = $derived(settings.sidebarOpen);
-  const trophies = $derived(games.filter(isComplete).length);
-  // Le jeu ouvert reste affiché même terminé : il ne disparaît pas sous les yeux au moment du 100 %
-  const shown = $derived(
-    settings.hideCompleted ? games.filter((g) => !isComplete(g) || (g.appid === selected && page === "game")) : games,
-  );
-  const hiddenCount = $derived(games.length - shown.length);
 
   /** Élément manipulé par svelte-dnd-action (qui exige un champ `id`). */
   type Row = { id: number; g: GameSummary; [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: boolean };
@@ -54,7 +46,7 @@
   let rows = $state.raw<Row[]>([]);
   let dragging = false;
   $effect(() => {
-    const next = shown.map((g) => ({ id: g.appid, g }));
+    const next = games.map((g) => ({ id: g.appid, g }));
     if (!dragging) rows = next;
   });
 
@@ -66,12 +58,8 @@
     dragging = false;
     rows = [...e.detail.items];
     const moved = rows.map((r) => r.g);
-    if (moved.every((g, i) => g.appid === shown[i]?.appid)) return;
-    // Les jeux visibles reprennent les places des jeux visibles, dans le nouvel ordre ; les jeux
-    // masqués gardent les leurs
-    const visible = new Set(moved.map((g) => g.appid));
-    let k = 0;
-    onreorder(games.map((g) => (visible.has(g.appid) ? moved[k++] : g)));
+    if (moved.every((g, i) => g.appid === games[i]?.appid)) return;
+    onreorder(moved);
   }
 </script>
 
@@ -116,28 +104,11 @@
       aria-current={page === "home" ? "page" : undefined}
       title={open ? undefined : "Accueil"}
       aria-label={open ? undefined : "Accueil"}
-      class="mb-1 flex w-full items-center gap-3 rounded-lg p-1.5 text-left transition hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent
+      class="mb-2 flex w-full items-center gap-3 rounded-lg p-1.5 text-left transition hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent
         {page === 'home' ? 'bg-raised' : ''} {open ? '' : 'flex-col gap-0.5'}"
     >
       <span class="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-accent/15 text-lg" aria-hidden="true">🏠</span>
       {#if open}<span class="min-w-0 flex-1 truncate text-sm font-medium">Accueil</span>{/if}
-    </button>
-    <!-- Vitrine des trophées -->
-    <button
-      onclick={onshowcase}
-      aria-current={page === "showcase" ? "page" : undefined}
-      title={open ? undefined : `Vitrine des trophées · ${trophies}`}
-      aria-label={open ? undefined : "Vitrine des trophées"}
-      class="mb-2 flex w-full items-center gap-3 rounded-lg p-1.5 text-left transition hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent
-        {page === 'showcase' ? 'bg-raised' : ''} {open ? '' : 'flex-col gap-0.5'}"
-    >
-      <span class="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-gold/15 text-lg" aria-hidden="true">🏆</span>
-      {#if open}
-        <span class="min-w-0 flex-1 truncate text-sm font-medium">Vitrine des trophées</span>
-        {#if trophies}<span class="rounded-full bg-gold/20 px-2 text-xs font-semibold text-gold">{trophies}</span>{/if}
-      {:else if trophies}
-        <span class="text-[10px] font-semibold text-gold">{trophies}</span>
-      {/if}
     </button>
 
     {#if games.length === 0 && open}
@@ -187,20 +158,6 @@
       {/each}
     </ul>
 
-    {#if open && trophies}
-      <button
-        onclick={() => setHideCompleted(!settings.hideCompleted)}
-        class="mt-2 w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted transition hover:bg-raised hover:text-fg"
-      >
-        {#if !settings.hideCompleted}
-          Masquer les jeux à 100 %
-        {:else if hiddenCount}
-          Afficher les jeux à 100 % ({hiddenCount} masqué{hiddenCount > 1 ? "s" : ""})
-        {:else}
-          Afficher les jeux à 100 %
-        {/if}
-      </button>
-    {/if}
   </nav>
 
   <div class="flex gap-1 border-t border-line p-2 {open ? '' : 'flex-col items-center'}">

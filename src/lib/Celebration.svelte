@@ -1,7 +1,9 @@
 <script lang="ts">
   // Célébration du 100 % : le récap (date du 100 %, temps de jeu Steam, succès le plus rare) dans une
   // boîte entourée d'un éclat doré (liseré qui tourne, halo qui respire, reflet à l'apparition,
-  // `.gold-aura` dans app.css). Rejouable depuis la vitrine.
+  // `.gold-aura` dans app.css). Rejouable depuis le badge « 100 % » du jeu.
+  // Un jeu fini est fait pour être retiré : boutons « Exporter le guide » (pour le garder) et « Retirer le jeu ».
+  import ExportDialog from "./ExportDialog.svelte";
   import { backdrop } from "./motion.svelte";
   import { onMount } from "svelte";
   import { rarityText } from "./filters";
@@ -11,14 +13,29 @@
     appid,
     imagesDir,
     onclose,
-    onshowcase,
+    onremoved,
   }: {
     appid: number;
     imagesDir: string;
     onclose: () => void;
-    /** Absent quand on est déjà dans la vitrine. */
-    onshowcase?: () => void;
+    /** Le jeu a été retiré de la bibliothèque. */
+    onremoved: (appid: number) => void;
   } = $props();
+
+  let exporting = $state(false);
+  let confirmRemove = $state(false);
+  let removing = $state(false);
+
+  async function remove() {
+    removing = true;
+    try {
+      await api.deleteGame(appid);
+      onremoved(appid);
+    } catch (e) {
+      error = `Suppression impossible : ${e}`;
+      removing = false;
+    }
+  }
 
   let recap = $state<Recap | null>(null);
   let error = $state("");
@@ -38,7 +55,7 @@
   });
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && onclose()} />
+<svelte:window onkeydown={(e) => e.key === "Escape" && !exporting && onclose()} />
 
 <div
   class="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
@@ -100,22 +117,44 @@
           {/if}
         </dl>
 
-        <div class="mt-auto flex justify-center gap-2 pt-5 sm:justify-end">
-          {#if onshowcase}
-            <button onclick={onshowcase} class="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-raised">
-              Voir la vitrine
+        {#if confirmRemove}
+          <div class="mt-5 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm">
+            <p>Retirer « {g.name} » ? Son espace de travail et ses guides seront effacés.</p>
+            <div class="mt-2 flex flex-wrap justify-center gap-2 sm:justify-end">
+              <button onclick={() => (confirmRemove = false)} class="rounded-md px-3 py-1 hover:bg-raised">Annuler</button>
+              <button onclick={() => (exporting = true)} class="rounded-md border border-line px-3 py-1 hover:bg-raised">
+                Exporter d'abord…
+              </button>
+              <button onclick={remove} disabled={removing} class="rounded-md bg-danger px-3 py-1 font-medium text-white disabled:opacity-60">
+                Retirer
+              </button>
+            </div>
+          </div>
+        {:else}
+          <div class="mt-auto flex flex-col items-center gap-2 pt-5 sm:items-end">
+            <button
+              bind:this={closeButton}
+              onclick={onclose}
+              class="rounded-lg bg-gold px-4 py-1.5 text-sm font-semibold text-bg hover:brightness-110"
+            >
+              Continuer
             </button>
-          {/if}
-          <button
-            bind:this={closeButton}
-            onclick={onclose}
-            class="rounded-lg bg-gold px-4 py-1.5 text-sm font-semibold text-bg hover:brightness-110"
-          >
-            Continuer
-          </button>
-        </div>
+            <div class="flex gap-3 text-xs text-muted">
+              <button onclick={() => (exporting = true)} class="underline-offset-2 hover:text-fg hover:underline">
+                Exporter le guide…
+              </button>
+              <button onclick={() => (confirmRemove = true)} class="underline-offset-2 hover:text-danger hover:underline">
+                Retirer le jeu…
+              </button>
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
     </div>
   {/if}
 </div>
+
+{#if exporting && recap}
+  <ExportDialog {appid} gameName={recap.game.name} onclose={() => (exporting = false)} />
+{/if}
