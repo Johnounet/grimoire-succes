@@ -3,7 +3,11 @@
   // liseré de progression), pour garder le changement de jeu à portée de clic.
   // Un jeu terminé à 100 % passe en version dorée (bordure, reflet, badge « 100 % »). Les jeux à 100 %
   // peuvent être masqués ici (réglage `hide_completed`) : ils restent dans la vitrine.
+  // Ordre libre par glisser-déposer (svelte-dnd-action), enregistré par le parent.
+  import { flip } from "svelte/animate";
+  import { dndzone, SHADOW_ITEM_MARKER_PROPERTY_NAME, type DndEvent } from "svelte-dnd-action";
   import { isComplete, localImage, percent, type GameSummary } from "./library";
+  import { dur } from "./motion.svelte";
   import ProgressRing from "./ProgressRing.svelte";
   import { setHideCompleted, setSidebarOpen, settings } from "./settings.svelte";
 
@@ -13,6 +17,7 @@
     selected,
     showcase,
     onselect,
+    onreorder,
     onshowcase,
     onadd,
     onsettings,
@@ -24,6 +29,8 @@
     /** La vitrine des trophées est affichée. */
     showcase: boolean;
     onselect: (appid: number) => void;
+    /** Nouvel ordre de tous les jeux (masqués compris). */
+    onreorder: (games: GameSummary[]) => void;
     onshowcase: () => void;
     onadd: () => void;
     onsettings: () => void;
@@ -37,6 +44,33 @@
     settings.hideCompleted ? games.filter((g) => !isComplete(g) || (g.appid === selected && !showcase)) : games,
   );
   const hiddenCount = $derived(games.length - shown.length);
+
+  /** Élément manipulé par svelte-dnd-action (qui exige un champ `id`). */
+  type Row = { id: number; g: GameSummary; [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: boolean };
+  const FLIP = 150;
+  // Copie locale modifiée pendant un glisser
+  let rows = $state.raw<Row[]>([]);
+  let dragging = false;
+  $effect(() => {
+    const next = shown.map((g) => ({ id: g.appid, g }));
+    if (!dragging) rows = next;
+  });
+
+  function consider(e: CustomEvent<DndEvent<Row>>) {
+    dragging = true;
+    rows = [...e.detail.items];
+  }
+  function finalize(e: CustomEvent<DndEvent<Row>>) {
+    dragging = false;
+    rows = [...e.detail.items];
+    const moved = rows.map((r) => r.g);
+    if (moved.every((g, i) => g.appid === shown[i]?.appid)) return;
+    // Les jeux visibles reprennent les places des jeux visibles, dans le nouvel ordre ; les jeux
+    // masqués gardent les leurs
+    const visible = new Set(moved.map((g) => g.appid));
+    let k = 0;
+    onreorder(games.map((g) => (visible.has(g.appid) ? moved[k++] : g)));
+  }
 </script>
 
 {#snippet cover(g: GameSummary, gold: boolean, i: number)}
@@ -46,7 +80,7 @@
     style:--sheen-delay={gold ? `${(i % 5) * 0.9}s` : undefined}
   >
     {#if src}
-      <img {src} alt="" class="h-full w-full {g.cover_kind === 'header' ? 'object-cover object-left' : 'object-cover'}" />
+      <img {src} alt="" draggable="false" class="h-full w-full {g.cover_kind === 'header' ? 'object-cover object-left' : 'object-cover'}" />
     {/if}
   </div>
 {/snippet}
@@ -95,11 +129,18 @@
       {/if}
     </button>
 
-    <ul class="space-y-1">
-      {#each shown as g, i (g.appid)}
+    <ul
+      class="space-y-1"
+      aria-label="Jeux (glisser pour réordonner)"
+      use:dndzone={{ items: rows, flipDurationMs: dur(FLIP), type: "games", dropTargetStyle: {}, useCursorForDetection: true }}
+      onconsider={consider}
+      onfinalize={finalize}
+    >
+      {#each rows as row, i (row.id)}
+        {@const g = row.g}
         {@const pct = percent(g)}
         {@const gold = isComplete(g)}
-        <li>
+        <li animate:flip={{ duration: dur(FLIP) }} class={row[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? "opacity-30" : ""}>
           <button
             onclick={() => onselect(g.appid)}
             aria-current={selected === g.appid && !showcase ? "page" : undefined}

@@ -44,6 +44,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             library::images_dir,
             library::library_list,
+            library::library_reorder,
             library::library_local_suggestions,
             library::library_search,
             library::library_import,

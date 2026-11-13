@@ -71,6 +71,12 @@ pub fn library_list(state: State<'_, AppState>) -> Result<Vec<GameSummary>, Stri
     db::list_games(&state.conn()).map_err(err)
 }
 
+/// Ordre des jeux choisi par glisser-déposer dans le panneau de gauche.
+#[tauri::command]
+pub fn library_reorder(state: State<'_, AppState>, appids: Vec<u32>) -> Result<(), String> {
+    db::reorder_games(&mut state.conn(), &appids).map_err(err)
+}
+
 #[tauri::command]
 pub fn game_achievements(state: State<'_, AppState>, appid: u32) -> Result<Vec<AchievementRow>, String> {
     db::list_achievements(&state.conn(), appid).map_err(err)

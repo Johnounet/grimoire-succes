@@ -55,6 +55,8 @@ export interface AchievementRow {
 export const api = {
   imagesDir: () => invoke<string>("images_dir"),
   list: () => invoke<GameSummary[]>("library_list"),
+  /** Ordre des jeux du panneau de gauche, le premier en haut. */
+  reorder: (appids: number[]) => invoke<void>("library_reorder", { appids }),
   localSuggestions: () => invoke<SearchHit[]>("library_local_suggestions"),
   search: (query: string) => invoke<SearchHit[]>("library_search", { query }),
   importGame: (appid: number) => invoke<GameSummary>("library_import", { appid }),
@@ -210,6 +212,13 @@ export const percent = (g: { total: number; unlocked: number }) =>
 
 /** Jeu terminé à 100 % (date posée par le cœur Rust). */
 export const isComplete = (g: GameSummary) => g.completed_at != null;
+
+/** Place d'un jeu qui vient d'atteindre 100 % : juste après le dernier jeu en cours (comme
+ *  `move_to_completed` côté Rust), `games` étant la liste sans ce jeu. */
+export function completedSlot(games: GameSummary[]) {
+  for (let i = games.length - 1; i >= 0; i--) if (!isComplete(games[i])) return i + 1;
+  return 0;
+}
 
 export const formatDate = (unix: number) =>
   new Date(unix * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });

@@ -339,7 +339,8 @@ pub fn save_game(
     let tx = conn.transaction()?;
     let t = now();
 
-    let next_order: i64 = tx.query_row("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM games", [], |r| r.get(0))?;
+    // Nouveau jeu : en haut de la liste (déjà terminé, `update_completion` le range ensuite en tête des jeux à 100 %)
+    let next_order: i64 = tx.query_row("SELECT COALESCE(MIN(sort_order), 0) - 1 FROM games", [], |r| r.get(0))?;
     tx.execute(
         "INSERT INTO games (appid, name, cover_file, cover_kind, source, language,
                             imported_at, refreshed_at, sort_order)
@@ -424,7 +425,8 @@ pub fn save_game(
 /// Tient à jour la date du 100 % après un changement d'état des succès.
 ///
 /// Jeu terminé et pas encore daté : `when` (coche du joueur), sinon la date du dernier succès obtenu
-/// d'après Steam, sinon maintenant. Jeu qui n'est plus terminé (re-lock, nouveaux succès) : plus de date.
+/// d'après Steam, sinon maintenant ; le jeu est alors rangé en tête des jeux à 100 % de la liste.
+/// Jeu qui n'est plus terminé (re-lock, nouveaux succès) : plus de date, il reste à sa place.
 fn update_completion(conn: &Connection, appid: u32, when: Option<i64>) -> rusqlite::Result<()> {
     let (total, missing, last): (i64, i64, Option<i64>) = conn.query_row(
         "SELECT COUNT(*), COALESCE(SUM(unlocked = 0), 0), MAX(unlock_time)
@@ -433,14 +435,52 @@ fn update_completion(conn: &Connection, appid: u32, when: Option<i64>) -> rusqli
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     )?;
     if total > 0 && missing == 0 {
-        conn.execute(
+        let newly = conn.execute(
             "UPDATE games SET completed_at = ?2 WHERE appid = ?1 AND completed_at IS NULL",
             params![appid, when.or(last).unwrap_or_else(now)],
         )?;
+        if newly > 0 {
+            move_to_completed(conn, appid)?;
+        }
     } else {
         conn.execute("UPDATE games SET completed_at = NULL WHERE appid = ?1", [appid])?;
     }
     Ok(())
+}
+
+/// Ordre des jeux de la liste (le premier en haut).
+fn game_order(conn: &Connection) -> rusqlite::Result<Vec<(u32, bool)>> {
+    let mut stmt = conn.prepare("SELECT appid, completed_at IS NOT NULL FROM games ORDER BY sort_order, name")?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+fn write_order(conn: &Connection, appids: impl Iterator<Item = u32>) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare("UPDATE games SET sort_order = ?2 WHERE appid = ?1")?;
+    for (i, appid) in appids.enumerate() {
+        stmt.execute(params![appid, i as i64])?;
+    }
+    Ok(())
+}
+
+/// Range un jeu qui vient d'atteindre 100 % juste après le dernier jeu en cours de la liste : en bas
+/// des jeux en cours, en tête des jeux terminés (même si le joueur en a remonté certains plus haut).
+fn move_to_completed(conn: &Connection, appid: u32) -> rusqlite::Result<()> {
+    let mut order: Vec<(u32, bool)> = game_order(conn)?.into_iter().filter(|(id, _)| *id != appid).collect();
+    let at = order.iter().rposition(|(_, done)| !*done).map_or(0, |i| i + 1);
+    order.insert(at, (appid, true));
+    write_order(conn, order.into_iter().map(|(id, _)| id))
+}
+
+/// Ordre choisi par le joueur dans le panneau des jeux. Les jeux absents de `appids` (cas limite :
+/// liste périmée) gardent leur rang relatif, à la suite.
+pub fn reorder_games(conn: &mut Connection, appids: &[u32]) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    let current: Vec<u32> = game_order(&tx)?.into_iter().map(|(id, _)| id).collect();
+    let chosen = appids.iter().copied().filter(|id| current.contains(id));
+    let rest = current.iter().copied().filter(|id| !appids.contains(id));
+    write_order(&tx, chosen.chain(rest).collect::<Vec<_>>().into_iter())?;
+    tx.commit()
 }
 
 /// Temps de jeu lu dans Steam. Un temps inconnu n'efface pas le dernier connu.
@@ -1217,6 +1257,48 @@ mod tests {
         let info = get_block(&conn, c.id).unwrap().unwrap();
         assert_eq!((info.appid, info.card_title.as_str(), info.block.id), (620, "a", c.id));
         assert!(get_block(&conn, 9999).unwrap().is_none());
+    }
+
+    #[test]
+    fn ordre_des_jeux() {
+        let mut conn = open_in_memory().unwrap();
+        let add = |conn: &mut Connection, appid: u32, done: bool| {
+            let mut g = game(vec![ach("A", Some(done))]);
+            g.appid = appid;
+            save_game(conn, &g, &format!("jeu {appid}"), None).unwrap();
+        };
+        let order = |conn: &Connection| list_games(conn).unwrap().iter().map(|g| g.appid).collect::<Vec<_>>();
+
+        // Nouveau jeu en haut ; déjà terminé, en tête des jeux à 100 % (en bas s'il n'y en a pas)
+        add(&mut conn, 1, false);
+        add(&mut conn, 2, false);
+        add(&mut conn, 3, true);
+        add(&mut conn, 4, false);
+        assert_eq!(order(&conn), [4, 2, 1, 3]);
+        add(&mut conn, 5, true);
+        assert_eq!(order(&conn), [4, 2, 1, 5, 3]);
+
+        // Ordre libre ; un jeu absent de la liste envoyée garde son rang, à la suite
+        reorder_games(&mut conn, &[3, 1, 4, 99]).unwrap();
+        assert_eq!(order(&conn), [3, 1, 4, 2, 5]);
+
+        // Un jeu qui atteint 100 % passe juste après le dernier jeu en cours ; actualisé, il ne bouge plus
+        add(&mut conn, 2, true);
+        assert_eq!(order(&conn), [3, 1, 4, 2, 5]);
+        add(&mut conn, 2, true);
+        assert_eq!(order(&conn), [3, 1, 4, 2, 5]);
+        // Plus à 100 % : il reste à sa place
+        let a = list_achievements(&conn, 4).unwrap()[0].id;
+        set_unlocked(&conn, a, true).unwrap();
+        assert_eq!(order(&conn), [3, 1, 4, 2, 5], "4 est déjà juste après 1, dernier jeu en cours");
+        let a = list_achievements(&conn, 1).unwrap()[0].id;
+        set_unlocked(&conn, a, true).unwrap();
+        assert_eq!(order(&conn), [1, 3, 4, 2, 5], "plus aucun jeu en cours : tout en haut des jeux terminés");
+        reorder_games(&mut conn, &[5, 4, 3, 1, 2]).unwrap();
+        set_unlocked(&conn, a, false).unwrap();
+        set_unlocked(&conn, list_achievements(&conn, 4).unwrap()[0].id, false).unwrap();
+        set_unlocked(&conn, list_achievements(&conn, 4).unwrap()[0].id, true).unwrap();
+        assert_eq!(order(&conn), [5, 3, 1, 4, 2], "4 passe après 1, pas à côté de 5 que le joueur a remonté en haut");
     }
 
     #[test]

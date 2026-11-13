@@ -6,7 +6,7 @@
   import GameView from "./lib/GameView.svelte";
   import Showcase from "./lib/Showcase.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
-  import { api, APP_NAME, APP_TAGLINE, importSummary, isComplete, type GameSummary } from "./lib/library";
+  import { api, APP_NAME, APP_TAGLINE, completedSlot, importSummary, isComplete, type GameSummary } from "./lib/library";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { flushBlocks, listenBlockChanges, showToast } from "./lib/blocks/store.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
@@ -86,15 +86,28 @@
 
   function upsert(g: GameSummary) {
     const i = games.findIndex((x) => x.appid === g.appid);
+    const newlyComplete = (i < 0 || !isComplete(games[i])) && isComplete(g);
     // Le jeu vient de passer à 100 % (coche, fenêtre compacte, actualisation) ou vient d'être ajouté
     // déjà terminé : célébration, une fois par jeu.
-    if ((i < 0 || !isComplete(games[i])) && isComplete(g) && !g.celebrated) {
+    if (newlyComplete && !g.celebrated) {
       g = { ...g, celebrated: true };
       celebrating = g.appid;
       api.markCelebrated(g.appid).catch(() => {});
     }
-    if (i >= 0) games[i] = g;
-    else games.push(g);
+    // Ordre de la liste, comme le cœur Rust : nouveau jeu en haut ; jeu qui atteint 100 % (ou ajouté
+    // déjà terminé) juste après le dernier jeu en cours
+    if (newlyComplete) {
+      const rest = games.filter((x) => x.appid !== g.appid);
+      rest.splice(completedSlot(rest), 0, g);
+      games = rest;
+    } else if (i >= 0) games[i] = g;
+    else games.unshift(g);
+  }
+
+  /** Ordre choisi dans le panneau de gauche (liste complète, jeux masqués compris). */
+  function reorder(order: GameSummary[]) {
+    games = order;
+    api.reorder(order.map((g) => g.appid)).catch((e) => showToast(`Ordre des jeux non enregistré : ${e}`));
   }
 
   function onImported(g: GameSummary) {
@@ -141,6 +154,7 @@
     {selected}
     {showcase}
     onselect={select}
+    onreorder={reorder}
     onshowcase={() => (showcase = true)}
     onadd={() => (adding = true)}
     onsettings={() => (settingsOpen = true)}

@@ -82,6 +82,15 @@ const summary = () => ({
   celebrated,
 });
 
+/** Autres jeux du panneau (affichage et ordre seulement ; ouverts, ils montrent les succès de Portal 2). */
+const otherGames = [
+  { appid: 1145360, name: "Hades", total: 49, unlocked: 31, completed_at: null },
+  { appid: 2379780, name: "Balatro", total: 30, unlocked: 30, completed_at: 1_760_000_000 },
+  { appid: 1794680, name: "Vampire Survivors", total: 220, unlocked: 87, completed_at: null },
+].map((g) => ({ ...g, cover_file: null, cover_kind: null, source: "local_cache", has_api_names: true, refreshed_at: 1, playtime_minutes: null, celebrated: true }));
+let gameOrder = [620, ...otherGames.map((g) => g.appid)];
+const allGames = () => gameOrder.map((id) => (id === 620 ? summary() : otherGames.find((g) => g.appid === id)!));
+
 /** Fenêtre compacte simulée (onglet « ?compact », données propres à l'onglet) : une carte épinglée
  *  de démonstration avec un élément de chaque sorte, et le premier succès épinglé avec un compteur. */
 function seedCompact() {
@@ -113,7 +122,10 @@ export function installMock(label = "main") {
       case "images_dir":
         return "C:\\mock\\images";
       case "library_list":
-        return [summary()];
+        return allGames();
+      case "library_reorder":
+        gameOrder = [...(args.appids as number[])];
+        return null;
       case "library_local_suggestions":
       case "library_search":
         return [];
