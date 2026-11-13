@@ -528,6 +528,42 @@ pub fn rarest_unlocked(conn: &Connection, appid: u32) -> rusqlite::Result<Option
         .min_by(|a, b| a.rarity.partial_cmp(&b.rarity).unwrap_or(std::cmp::Ordering::Equal)))
 }
 
+/// Succès obtenu, avec son jeu (page d'accueil : derniers succès débloqués, tous jeux confondus).
+#[derive(Debug, Clone, Serialize)]
+pub struct RecentUnlock {
+    pub id: i64,
+    pub appid: u32,
+    pub game_name: String,
+    pub name: String,
+    pub icon_url: Option<String>,
+    pub rarity: Option<f32>,
+    pub unlock_time: i64,
+}
+
+/// Derniers succès débloqués, du plus récent au plus ancien. Seuls les succès datés comptent
+/// (date donnée par Steam, ou date de la coche manuelle).
+pub fn recent_unlocks(conn: &Connection, limit: u32) -> rusqlite::Result<Vec<RecentUnlock>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.appid, g.name, a.name, a.icon_url, a.rarity, a.unlock_time
+         FROM achievements a JOIN games g ON g.appid = a.appid
+         WHERE a.unlocked = 1 AND a.removed = 0 AND a.unlock_time IS NOT NULL
+         ORDER BY a.unlock_time DESC, a.id DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map([limit], |r| {
+        Ok(RecentUnlock {
+            id: r.get(0)?,
+            appid: r.get(1)?,
+            game_name: r.get(2)?,
+            name: r.get(3)?,
+            icon_url: r.get(4)?,
+            rarity: r.get(5)?,
+            unlock_time: r.get(6)?,
+        })
+    })?;
+    rows.collect()
+}
+
 pub fn delete_game(conn: &Connection, appid: u32) -> rusqlite::Result<Option<String>> {
     let cover: Option<String> = conn
         .query_row("SELECT cover_file FROM games WHERE appid = ?1", [appid], |r| r.get(0))
@@ -544,10 +580,10 @@ pub fn set_unlocked(conn: &Connection, id: i64, unlocked: bool) -> rusqlite::Res
     let appid = conn.query_row(
         "UPDATE achievements
          SET unlocked = ?2, manual = 1,
-             unlock_time = CASE WHEN ?2 THEN unlock_time ELSE NULL END
+             unlock_time = CASE WHEN ?2 THEN COALESCE(unlock_time, ?3) ELSE NULL END
          WHERE id = ?1
          RETURNING appid",
-        params![id, unlocked],
+        params![id, unlocked, now()],
         |r| r.get(0),
     )?;
     // Le dernier succès coché à la main date le 100 % d'aujourd'hui
@@ -1470,5 +1506,25 @@ mod tests {
         assert_eq!(delete_game(&conn, 620).unwrap().as_deref(), Some("covers/620.jpg"));
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM achievements", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn derniers_succes_debloques() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("B", Some(false)), ach("C", Some(false))]), "Portal 2", None)
+            .unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+
+        // Coche manuelle : datée d'aujourd'hui, donc en tête ; décochée, elle disparaît
+        set_unlocked(&conn, ids[1], true).unwrap();
+        let recent = recent_unlocks(&conn, 10).unwrap();
+        assert_eq!(recent.iter().map(|r| r.id).collect::<Vec<_>>(), [ids[1], ids[0]]);
+        assert_eq!(recent[0].game_name, "Portal 2");
+        set_unlocked(&conn, ids[1], false).unwrap();
+        assert_eq!(recent_unlocks(&conn, 10).unwrap().len(), 1);
+
+        // Une coche manuelle garde la date de Steam si elle en avait une
+        set_unlocked(&conn, ids[0], true).unwrap();
+        assert_eq!(recent_unlocks(&conn, 1).unwrap()[0].unlock_time, 1000);
     }
 }

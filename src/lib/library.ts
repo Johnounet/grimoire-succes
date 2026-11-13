@@ -54,6 +54,17 @@ export interface AchievementRow {
   progress: Progress | null;
 }
 
+/** Succès obtenu et daté, avec son jeu (page d'accueil). */
+export interface RecentUnlock {
+  id: number;
+  appid: number;
+  game_name: string;
+  name: string;
+  icon_url: string | null;
+  rarity: number | null;
+  unlock_time: number;
+}
+
 /** Sauvegarde de sécurité des données (backup.rs). */
 export interface BackupInfo {
   id: string;
@@ -86,6 +97,8 @@ export const api = {
   lockAll: (appid: number) => invoke<GameSummary>("achievements_lock_all", { appid }),
   recap: (appid: number) => invoke<Recap>("game_recap", { appid }),
   markCelebrated: (appid: number) => invoke<void>("game_mark_celebrated", { appid }),
+  /** Derniers succès débloqués, tous jeux confondus (page d'accueil). */
+  recentUnlocks: (limit: number) => invoke<RecentUnlock[]>("home_recent_unlocks", { limit }),
   workspaceList: (appid: number) => invoke<WorkspaceItem[]>("workspace_list", { appid }),
   workspaceSave: (appid: number, items: WorkspaceItem[]) => invoke<void>("workspace_save", { appid, items }),
   workspaceCardSizes: (appid: number) =>
@@ -123,7 +136,8 @@ export type SettingKey =
   | "check_sound"
   | "appearance"
   | "theme_dark"
-  | "theme_light";
+  | "theme_light"
+  | "last_game";
 
 export type Column = "todo" | "doing" | "done";
 
@@ -246,6 +260,19 @@ export function completedSlot(games: GameSummary[]) {
 
 export const formatDate = (unix: number) =>
   new Date(unix * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+
+/** Date proche dite en mots : « aujourd'hui », « hier », « il y a 3 jours », sinon la date. */
+export function formatAgo(unix: number): string {
+  const day = (t: number) => {
+    const d = new Date(t);
+    return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000;
+  };
+  const days = day(Date.now()) - day(unix * 1000);
+  if (days <= 0) return "aujourd'hui";
+  if (days === 1) return "hier";
+  if (days < 7) return `il y a ${days} jours`;
+  return `le ${formatDate(unix)}`;
+}
 
 export function formatPlaytime(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;

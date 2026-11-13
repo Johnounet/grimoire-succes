@@ -116,7 +116,7 @@
   $effect(() =>
     on("achievement-changed", ({ id, unlocked }) => {
       const row = achievements.find((x) => x.id === id);
-      if (row) Object.assign(row, { unlocked, manual: true, unlock_time: unlocked ? row.unlock_time : null });
+      if (row) Object.assign(row, { unlocked, manual: true, unlock_time: unlocked ? (row.unlock_time ?? Math.floor(Date.now() / 1000)) : null });
     }),
   );
 
@@ -260,7 +260,8 @@
     row.unlocked = !row.unlocked;
     if (row.unlocked) chime();
     row.manual = true;
-    if (!row.unlocked) row.unlock_time = null;
+    // Comme le cœur Rust : une coche manuelle est datée d'aujourd'hui (si Steam ne l'avait pas datée)
+    row.unlock_time = row.unlocked ? (row.unlock_time ?? Math.floor(Date.now() / 1000)) : null;
     try {
       onchanged(await api.setUnlocked(row.id, row.unlocked));
       send("data-changed", { appid: game.appid });

@@ -15,10 +15,11 @@
     games,
     imagesDir,
     selected,
-    showcase,
+    page,
     onselect,
     onreorder,
     onshowcase,
+    onhome,
     onadd,
     onsettings,
     onabout,
@@ -26,12 +27,13 @@
     games: GameSummary[];
     imagesDir: string;
     selected: number | null;
-    /** La vitrine des trophées est affichée. */
-    showcase: boolean;
+    /** Page affichée : le jeu choisi, l'accueil ou la vitrine des trophées. */
+    page: "game" | "home" | "showcase";
     onselect: (appid: number) => void;
     /** Nouvel ordre de tous les jeux (masqués compris). */
     onreorder: (games: GameSummary[]) => void;
     onshowcase: () => void;
+    onhome: () => void;
     onadd: () => void;
     onsettings: () => void;
     onabout: () => void;
@@ -41,7 +43,7 @@
   const trophies = $derived(games.filter(isComplete).length);
   // Le jeu ouvert reste affiché même terminé : il ne disparaît pas sous les yeux au moment du 100 %
   const shown = $derived(
-    settings.hideCompleted ? games.filter((g) => !isComplete(g) || (g.appid === selected && !showcase)) : games,
+    settings.hideCompleted ? games.filter((g) => !isComplete(g) || (g.appid === selected && page === "game")) : games,
   );
   const hiddenCount = $derived(games.length - shown.length);
 
@@ -108,17 +110,26 @@
   </div>
 
   <nav class="flex-1 overflow-y-auto pb-3 {open ? 'px-2' : 'px-1.5'}" aria-label="Jeux importés">
-    {#if games.length === 0 && open}
-      <p class="px-3 py-6 text-center text-sm text-muted">Aucun jeu pour l'instant.</p>
-    {/if}
+    <!-- Accueil (tableau de bord) -->
+    <button
+      onclick={onhome}
+      aria-current={page === "home" ? "page" : undefined}
+      title={open ? undefined : "Accueil"}
+      aria-label={open ? undefined : "Accueil"}
+      class="mb-1 flex w-full items-center gap-3 rounded-lg p-1.5 text-left transition hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent
+        {page === 'home' ? 'bg-raised' : ''} {open ? '' : 'flex-col gap-0.5'}"
+    >
+      <span class="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-accent/15 text-lg" aria-hidden="true">🏠</span>
+      {#if open}<span class="min-w-0 flex-1 truncate text-sm font-medium">Accueil</span>{/if}
+    </button>
     <!-- Vitrine des trophées -->
     <button
       onclick={onshowcase}
-      aria-current={showcase ? "page" : undefined}
+      aria-current={page === "showcase" ? "page" : undefined}
       title={open ? undefined : `Vitrine des trophées · ${trophies}`}
       aria-label={open ? undefined : "Vitrine des trophées"}
       class="mb-2 flex w-full items-center gap-3 rounded-lg p-1.5 text-left transition hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent
-        {showcase ? 'bg-raised' : ''} {open ? '' : 'flex-col gap-0.5'}"
+        {page === 'showcase' ? 'bg-raised' : ''} {open ? '' : 'flex-col gap-0.5'}"
     >
       <span class="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-gold/15 text-lg" aria-hidden="true">🏆</span>
       {#if open}
@@ -129,6 +140,9 @@
       {/if}
     </button>
 
+    {#if games.length === 0 && open}
+      <p class="px-3 py-6 text-center text-sm text-muted">Aucun jeu pour l'instant.</p>
+    {/if}
     <ul
       class="space-y-1"
       aria-label="Jeux (glisser pour réordonner)"
@@ -143,12 +157,12 @@
         <li animate:flip={{ duration: dur(FLIP) }} class={row[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? "opacity-30" : ""}>
           <button
             onclick={() => onselect(g.appid)}
-            aria-current={selected === g.appid && !showcase ? "page" : undefined}
+            aria-current={selected === g.appid && page === "game" ? "page" : undefined}
             title={open ? undefined : `${g.name} · ${g.unlocked} / ${g.total} · ${gold ? "100" : pct} %`}
             aria-label={open ? undefined : g.name}
             class="group flex w-full items-center gap-3 rounded-lg p-1.5 text-left transition
               hover:bg-raised focus-visible:outline-2 focus-visible:outline-accent
-              {selected === g.appid && !showcase ? 'bg-raised' : ''} {gold ? 'bg-gradient-to-r from-gold/10 to-transparent' : ''}
+              {selected === g.appid && page === "game" ? 'bg-raised' : ''} {gold ? 'bg-gradient-to-r from-gold/10 to-transparent' : ''}
               {open ? '' : 'flex-col gap-1'}"
           >
             {@render cover(g, gold, i)}

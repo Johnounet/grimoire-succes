@@ -133,7 +133,8 @@ export function installMock(label = "main") {
       case "images_dir":
         return "C:\\mock\\images";
       case "library_list":
-        return allGames();
+        // http://localhost:1420/?empty : bibliothèque vide (page de bienvenue du premier lancement)
+        return new URLSearchParams(location.search).has("empty") ? [] : allGames();
       case "backups_list":
         return [...backups].sort((x, y) => y.created_at - x.created_at);
       case "backup_create": {
@@ -161,7 +162,12 @@ export function installMock(label = "main") {
         return summary();
       case "achievement_set_unlocked": {
         const a = achievements.find((x) => x.id === args.id);
-        if (a) Object.assign(a, { unlocked: args.unlocked, manual: true });
+        if (a)
+          Object.assign(a, {
+            unlocked: args.unlocked,
+            manual: true,
+            unlock_time: args.unlocked ? (a.unlock_time ?? Math.floor(Date.now() / 1000)) : null,
+          });
         updateCompletion(Math.floor(Date.now() / 1000));
         return summary();
       }
@@ -171,6 +177,12 @@ export function installMock(label = "main") {
           .sort((a, b) => (a.rarity as number) - (b.rarity as number))[0];
         return { game: summary(), rarest: rarest ? { ...rarest } : null };
       }
+      case "home_recent_unlocks":
+        return achievements
+          .filter((a) => a.unlocked && a.unlock_time != null)
+          .map((a) => ({ id: a.id, appid: 620, game_name: summary().name, name: a.name, icon_url: a.icon_url, rarity: a.rarity, unlock_time: a.unlock_time }))
+          .sort((x, y) => y.unlock_time! - x.unlock_time!)
+          .slice(0, args.limit as number);
       case "game_mark_celebrated":
         celebrated = true;
         return null;

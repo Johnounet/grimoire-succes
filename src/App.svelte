@@ -4,9 +4,10 @@
   import AddGameDialog from "./lib/AddGameDialog.svelte";
   import Celebration from "./lib/Celebration.svelte";
   import GameView from "./lib/GameView.svelte";
+  import Home from "./lib/Home.svelte";
   import Showcase from "./lib/Showcase.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
-  import { api, APP_NAME, APP_TAGLINE, completedSlot, importSummary, isComplete, type GameSummary } from "./lib/library";
+  import { api, completedSlot, importSummary, isComplete, type GameSummary } from "./lib/library";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { flushBlocks, listenBlockChanges, showToast } from "./lib/blocks/store.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
@@ -26,8 +27,8 @@
   let settingsOpen = $state(false);
   let aboutOpen = $state(false);
   let loadError = $state("");
-  /** Vitrine des trophées affichée à la place du jeu. */
-  let showcase = $state(false);
+  /** Page affichée à droite du panneau : le jeu choisi, l'accueil ou la vitrine des trophées. */
+  let page = $state<"game" | "home" | "showcase">("game");
   /** Jeu dont la célébration du 100 % est affichée. */
   let celebrating = $state<number | null>(null);
 
@@ -41,11 +42,24 @@
       /* hors de Tauri (interface simulée) */
     }
     try {
-      [imagesDir, games] = await Promise.all([api.imagesDir(), api.list(), loadSettings(), loadTags(), loadMotion(), loadSound(), loadAppearance()]);
-      // Premier jeu affiché dans le panneau (les jeux à 100 % peuvent y être masqués)
-      selected = (settings.hideCompleted ? games.find((g) => !isComplete(g)) : null)?.appid ?? games[0]?.appid ?? null;
-      // Premier lancement : on ouvre directement l'ajout de jeu
-      if (games.length === 0) adding = true;
+      let last: string | null;
+      [imagesDir, games, last] = await Promise.all([
+        api.imagesDir(),
+        api.list(),
+        api.getSetting("last_game").catch(() => null),
+        loadSettings(),
+        loadTags(),
+        loadMotion(),
+        loadSound(),
+        loadAppearance(),
+      ]);
+      // Dernier jeu consulté ; sinon le premier affiché dans le panneau (les jeux à 100 % peuvent y être
+      // masqués). Bibliothèque vide (premier lancement) : page d'accueil de bienvenue.
+      selected =
+        games.find((g) => g.appid === Number(last))?.appid ??
+        (settings.hideCompleted ? games.find((g) => !isComplete(g)) : null)?.appid ??
+        games[0]?.appid ??
+        null;
     } catch (e) {
       loadError = String(e);
     }
@@ -80,6 +94,10 @@
   });
   $effect(() => {
     if (selected != null) send("compact-game", { appid: selected });
+  });
+  // Rouvert au prochain démarrage
+  $effect(() => {
+    if (selected != null) api.setSetting("last_game", String(selected)).catch(() => {});
   });
   $effect(applyMotionAttribute);
   $effect(applyTheme);
@@ -138,7 +156,7 @@
 
   function select(appid: number) {
     selected = appid;
-    showcase = false;
+    page = "game";
   }
 
   function onDeleted(appid: number) {
@@ -152,18 +170,19 @@
     {games}
     {imagesDir}
     {selected}
-    {showcase}
+    {page}
     onselect={select}
     onreorder={reorder}
-    onshowcase={() => (showcase = true)}
+    onshowcase={() => (page = "showcase")}
+    onhome={() => (page = "home")}
     onadd={() => (adding = true)}
     onsettings={() => (settingsOpen = true)}
     onabout={() => (aboutOpen = true)}
   />
 
-  {#if showcase}
+  {#if page === "showcase"}
     <Showcase {games} {imagesDir} onopen={select} oncelebrate={(id) => (celebrating = id)} />
-  {:else if current}
+  {:else if current && page === "game"}
     {#key viewVersion}
       <GameView
         game={current}
@@ -175,24 +194,7 @@
       />
     {/key}
   {:else}
-    <main class="flex flex-1 items-center justify-center p-8 text-center">
-      <div class="max-w-sm space-y-3">
-        <div class="text-5xl">🏆</div>
-        <h1 class="text-xl font-semibold">{APP_NAME}</h1>
-        <p class="text-sm italic text-muted">{APP_TAGLINE}</p>
-        {#if loadError}
-          <p class="text-sm text-danger">Impossible d'ouvrir la base de données : {loadError}</p>
-        {:else}
-          <p class="text-sm text-muted">Ajoutez un jeu pour importer ses succès.</p>
-          <button
-            onclick={() => (adding = true)}
-            class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:brightness-110"
-          >
-            Ajouter un jeu
-          </button>
-        {/if}
-      </div>
-    </main>
+    <Home {games} {imagesDir} {loadError} onopen={select} onadd={() => (adding = true)} onimport={importGuide} />
   {/if}
 </div>
 
@@ -216,11 +218,11 @@
       appid={celebrating}
       {imagesDir}
       onclose={() => (celebrating = null)}
-      onshowcase={showcase
+      onshowcase={page === "showcase"
         ? undefined
         : () => {
             celebrating = null;
-            showcase = true;
+            page = "showcase";
           }}
     />
   {/key}

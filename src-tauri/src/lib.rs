@@ -63,6 +63,7 @@ pub fn run() {
             library::achievement_set_unlocked,
             library::achievements_lock_all,
             library::game_recap,
+            library::home_recent_unlocks,
             library::game_mark_celebrated,
             library::workspace_list,
             library::workspace_save,

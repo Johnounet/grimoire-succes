@@ -229,6 +229,12 @@ pub fn game_recap(state: State<'_, AppState>, appid: u32) -> Result<Recap, Strin
     })
 }
 
+/// Page d'accueil : derniers succès débloqués, tous jeux confondus.
+#[tauri::command]
+pub fn home_recent_unlocks(state: State<'_, AppState>, limit: u32) -> Result<Vec<db::RecentUnlock>, String> {
+    db::recent_unlocks(&state.conn(), limit.min(50)).map_err(err)
+}
+
 /// La célébration du 100 % a été montrée : elle ne se déclenchera plus d'elle-même pour ce jeu.
 #[tauri::command]
 pub fn game_mark_celebrated(state: State<'_, AppState>, appid: u32) -> Result<(), String> {
@@ -312,6 +318,8 @@ const SETTINGS: &[&str] = &[
     "appearance",
     "theme_dark",
     "theme_light",
+    // Dernier jeu consulté, rouvert au démarrage
+    "last_game",
 ];
 
 fn check_setting(key: &str) -> Result<(), String> {
