@@ -8,7 +8,7 @@ Deux téléchargements par version, produits par GitHub Actions (`.github/workfl
 ## Une seule fois, avant la première version
 
 1. ~~Créer le dépôt GitHub~~ (fait le 2026-11-13) `Johnounet/grimoire-succes` (nom attendu par `plugins.updater.endpoints` de `src-tauri/tauri.conf.json` et `RELEASES_PAGE` de `src-tauri/src/update.rs` : les changer ensemble si le nom diffère). Adresse aussi dans `GITHUB_URL` de `src/lib/AboutDialog.svelte` et dans `src-tauri/capabilities/default.json`.
-2. **Créer la clé de signature des mises à jour**, dans son propre terminal PowerShell, depuis le dossier du projet :
+2. ~~Créer la clé de signature~~ (faite le 2026-11-13, clé publique dans `tauri.conf.json`, secrets GitHub créés) **Créer la clé de signature des mises à jour**, dans son propre terminal PowerShell, depuis le dossier du projet :
    ```powershell
    mkdir "$env:USERPROFILE\.tauri"
    npm run tauri signer generate -- -w "$env:USERPROFILE\.tauri\grimoire.key"
