@@ -12,6 +12,31 @@ use std::path::{Path, PathBuf};
 pub const DB_FILE: &str = "donnees.sqlite";
 const NAMES: &[&str] = &["Grimoire", "Grimoire (succès)"];
 
+/// Fichier qui active le mode portable quand il est à côté de l'exécutable (fourni dans le `.zip`).
+pub const PORTABLE_MARKER: &str = "portable.txt";
+/// Dossier des données de la version portable, à côté de l'exécutable.
+pub const PORTABLE_DIR: &str = "donnees";
+
+/// Version portable : dossier des données à côté de l'exécutable, si le fichier `portable.txt` s'y
+/// trouve et que le dossier est inscriptible (sinon, repli sur le dossier habituel).
+pub fn portable_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    portable_dir_in(exe.parent()?)
+}
+
+fn portable_dir_in(exe_dir: &Path) -> Option<PathBuf> {
+    if !exe_dir.join(PORTABLE_MARKER).is_file() {
+        return None;
+    }
+    let dir = exe_dir.join(PORTABLE_DIR);
+    std::fs::create_dir_all(&dir).ok()?;
+    // Dossier en lecture seule (clé verrouillée, Program Files…) : pas de mode portable
+    let probe = dir.join(".ecriture");
+    std::fs::write(&probe, b"").ok()?;
+    let _ = std::fs::remove_file(probe);
+    Some(dir)
+}
+
 /// Dossier utilisable : absent, vide, ou déjà celui de Grimoire.
 fn usable(dir: &Path) -> bool {
     !dir.exists() || dir.join(DB_FILE).is_file() || std::fs::read_dir(dir).is_ok_and(|mut d| d.next().is_none())
@@ -97,6 +122,20 @@ mod tests {
         // Lancements suivants : même dossier, rien ne bouge
         assert_eq!(resolve(&base, &old).unwrap(), dir);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn mode_portable_seulement_avec_le_fichier_temoin() {
+        let exe_dir = temp("portable");
+        assert_eq!(portable_dir_in(&exe_dir), None);
+        assert!(!exe_dir.join(PORTABLE_DIR).exists());
+
+        std::fs::write(exe_dir.join(PORTABLE_MARKER), b"").unwrap();
+        let dir = portable_dir_in(&exe_dir).unwrap();
+        assert_eq!(dir, exe_dir.join(PORTABLE_DIR));
+        assert!(dir.is_dir());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "le fichier de test d'écriture est retiré");
+        let _ = std::fs::remove_dir_all(&exe_dir);
     }
 
     #[test]

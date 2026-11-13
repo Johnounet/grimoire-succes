@@ -5,9 +5,10 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
   import { APP_NAME, APP_TAGLINE } from "./library";
+  import { checkForUpdate, installUpdate, openReleasesPage, update } from "./update.svelte";
 
-  /** Adresse du dépôt GitHub. null tant qu'il n'est pas publié : le lien est alors remplacé par « bientôt ». */
-  const GITHUB_URL = null as string | null;
+  /** Adresse du dépôt GitHub (ouverture autorisée dans `capabilities/default.json`). null : « bientôt disponible ». */
+  const GITHUB_URL = "https://github.com/Johnounet/grimoire-succes" as string | null;
   const DISCORD = "Johnounet";
 
   let { onclose }: { onclose: () => void } = $props();
@@ -58,7 +59,9 @@
         <div>
           <div class="text-base font-semibold">{APP_NAME}</div>
           <div class="text-xs italic text-muted">{APP_TAGLINE}</div>
-          <div class="text-xs text-muted">Version {version || "…"} · logiciel libre (GPL-3.0)</div>
+          <div class="text-xs text-muted">
+            Version {version || "…"}{update.portable ? " portable" : ""} · logiciel libre (GPL-3.0)
+          </div>
         </div>
       </div>
 
@@ -73,6 +76,38 @@
       </section>
 
       <dl class="space-y-3">
+        <div>
+          <dt class="text-xs font-semibold tracking-wide text-muted uppercase">Mises à jour</dt>
+          <dd class="mt-1 flex flex-wrap items-center gap-2">
+            {#if update.status === "available" && update.info}
+              <span>Version {update.info.version} disponible.</span>
+              {#if update.info.canInstall}
+                <button onclick={installUpdate} class="rounded-lg bg-accent px-2.5 py-1 font-medium text-on-accent hover:brightness-110"
+                  >Installer et redémarrer</button
+                >
+              {:else}
+                <button onclick={openReleasesPage} class="rounded-lg bg-accent px-2.5 py-1 font-medium text-on-accent hover:brightness-110"
+                  >Télécharger</button
+                >
+              {/if}
+            {:else if update.status === "installing"}
+              <span class="text-muted">Installation… Grimoire va se fermer puis redémarrer.</span>
+            {:else}
+              <button
+                onclick={() => checkForUpdate()}
+                disabled={update.status === "checking"}
+                class="rounded-lg bg-raised px-2.5 py-1 hover:brightness-125 disabled:opacity-60"
+              >
+                {update.status === "checking" ? "Recherche…" : "Rechercher une mise à jour"}
+              </button>
+              {#if update.status === "uptodate"}
+                <span class="text-ok" role="status">Grimoire est à jour.</span>
+              {:else if update.status === "error"}
+                <span class="text-danger" role="status">Impossible de vérifier : {update.error}</span>
+              {/if}
+            {/if}
+          </dd>
+        </div>
         <div>
           <dt class="text-xs font-semibold tracking-wide text-muted uppercase">Code source</dt>
           <dd class="mt-0.5">

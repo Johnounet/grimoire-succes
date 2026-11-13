@@ -318,6 +318,8 @@ const SETTINGS: &[&str] = &[
     "theme_light",
     // Dernier jeu consulté, rouvert au démarrage
     "last_game",
+    // Recherche d'une nouvelle version au démarrage (« 0 » : désactivée)
+    "update_check",
 ];
 
 fn check_setting(key: &str) -> Result<(), String> {

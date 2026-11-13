@@ -14,6 +14,7 @@
     type Theme,
   } from "./theme.svelte";
   import { setCompactOpacity, settings } from "./settings.svelte";
+  import { setAutoUpdate, update } from "./update.svelte";
   import {
     accelFromEvent,
     DEFAULT_SHORTCUTS,
@@ -216,6 +217,15 @@
             class="accent-accent"
           />
           Petit carillon quand je coche un succès
+        </label>
+        <label class="mt-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={update.auto}
+            onchange={(e) => setAutoUpdate(e.currentTarget.checked)}
+            class="accent-accent"
+          />
+          Rechercher les nouvelles versions au démarrage
         </label>
       </section>
 

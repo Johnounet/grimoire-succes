@@ -28,13 +28,13 @@ Tauri 2 (cœur Rust dans `src-tauri/`) + Svelte 5 + TypeScript + Vite + Tailwind
 npm install            # dépendances front
 npm run tauri icon app-icon.svg   # génère src-tauri/icons/ (requis avant le 1er build)
 npm run tauri dev      # lancer l'application (par l'utilisateur)
-npm run tauri build    # produire les installeurs
+npm run tauri build    # produire l'installeur (publication : docs/publier.md, GitHub Actions)
 npm run check          # vérification des types Svelte/TS
 cd src-tauri && cargo test --lib                                  # tests Rust
 cd src-tauri && cargo run --example probe -- <appid> [french|english] [profil]   # diagnostic sans interface
 ```
 
-**Interface simulée** : `npm run dev`, puis http://localhost:1420 (données factices de `src/dev-mock.ts`, dev seulement) ; `?compact` pour la fenêtre compacte, `?empty` pour une bibliothèque vide. Dans le volet masqué du navigateur, les animations restent figées : les couper avant une capture.
+**Interface simulée** : `npm run dev`, puis http://localhost:1420 (données factices de `src/dev-mock.ts`, dev seulement) ; `?compact` pour la fenêtre compacte, `?empty` pour une bibliothèque vide, `?update` / `?portable` pour les mises à jour. Dans le volet masqué du navigateur, les animations restent figées : les couper avant une capture.
 
 ## Pièges (ne pas refaire)
 
@@ -51,7 +51,7 @@ cd src-tauri && cargo run --example probe -- <appid> [french|english] [profil]  
 - Abandonnés : clé API Steam, bibliothèque de guides partagés (l'export / import reste un simple fichier), vitrine des trophées et masquage des jeux à 100 %, confettis. Un jeu fini se retire de l'application ; la célébration du 100 % reste.
 - Au démarrage : dernier jeu consulté ; page d'accueil seulement pour une bibliothèque vide, sinon par son bouton.
 - Traduction français / anglais en tout dernier.
-- Nom : **Grimoire**, identifiant `io.github.johnounet.grimoire` (à ne changer qu'avant la première version publiée). `GITHUB_URL` de `AboutDialog.svelte` à renseigner quand le dépôt existera. Mention « vibe-codé avec Claude » à garder visible.
+- Nom : **Grimoire**, identifiant `io.github.johnounet.grimoire` (à ne changer qu'avant la première version publiée). Dépôt : https://github.com/Johnounet/grimoire-succes (créé le 2026-11-13 ; adresse aussi dans `tauri.conf.json`, `update.rs`, `AboutDialog.svelte` et `capabilities/default.json`). Mention « vibe-codé avec Claude » à garder visible.
 
 ## Avancement
 
@@ -62,4 +62,4 @@ cd src-tauri && cargo run --example probe -- <appid> [french|english] [profil]  
 
 ## Index de docs/choix.md
 
-Dossier des données · Page d'accueil · Thèmes · Export / import de guides · Sauvegardes · Progression Steam des succès · Actualisation automatique · Mode compact · Cartes libres · Animations et son · 100 % et célébration · Ordre des jeux du panneau · Étiquettes, re-lock, raccourcis, synchronisation · Tableau, panneau des jeux, À propos · Blocs · Glisser-déposer · Sources Steam · Nom · Historique des étapes
+Distribution et mises à jour · Dossier des données · Page d'accueil · Thèmes · Export / import de guides · Sauvegardes · Progression Steam des succès · Actualisation automatique · Mode compact · Cartes libres · Animations et son · 100 % et célébration · Ordre des jeux du panneau · Étiquettes, re-lock, raccourcis, synchronisation · Tableau, panneau des jeux, À propos · Blocs · Glisser-déposer · Sources Steam · Nom · Historique des étapes

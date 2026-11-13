@@ -1,0 +1,11 @@
+Grimoire — version portable
+
+Ce fichier active le mode portable : tant qu'il est à côté de Grimoire.exe, toutes les données
+(bibliothèque, guides, images, sauvegardes) sont rangées dans le dossier « donnees », à côté de
+Grimoire.exe. Rien n'est écrit ailleurs sur le PC.
+
+Mettre à jour : remplacer seulement Grimoire.exe par celui de la nouvelle version.
+Ne pas supprimer le dossier « donnees » : il contient tout votre travail.
+
+Sans ce fichier, Grimoire utilise le dossier habituel (%APPDATA%\Grimoire), comme la version
+installée, et le dossier « donnees » n'est plus lu.

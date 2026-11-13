@@ -10,6 +10,13 @@ Logiciel de bureau gratuit et open source pour les chasseurs de succès Steam : 
 
 > Projet en cours de développement (étape 8 sur 9 : finitions). Le cahier des charges est dans [SPEC.md](SPEC.md).
 
+## Téléchargement
+
+Deux versions, sur la [page des versions publiées](https://github.com/Johnounet/grimoire-succes/releases) :
+
+- **Installeur** (recommandé) : sans droits administrateur ; Grimoire propose ensuite lui-même ses mises à jour.
+- **Version portable** (`.zip`) : à décompresser où vous voulez, clé USB comprise. Les données restent dans le dossier `donnees` à côté de `Grimoire.exe` ; pour mettre à jour, remplacer seulement `Grimoire.exe`.
+
 ## Développement
 
 ### Prérequis
@@ -41,7 +48,7 @@ npm run tauri dev
 | Commande | Rôle |
 | --- | --- |
 | `npm run tauri dev` | Lance l'application avec rechargement à chaud |
-| `npm run tauri build` | Produit les installeurs dans `src-tauri/target/release/bundle/` |
+| `npm run tauri build` | Produit l'installeur dans `src-tauri/target/release/bundle/nsis/` |
 | `npm run check` | Vérifie les types Svelte / TypeScript |
 
 ## Structure

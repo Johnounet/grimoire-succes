@@ -116,9 +116,25 @@ export const api = {
   backupRestore: (id: string) => invoke<void>("backup_restore", { id }),
   backupDelete: (id: string) => invoke<void>("backup_delete", { id }),
   backupsOpenFolder: () => invoke<void>("backups_open_folder"),
+  /** Version portable (`portable.txt` à côté de l'exécutable) ou installée. */
+  appMode: () => invoke<{ portable: boolean }>("app_mode"),
+  /** Nouvelle version publiée sur GitHub, ou null si Grimoire est à jour. */
+  updateCheck: () => invoke<UpdateInfo | null>("update_check"),
+  /** Télécharge et installe la version trouvée ; l'application se ferme puis redémarre. */
+  updateInstall: () => invoke<void>("update_install"),
+  /** Ouvre la page de téléchargement des versions. */
+  updateOpenPage: () => invoke<void>("update_open_page"),
   getSetting: (key: SettingKey) => invoke<string | null>("setting_get", { key }),
   setSetting: (key: SettingKey, value: string) => invoke<void>("setting_set", { key, value }),
 };
+
+/** Nouvelle version disponible (`update_check`). */
+export interface UpdateInfo {
+  version: string;
+  notes: string | null;
+  /** Installation en un clic (version installée) ; sinon, lien vers la page de téléchargement. */
+  canInstall: boolean;
+}
 
 export type SettingKey =
   | "anti_spoiler"
@@ -136,7 +152,8 @@ export type SettingKey =
   | "appearance"
   | "theme_dark"
   | "theme_light"
-  | "last_game";
+  | "last_game"
+  | "update_check";
 
 export type Column = "todo" | "doing" | "done";
 

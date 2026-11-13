@@ -1,0 +1,83 @@
+# Publication d'une version : déclenchée par une étiquette git « vX.Y.Z » (git tag v0.2.0 && git push --tags).
+# Produit un BROUILLON de version GitHub, à relire puis publier à la main :
+#   - l'installeur Windows (NSIS, sans droits administrateur) et sa signature de mise à jour ;
+#   - latest.json, lu par les copies installées pour proposer la mise à jour ;
+#   - la version portable (.zip : Grimoire.exe + portable.txt).
+# Secrets du dépôt requis : TAURI_SIGNING_PRIVATE_KEY et TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# (clé créée par `npm run tauri signer generate`, voir docs/publier.md).
+name: Publication
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Même numéro de version partout
+        shell: pwsh
+        run: |
+          $tag = "$env:GITHUB_REF_NAME".TrimStart("v")
+          $conf = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $npm = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if ($tag -ne $conf -or $tag -ne $npm -or $tag -ne $cargo) {
+            throw "Étiquette $tag, tauri.conf.json $conf, package.json $npm, Cargo.toml $cargo : à aligner"
+          }
+
+      - run: npm ci
+      - run: npm run check
+      - run: cargo test --lib
+        working-directory: src-tauri
+
+      # Fichiers de mise à jour signés : seulement ici (une compilation locale n'a pas la clé)
+      - name: Activer les fichiers de mise à jour
+        shell: pwsh
+        run: |
+          $c = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $c.bundle | Add-Member -NotePropertyName createUpdaterArtifacts -NotePropertyValue $true -Force
+          $c | ConvertTo-Json -Depth 32 | Set-Content src-tauri/tauri.conf.json -Encoding utf8NoBOM
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Grimoire ${{ github.ref_name }}
+          releaseBody: |
+            **Installeur** (recommandé) : `Grimoire_…_x64-setup.exe`. Sans droits administrateur ; Grimoire proposera ensuite lui-même les mises à jour.
+            **Version portable** : `Grimoire_…_portable.zip`. À décompresser où vous voulez (clé USB comprise) ; les données restent dans le dossier `donnees` à côté de `Grimoire.exe`.
+
+            Windows peut afficher « Windows a protégé votre ordinateur » : le logiciel n'est pas signé. Cliquez sur « Informations complémentaires », puis « Exécuter quand même ».
+          releaseDraft: true
+          includeUpdaterJson: true
+
+      - name: Version portable
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart("v")
+          $dir = "Grimoire-portable"
+          New-Item -ItemType Directory $dir | Out-Null
+          Copy-Item src-tauri/target/release/grimoire.exe "$dir/Grimoire.exe"
+          Copy-Item packaging/portable.txt "$dir/portable.txt"
+          $zip = "Grimoire_${version}_x64_portable.zip"
+          Compress-Archive -Path "$dir/*" -DestinationPath $zip
+          gh release upload $env:GITHUB_REF_NAME $zip --clobber

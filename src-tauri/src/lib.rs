@@ -7,6 +7,7 @@
 //! - `guides` : export / import des guides d'un jeu
 //! - `watch` : actualisation automatique quand Steam réécrit la progression d'un jeu
 //! - `backup` : sauvegardes de sécurité des données
+//! - `update` : mises à jour (installeur) ou annonce des nouvelles versions (version portable)
 
 pub mod backup;
 pub mod blocks;
@@ -16,20 +17,42 @@ pub mod guides;
 pub mod library;
 pub mod steam;
 pub mod tags;
+pub mod update;
 pub mod watch;
 
 use std::sync::Mutex;
+use tauri::utils::config::{AppDirectoriesOverride, AppDirectoryOverrides};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let mut context = tauri::generate_context!();
+    // Version portable (`portable.txt` à côté de l'exe) : tous les dossiers de l'application, dont
+    // celui du moteur web (%LOCALAPPDATA% sinon), dans `donnees\` à côté de l'exécutable
+    let portable = data_dir::portable_dir();
+    if let Some(dir) = &portable {
+        context.config_mut().app.app_directories_override = Some(AppDirectoriesOverride::Directories(AppDirectoryOverrides {
+            config: Some(dir.clone()),
+            data: Some(dir.clone()),
+            local_data: Some(dir.join("webview")),
+            cache: Some(dir.join("webview").join("cache")),
+            log: Some(dir.join("logs")),
+        }));
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            // %APPDATA%\Grimoire sous Windows, ~/.local/share/Grimoire sous Linux (data_dir.rs)
-            let data_dir = data_dir::resolve(&app.path().data_dir()?, &app.path().app_data_dir()?)?;
+        .setup(move |app| {
+            // %APPDATA%\Grimoire sous Windows, ~/.local/share/Grimoire sous Linux (data_dir.rs) ;
+            // `donnees\` à côté de l'exécutable pour la version portable
+            let data_dir = match &portable {
+                Some(dir) => dir.clone(),
+                None => data_dir::resolve(&app.path().data_dir()?, &app.path().app_data_dir()?)?,
+            };
+            app.manage(update::UpdateState::new(portable.is_some()));
             let conn = db::open(&data_dir.join(data_dir::DB_FILE))?;
             let images_dir = data_dir.join("images");
             // Jaquettes et images des blocs servies par le protocole asset : ce dossier seulement
@@ -89,7 +112,11 @@ pub fn run() {
             tags::achievement_tag_set,
             guides::guide_export,
             guides::guide_import,
+            update::app_mode,
+            update::update_check,
+            update::update_install,
+            update::update_open_page,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("erreur au lancement de l'application");
 }

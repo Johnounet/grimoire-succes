@@ -18,6 +18,8 @@
   import { on, send } from "./lib/sync";
   import { loadTags } from "./lib/tags.svelte";
   import Toast from "./lib/Toast.svelte";
+  import UpdateBanner from "./lib/UpdateBanner.svelte";
+  import { checkOnStartup, loadUpdatePrefs } from "./lib/update.svelte";
 
   let games = $state<GameSummary[]>([]);
   let imagesDir = $state("");
@@ -51,6 +53,7 @@
         loadMotion(),
         loadSound(),
         loadAppearance(),
+        loadUpdatePrefs(),
       ]);
       // Dernier jeu consulté, sinon le premier du panneau. Bibliothèque vide (premier lancement) :
       // page d'accueil de bienvenue.
@@ -60,6 +63,8 @@
     }
     // Raccourcis globaux : réglés ici, enregistrés par la fenêtre compacte quand elle est ouverte
     loadShortcuts();
+    // Nouvelle version publiée ? (quelques secondes après le démarrage, si le réglage le permet)
+    checkOnStartup();
   });
 
   // Fenêtre compacte : compteurs, chronos et listes modifiés, coches, demande du jeu ouvert, raccourcis
@@ -191,6 +196,7 @@
 </div>
 
 <Toast />
+<UpdateBanner />
 
 {#if settingsOpen}
   <SettingsDialog onclose={() => (settingsOpen = false)} />

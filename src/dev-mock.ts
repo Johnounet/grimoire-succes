@@ -305,6 +305,18 @@ export function installMock(label = "main") {
       case "image_save":
         // Le corps brut arrive tel quel : on en fait une URL du navigateur
         return URL.createObjectURL(new Blob([payload as Uint8Array]));
+      case "app_mode":
+        return { portable: new URLSearchParams(location.search).has("portable") };
+      // ?update : une nouvelle version est annoncée
+      case "update_check":
+        return new URLSearchParams(location.search).has("update")
+          ? { version: "0.2.0", notes: "Corrections et nouveautés.", canInstall: !new URLSearchParams(location.search).has("portable") }
+          : null;
+      case "update_install":
+        throw new Error("simulation : rien à installer");
+      case "update_open_page":
+        console.info("[mock] update_open_page");
+        return null;
       case "setting_get":
         return settings.get(args.key as string) ?? null;
       case "setting_set":
