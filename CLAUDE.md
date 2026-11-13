@@ -58,7 +58,7 @@ cd src-tauri && cargo run --example probe -- <appid> [french|english] [profil]  
 Étapes 1 à 7 du SPEC validées sous Windows (2026-11-12). **Étape 8 (finitions) en cours**, validés sous Windows : 100 % et célébration, animations, cartes libres, refonte du mode compact, actualisation automatique, export / import de guides, thèmes. Faits aussi : progression Steam des succès, sauvegardes, dossier `Grimoire`.
 
 - [x] Page d'accueil, réouverture du dernier jeu, suppression de la vitrine : validées par l'utilisateur sous Windows (2026-11-13)
-- [x] Installeur NSIS sans droits admin et version portable : validés par l'utilisateur sous Windows (2026-11-13) ; dépôt créé, clé de signature et secrets GitHub en place, vérifications GitHub Actions au vert. Reste : première publication (docs/publier.md) et test réel de la mise à jour en un clic (il faut deux versions publiées)
+- [x] Installeur NSIS sans droits admin et version portable : validés par l'utilisateur sous Windows (2026-11-13) ; dépôt créé, clé de signature et secrets GitHub en place, vérifications GitHub Actions au vert. **v0.1.0 publiée le 2026-11-13** (installeur, .zip portable, latest.json signé). Reste : test réel de la mise à jour en un clic avec la version suivante
 - [ ] Traduction (en dernier)
 
 ## Index de docs/choix.md
