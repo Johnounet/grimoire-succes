@@ -1,4 +1,8 @@
 // Commandes de la bibliothèque (miroir de src-tauri/src/library.rs et db.rs).
+
+/** Nom du logiciel et sous-titre (une seule source pour toute l'interface). */
+export const APP_NAME = "Grimoire";
+export const APP_TAGLINE = "Concoctez vos guides jusqu’au 100 %";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 export interface GameSummary {
@@ -187,7 +191,7 @@ export const FIT_CARD_EVENT = "fit-card";
  *  « Ajouter un bloc » : le Tableau rend à la carte sa taille d'avant si aucun bloc n'a été ajouté. */
 export const CARD_MENU_EVENT = "card-menu";
 
-export const DRAG_MIME = "application/x-chasse-succes-ids";
+export const DRAG_MIME = "application/x-grimoire-ids";
 
 /** URL affichable d'une image enregistrée dans le dossier de données. */
 export function localImage(imagesDir: string, rel: string | null): string | null {

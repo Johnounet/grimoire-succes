@@ -6,7 +6,7 @@
   import GameView from "./lib/GameView.svelte";
   import Showcase from "./lib/Showcase.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
-  import { api, importSummary, isComplete, type GameSummary } from "./lib/library";
+  import { api, APP_NAME, APP_TAGLINE, importSummary, isComplete, type GameSummary } from "./lib/library";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { flushBlocks, listenBlockChanges, showToast } from "./lib/blocks/store.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
@@ -163,7 +163,8 @@
     <main class="flex flex-1 items-center justify-center p-8 text-center">
       <div class="max-w-sm space-y-3">
         <div class="text-5xl">🏆</div>
-        <h1 class="text-xl font-semibold">Chasse aux succès</h1>
+        <h1 class="text-xl font-semibold">{APP_NAME}</h1>
+        <p class="text-sm italic text-muted">{APP_TAGLINE}</p>
         {#if loadError}
           <p class="text-sm text-danger">Impossible d'ouvrir la base de données : {loadError}</p>
         {:else}

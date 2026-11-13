@@ -1,4 +1,4 @@
-# Cahier des charges — Outil de chasse aux succès Steam
+# Cahier des charges — Grimoire, outil de chasse aux succès Steam
 
 Version du 12 novembre 2026
 
@@ -302,6 +302,6 @@ On avance en neuf étapes, chacune livrant un logiciel qui fonctionne et se test
 
 **Questions ouvertes**
 
-- Nom du logiciel.
+- ~~Nom du logiciel.~~ Tranché (2026-11-13) : **Grimoire**, sous-titre « Concoctez vos guides jusqu’au 100 % ».
 - Faut-il gérer plusieurs comptes Steam sur un même PC dès la V1 ?
 - ~~Le lecteur YouTube intégré doit-il continuer à jouer en mode compact ?~~ Tranché (2026-11-13) : oui, les vidéos des cartes épinglées se lancent dans la fenêtre compacte.

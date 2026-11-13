@@ -4,6 +4,7 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
+  import { APP_NAME, APP_TAGLINE } from "./library";
 
   /** Adresse du dépôt GitHub. null tant qu'il n'est pas publié : le lien est alors remplacé par « bientôt ». */
   const GITHUB_URL = null as string | null;
@@ -55,7 +56,8 @@
       <div class="flex items-center gap-3">
         <div class="text-4xl" aria-hidden="true">🏆</div>
         <div>
-          <div class="text-base font-semibold">Chasse aux succès</div>
+          <div class="text-base font-semibold">{APP_NAME}</div>
+          <div class="text-xs italic text-muted">{APP_TAGLINE}</div>
           <div class="text-xs text-muted">Version {version || "…"} · logiciel libre (GPL-3.0)</div>
         </div>
       </div>

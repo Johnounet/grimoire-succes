@@ -1,5 +1,6 @@
 // Ouverture de la fenêtre compacte (fenêtre Tauri « compact », toujours au premier plan).
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { APP_NAME } from "./library";
 import { send } from "./sync";
 
 export async function openCompact(appid: number) {
@@ -14,7 +15,7 @@ export async function openCompact(appid: number) {
     // Le jeu ouvert lui est envoyé quand elle annonce qu'elle est prête (« compact-ready »).
     new WebviewWindow("compact", {
       url: "index.html",
-      title: "Chasse aux succès · compact",
+      title: `${APP_NAME} · compact`,
       width: 340,
       height: 540,
       minWidth: 260,

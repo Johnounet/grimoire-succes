@@ -1,14 +1,14 @@
 [package]
-name = "chasse-succes"
+name = "grimoire"
 version = "0.1.0"
-description = "Outil de chasse aux succès Steam"
+description = "Grimoire : concoctez vos guides de succès Steam jusqu’au 100 %"
 license = "GPL-3.0-only"
 edition = "2021"
 rust-version = "1.89"
 
 [lib]
 # Le suffixe _lib évite un conflit de nom avec le binaire sous Windows
-name = "chasse_succes_lib"
+name = "grimoire_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

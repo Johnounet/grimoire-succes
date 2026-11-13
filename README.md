@@ -1,6 +1,6 @@
-# Chasse aux succès
+# Grimoire
 
-*(nom provisoire)*
+*Concoctez vos guides jusqu’au 100 %*
 
 Logiciel de bureau gratuit et open source pour les chasseurs de succès Steam : la liste des succès d'un jeu et, sous chacun, vos propres guides (vidéos YouTube, images, notes, listes, compteurs, chronos), sauvegardés automatiquement en local.
 

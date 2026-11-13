@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    chasse_succes_lib::run()
+    grimoire_lib::run()
 }

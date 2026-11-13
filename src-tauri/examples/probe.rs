@@ -1,7 +1,7 @@
 //! Outil de diagnostic des sources Steam, sans interface.
 //! Usage : cargo run --example probe -- <appid> [langue] [lien de profil]
 
-use chasse_succes_lib::steam;
+use grimoire_lib::steam;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

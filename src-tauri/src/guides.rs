@@ -21,7 +21,9 @@ use std::path::Path;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-pub const FORMAT: &str = "chasse-succes-guide";
+pub const FORMAT: &str = "grimoire-guide";
+/// Format des guides exportés avant que le logiciel s'appelle Grimoire (« Chasse aux succès ») : toujours lisibles.
+const LEGACY_FORMATS: &[&str] = &["chasse-succes-guide"];
 pub const VERSION: u32 = 1;
 const MAX_FILE_BYTES: u64 = 300 * 1024 * 1024;
 
@@ -256,8 +258,8 @@ pub struct ImportReport {
 
 /// Format et version lisibles par cette version du logiciel.
 pub fn check(guide: &GuideFile) -> Result<(), String> {
-    if guide.format != FORMAT {
-        return Err("Ce fichier n'est pas un guide de Chasse aux succès.".into());
+    if guide.format != FORMAT && !LEGACY_FORMATS.contains(&guide.format.as_str()) {
+        return Err("Ce fichier n'est pas un guide de Grimoire.".into());
     }
     if guide.version > VERSION {
         return Err("Ce guide vient d'une version plus récente du logiciel : mettez-le à jour pour l'importer.".into());
@@ -436,7 +438,7 @@ pub fn read_guide(path: &Path) -> Result<GuideFile, String> {
     }
     let bytes = std::fs::read(path).map_err(err)?;
     let guide: GuideFile =
-        serde_json::from_slice(&bytes).map_err(|_| "Ce fichier n'est pas un guide de Chasse aux succès.".to_string())?;
+        serde_json::from_slice(&bytes).map_err(|_| "Ce fichier n'est pas un guide de Grimoire.".to_string())?;
     check(&guide)?;
     Ok(guide)
 }
@@ -454,7 +456,7 @@ pub async fn guide_export(
         .dialog()
         .file()
         .set_title("Exporter le guide")
-        .add_filter("Guide Chasse aux succès", &["json"])
+        .add_filter("Guide Grimoire", &["json"])
         .set_file_name(file_name(&guide.game.name))
         .blocking_save_file()
     else {
@@ -473,7 +475,7 @@ pub async fn guide_import(app: AppHandle, state: State<'_, AppState>) -> Result<
         .dialog()
         .file()
         .set_title("Importer un guide")
-        .add_filter("Guide Chasse aux succès", &["json"])
+        .add_filter("Guide Grimoire", &["json"])
         .blocking_pick_file()
     else {
         return Ok(None);
@@ -524,7 +526,7 @@ mod tests {
     }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("chasse-succes-test-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("grimoire-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("blocks")).unwrap();
         dir
@@ -620,6 +622,8 @@ mod tests {
             images: BTreeMap::new(),
         };
         assert!(check(&g).is_err());
+        g.format = "chasse-succes-guide".into();
+        assert!(check(&g).is_ok(), "guide exporté avant le changement de nom");
         g.format = FORMAT.into();
         g.version = VERSION + 1;
         assert!(check(&g).is_err());

@@ -21,7 +21,7 @@
   let { cardKey, imagesDir }: { cardKey: CardKey; imagesDir: string } = $props();
 
   const FLIP = 150;
-  const MIME = "application/x-chasse-succes-block";
+  const MIME = "application/x-grimoire-block";
   let menuOpen = $state(false);
   let menuWrap = $state<HTMLElement>();
 
