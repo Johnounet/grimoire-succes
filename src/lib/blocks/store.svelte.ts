@@ -181,19 +181,46 @@ function renumber(list: Block[]) {
   list.forEach((b, i) => (b.position = i));
 }
 
+/** Durée d'affichage d'une notification à voir, une fois la fenêtre revenue au premier plan. */
+const SEEN_MS = 10000;
+
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
-export function showToast(message: string, undo: (() => void) | null = null) {
+/** Attente du retour de la fenêtre au premier plan (notification `untilSeen`). */
+let stopWaiting: (() => void) | null = null;
+
+/**
+ * Affiche une notification. `untilSeen` : si la fenêtre n'est pas au premier plan (le joueur est en jeu),
+ * elle reste affichée jusqu'à son retour, puis encore quelques secondes (succès débloqué en jeu).
+ */
+export function showToast(message: string, undo: (() => void) | null = null, { untilSeen = false } = {}) {
   toast.message = message;
   toast.undo = undo;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    toast.message = "";
-    toast.undo = null;
-  }, UNDO_MS);
+  stopWaiting?.();
+  stopWaiting = null;
+  const hide = (ms: number) => {
+    toastTimer = setTimeout(() => {
+      toast.message = "";
+      toast.undo = null;
+    }, ms);
+  };
+  if (untilSeen && !document.hasFocus()) {
+    const onFocus = () => {
+      stopWaiting?.();
+      stopWaiting = null;
+      hide(SEEN_MS);
+    };
+    window.addEventListener("focus", onFocus);
+    stopWaiting = () => window.removeEventListener("focus", onFocus);
+  } else {
+    hide(untilSeen ? SEEN_MS : UNDO_MS);
+  }
 }
 
 export function dismissToast() {
   clearTimeout(toastTimer);
+  stopWaiting?.();
+  stopWaiting = null;
   toast.message = "";
   toast.undo = null;
 }

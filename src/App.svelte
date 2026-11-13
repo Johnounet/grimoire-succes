@@ -8,11 +8,11 @@
   import Sidebar from "./lib/Sidebar.svelte";
   import { api, isComplete, type GameSummary } from "./lib/library";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { flushBlocks, listenBlockChanges } from "./lib/blocks/store.svelte";
+  import { flushBlocks, listenBlockChanges, showToast } from "./lib/blocks/store.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import { loadSettings } from "./lib/settings.svelte";
   import { applyMotionAttribute, loadMotion } from "./lib/motion.svelte";
-  import { loadSound } from "./lib/sound.svelte";
+  import { chime, loadSound } from "./lib/sound.svelte";
   import { loadShortcuts, shortcuts, type ShortcutAction } from "./lib/shortcuts.svelte";
   import { on, send } from "./lib/sync";
   import { loadTags } from "./lib/tags.svelte";
@@ -57,6 +57,18 @@
       listenBlockChanges(),
       on("achievement-changed", ({ game }) => upsert(game)),
       on("compact-ready", () => selected != null && send("compact-game", { appid: selected })),
+      // Succès débloqué en jeu (actualisation automatique) : liste, cartes, 100 % mis à jour
+      on("steam-progress", ({ game, unlocked }) => {
+        upsert(game);
+        if (unlocked.length === 0) return;
+        const names = unlocked.map((u) => `« ${u.name} »`).join(", ");
+        // Reste affichée jusqu'au retour dans la fenêtre (Alt+Tab depuis le jeu), puis 10 s
+        showToast(`🏆 ${unlocked.length > 1 ? "Succès débloqués" : "Succès débloqué"} dans ${game.name} : ${names}`, null, {
+          untilSeen: true,
+        });
+        // Fenêtre compacte ouverte : c'est elle qui sonne (un seul carillon)
+        if (!shortcuts.live) chime();
+      }),
       on("shortcuts-status", ({ errors, live }) => {
         shortcuts.errors = errors as Partial<Record<ShortcutAction, string>>;
         shortcuts.live = live;

@@ -4,12 +4,14 @@
 //! - `library` : commandes de la bibliothèque de jeux
 //! - `blocks` : blocs des guides et leurs images
 //! - `tags` : étiquettes
+//! - `watch` : actualisation automatique quand Steam réécrit la progression d'un jeu
 
 pub mod blocks;
 pub mod db;
 pub mod library;
 pub mod steam;
 pub mod tags;
+pub mod watch;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -27,6 +29,7 @@ pub fn run() {
             let images_dir = data_dir.join("images");
             blocks::cleanup_orphan_images(&conn, &images_dir);
             app.manage(library::AppState { db: Mutex::new(conn), images_dir });
+            watch::start(app.handle().clone());
             Ok(())
         })
         // Fermer la fenêtre principale quitte l'application, fenêtre compacte comprise

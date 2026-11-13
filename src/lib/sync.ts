@@ -27,6 +27,8 @@ export interface SyncEvents {
   "shortcuts-changed": Record<string, never>;
   /** Raccourcis enregistrés ou libérés par la fenêtre compacte, et refus du système. */
   "shortcuts-status": { errors: Partial<Record<string, string>>; live: boolean };
+  /** Envoyé par le cœur Rust (`watch.rs`) : Steam a réécrit la progression d'un jeu de la bibliothèque. */
+  "steam-progress": { game: GameSummary; unlocked: { id: number; name: string }[] };
   /** Une vidéo démarre dans une fenêtre : l'autre met en pause sa copie du même bloc. */
   "video-playing": { blockId: number };
   /** Jeu ouvert dans la fenêtre principale. */

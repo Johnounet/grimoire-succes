@@ -20,7 +20,7 @@ impl AppState {
         self.db.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn language(&self) -> String {
+    pub(crate) fn language(&self) -> String {
         db::get_setting(&self.conn(), "language").ok().flatten().unwrap_or_else(|| "french".into())
     }
 

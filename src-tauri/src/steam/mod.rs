@@ -52,6 +52,13 @@ impl<T> From<Result<T, String>> for Outcome<T> {
 /// 1. cache local, 2. profil public, 3. (clé API : plus tard), 4. page publique.
 ///
 /// `profile` : lien de profil réglé par le joueur ; à défaut, le compte détecté sur le PC.
+/// Dossier de Steam et compte de ce PC (le premier trouvé, comme pour l'import).
+pub fn local_account() -> Option<(PathBuf, u32)> {
+    let steam = detect::find_steam(None)?;
+    let account = detect::list_accounts(&steam).into_iter().next()?;
+    Some((steam, account.account_id))
+}
+
 pub async fn load_best(appid: u32, lang: &str, profile: Option<&str>) -> Result<model::GameAchievements, String> {
     let steam = detect::find_steam(None);
     let account = steam.as_deref().and_then(|p| detect::list_accounts(p).into_iter().next());

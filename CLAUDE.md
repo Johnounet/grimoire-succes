@@ -50,8 +50,11 @@ npm run check          # vérification des types Svelte/TS
 - [x] Animations (réglage, transitions, carillon à la coche) : validé par l'utilisateur (2026-11-12)
 - [x] Cartes libres (demande de l'utilisateur) : validées par l'utilisateur sous Windows (2026-11-13)
 - [x] Refonte du mode compact (demande de l'utilisateur) : vidéos, sélection Haut/Bas, actions Gauche/Droite ; validée en jeu sous Windows (2026-11-13), vidéo lancée par raccourci avec le son
-- [ ] Thèmes, export / import de guides, clé API optionnelle
+- [x] Actualisation automatique (demande de l'utilisateur) : validée en jeu sous Windows (2026-11-13)
+- [ ] Thèmes, export / import de guides. **Décision de l'utilisateur (2026-11-13)** : la clé API Steam optionnelle du SPEC est abandonnée (le cache local et le profil public suffisent)
 - [ ] Traduction (en dernier)
+
+**Actualisation automatique, choix faits** : constat de l'utilisateur (Cookie Clicker, 2026-11-13) : Steam réécrit `UserGameStats_<compte>_<appid>.bin` dès le déblocage, jeu ouvert. `src-tauri/src/watch.rs` : fil de fond lancé au démarrage, toutes les 2 s regarde la date de modification de ce fichier pour chaque jeu de la bibliothèque (lecture seule ; Steam recherché toutes les 60 s s'il est introuvable). Fichier changé → relecture du **seul cache local** (pas de réseau, la rareté en base est gardée par `save_game`) ; rien n'est écrit si l'état des succès dans le fichier n'a pas changé (statistiques seules). Si l'état en base change (coches manuelles respectées) : événement Tauri `steam-progress` `{ game, unlocked }` vers les deux fenêtres. Fenêtre principale : `upsert` (liste, bannière, célébration du 100 %) et notification « 🏆 Succès débloqué » (`showToast(…, { untilSeen: true })` : reste affichée tant que la fenêtre n'est pas au premier plan, puis 10 s) ; fenêtre compacte : coche et message (10 s). Un seul carillon : la fenêtre compacte si elle est ouverte (`shortcuts.live`), sinon la principale.
 
 **Mode compact, refonte (2026-11-13), choix faits** :
 - **Éléments** : compteurs, chronos, vidéos et listes des cartes épinglées, dans l'ordre d'affichage. Haut / Bas changent la sélection (boucle, cadre bleu, clic = sélection), Gauche / Droite agissent : compteur −1 / +1 ; chrono remis à zéro **à l'arrêt seulement** / lancé-arrêté ; vidéo −10 s / lancée, lecture-pause ; liste : décoche le dernier coché / coche le suivant. Les coches de succès ne sont pas des éléments (pas de succès obtenu d'une fausse touche).

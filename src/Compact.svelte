@@ -228,6 +228,23 @@
         if (g.appid === appid) game = g;
       }),
       on("shortcuts-changed", registerShortcuts),
+      // Succès débloqué en jeu (actualisation automatique)
+      on("steam-progress", async ({ game: g, unlocked }) => {
+        if (g.appid !== appid) {
+          if (unlocked.length) flash = { ok: true, text: `🏆 ${g.name} : ${unlocked.map((u) => u.name).join(", ")}` };
+        } else {
+          game = g;
+          const ach = await api.achievements(appid).catch(() => null);
+          if (ach && g.appid === appid) achievements = ach;
+          if (unlocked.length) flash = { ok: true, text: `🏆 ${unlocked.map((u) => u.name).join(", ")}` };
+        }
+        if (unlocked.length) {
+          chime();
+          const text = flash?.text;
+          // Plus long qu'un retour de raccourci : le joueur a les yeux sur le jeu
+          setTimeout(() => flash?.text === text && (flash = null), 10000);
+        }
+      }),
       on("compact-opacity", ({ value }) => (settings.compactOpacity = clampOpacity(value))),
       on("motion-changed", ({ pref }) => (motion.pref = pref)),
       on("sound-changed", ({ check }) => (sound.check = check)),
