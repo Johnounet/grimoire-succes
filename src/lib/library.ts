@@ -54,6 +54,16 @@ export interface AchievementRow {
   progress: Progress | null;
 }
 
+/** Sauvegarde de sécurité des données (backup.rs). */
+export interface BackupInfo {
+  id: string;
+  created_at: number;
+  kind: "auto" | "manuel" | "avant-restauration";
+  games: number;
+  /** Octets (base et images copiées). */
+  size: number;
+}
+
 /** Barre de progression d'un succès : valeur d'une statistique du jeu entre `min` et `max`. */
 export interface Progress {
   value: number;
@@ -88,6 +98,11 @@ export const api = {
   freeCardCreate: (appid: number, title: string) => invoke<FreeCard>("free_card_create", { appid, title }),
   freeCardRename: (id: number, title: string) => invoke<void>("free_card_rename", { id, title }),
   freeCardDelete: (id: number) => invoke<void>("free_card_delete", { id }),
+  backups: () => invoke<BackupInfo[]>("backups_list"),
+  backupCreate: () => invoke<BackupInfo>("backup_create"),
+  backupRestore: (id: string) => invoke<void>("backup_restore", { id }),
+  backupDelete: (id: string) => invoke<void>("backup_delete", { id }),
+  backupsOpenFolder: () => invoke<void>("backups_open_folder"),
   getSetting: (key: SettingKey) => invoke<string | null>("setting_get", { key }),
   setSetting: (key: SettingKey, value: string) => invoke<void>("setting_set", { key, value }),
 };

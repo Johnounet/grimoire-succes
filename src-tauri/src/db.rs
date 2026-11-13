@@ -215,6 +215,16 @@ pub fn open_in_memory() -> rusqlite::Result<Connection> {
     Ok(conn)
 }
 
+/// Version du schéma que ce logiciel sait lire.
+pub fn schema_version() -> usize {
+    MIGRATIONS.len()
+}
+
+/// Met à jour une base remplacée pendant que le logiciel tourne (restauration d'une sauvegarde).
+pub fn migrate_existing(conn: &mut Connection) -> rusqlite::Result<()> {
+    migrate(conn)
+}
+
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
     let current: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {

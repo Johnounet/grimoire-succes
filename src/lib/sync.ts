@@ -40,6 +40,8 @@ export interface SyncEvents {
   "motion-changed": { pref: "system" | "on" | "off" };
   /** Apparence ou thème changé. */
   "theme-changed": { mode: "system" | "dark" | "light"; dark: string; light: string };
+  /** Une sauvegarde a été restaurée : tout recharger. */
+  "data-restored": Record<string, never>;
   /** Réglage du carillon à la coche changé. */
   "sound-changed": { check: boolean };
 }

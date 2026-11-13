@@ -1,5 +1,6 @@
 <script lang="ts">
   // Réglages : interface (animations, son), étiquettes, raccourcis clavier globaux, mode compact.
+  import BackupsSection from "./BackupsSection.svelte";
   import { backdrop, motion, pop, setMotionPref, type MotionPref } from "./motion.svelte";
   import { chime, setCheckSound, sound } from "./sound.svelte";
   import {
@@ -363,6 +364,8 @@
           <span class="w-10 text-right tabular-nums">{Math.round(settings.compactOpacity * 100)} %</span>
         </label>
       </section>
+
+      <BackupsSection />
     </div>
   </div>
 </div>

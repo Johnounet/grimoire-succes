@@ -252,6 +252,7 @@
       on("motion-changed", ({ pref }) => (motion.pref = pref)),
       on("theme-changed", ({ mode, dark, light }) => Object.assign(appearance, { mode, dark: dark as ThemeId, light: light as ThemeId })),
       on("sound-changed", ({ check }) => (sound.check = check)),
+      on("data-restored", () => location.reload()),
     ];
     const tick = setInterval(() => (now = Date.now()), 100);
     // Fermeture par Alt+F4 ou par le système : les touches sont rendues aux autres logiciels

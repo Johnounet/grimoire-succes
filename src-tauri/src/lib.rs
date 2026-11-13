@@ -6,7 +6,9 @@
 //! - `tags` : étiquettes
 //! - `guides` : export / import des guides d'un jeu
 //! - `watch` : actualisation automatique quand Steam réécrit la progression d'un jeu
+//! - `backup` : sauvegardes de sécurité des données
 
+pub mod backup;
 pub mod blocks;
 pub mod db;
 pub mod guides;
@@ -31,8 +33,9 @@ pub fn run() {
             let conn = db::open(&data_dir.join("donnees.sqlite"))?;
             let images_dir = data_dir.join("images");
             blocks::cleanup_orphan_images(&conn, &images_dir);
-            app.manage(library::AppState { db: Mutex::new(conn), images_dir });
+            app.manage(library::AppState { db: Mutex::new(conn), data_dir, images_dir });
             watch::start(app.handle().clone());
+            backup::start(app.handle().clone());
             Ok(())
         })
         // Fermer la fenêtre principale quitte l'application, fenêtre compacte comprise
@@ -44,6 +47,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             library::images_dir,
             library::library_list,
+            backup::backups_list,
+            backup::backup_create,
+            backup::backup_restore,
+            backup::backup_delete,
+            backup::backups_open_folder,
             library::library_reorder,
             library::library_local_suggestions,
             library::library_search,

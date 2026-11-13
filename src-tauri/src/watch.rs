@@ -164,6 +164,7 @@ mod tests {
     fn detecte_les_succes_debloques() {
         let state = AppState {
             db: std::sync::Mutex::new(db::open_in_memory().unwrap()),
+            data_dir: PathBuf::new(),
             images_dir: PathBuf::new(),
         };
         let mut first = game(vec![ach("A", Some(false)), ach("B", Some(false))]);

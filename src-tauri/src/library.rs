@@ -11,6 +11,8 @@ use tauri::State;
 
 pub struct AppState {
     pub db: Mutex<Connection>,
+    /// Dossier des données (base, images, sauvegardes).
+    pub data_dir: PathBuf,
     pub images_dir: PathBuf,
 }
 

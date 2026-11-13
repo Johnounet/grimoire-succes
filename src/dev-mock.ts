@@ -93,6 +93,15 @@ const otherGames = [
 let gameOrder = [620, ...otherGames.map((g) => g.appid)];
 const allGames = () => gameOrder.map((id) => (id === 620 ? summary() : otherGames.find((g) => g.appid === id)!));
 
+/** Sauvegardes simulées : quelques automatiques des derniers jours. */
+let backups = [0, 1, 2].map((d) => ({
+  id: `${d}-auto`,
+  created_at: Math.floor(Date.now() / 1000) - d * 86400 - 3600,
+  kind: "auto",
+  games: 4,
+  size: 2_900_000 + d * 1000,
+}));
+
 /** Fenêtre compacte simulée (onglet « ?compact », données propres à l'onglet) : une carte épinglée
  *  de démonstration avec un élément de chaque sorte, et « Le pont le vit » épinglé avec un compteur (il a une progression Steam). */
 function seedCompact() {
@@ -125,6 +134,19 @@ export function installMock(label = "main") {
         return "C:\\mock\\images";
       case "library_list":
         return allGames();
+      case "backups_list":
+        return [...backups].sort((x, y) => y.created_at - x.created_at);
+      case "backup_create": {
+        const b = { id: `${Date.now()}-manuel`, created_at: Math.floor(Date.now() / 1000), kind: "manuel", games: 4, size: 3_400_000 };
+        backups.push(b);
+        return b;
+      }
+      case "backup_delete":
+        backups = backups.filter((b) => b.id !== args.id);
+        return null;
+      case "backup_restore":
+      case "backups_open_folder":
+        return null;
       case "library_reorder":
         gameOrder = [...(args.appids as number[])];
         return null;
