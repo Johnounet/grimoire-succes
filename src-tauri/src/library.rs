@@ -51,6 +51,40 @@ fn cached_games() -> Vec<local_cache::CachedGame> {
     steam::detect::find_steam(None).map(|p| local_cache::list_cached_games(&p)).unwrap_or_default()
 }
 
+/// Jeux de ce PC où chercher par nom : ceux du cache, puis les jeux installés jamais lancés.
+/// Un jeu retiré du magasin n'apparaît plus dans sa recherche : on le trouve ainsi.
+fn local_games(cached: &[local_cache::CachedGame]) -> Vec<(u32, String)> {
+    let mut out: Vec<(u32, String)> = cached.iter().filter_map(|c| Some((c.appid, c.name.clone()?))).collect();
+    if let Some(p) = steam::detect::find_steam(None) {
+        let mut installed: Vec<_> = steam::manifests::installed_names(&p)
+            .into_iter()
+            .filter(|(id, _)| !out.iter().any(|(o, _)| o == id))
+            .collect();
+        installed.sort();
+        out.extend(installed);
+    }
+    out
+}
+
+/// Texte comparable : minuscules, ponctuation retirée (« Ryza: Ever » ≈ « ryza ever »).
+fn normalize(s: &str) -> String {
+    s.to_lowercase()
+        .replace("&amp;", "&")
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Le nom correspond à la recherche : il la contient, ou la recherche contient le nom en entier
+/// (nom court du schéma « Atelier Ryza » pour « Atelier Ryza: Ever Darkness… »).
+fn name_matches(name: &str, needle: &str) -> bool {
+    let name = normalize(name);
+    !name.is_empty() && (name.contains(needle) || (name.chars().count() >= 4 && needle.contains(&name)))
+}
+
 fn hit(appid: u32, name: String, library: &[u32], cached: &[local_cache::CachedGame]) -> SearchHit {
     SearchHit {
         appid,
@@ -115,12 +149,12 @@ pub async fn library_search(state: State<'_, AppState>, query: String) -> Result
         }
         store::Query::Name(term) if term.chars().count() < 2 => Ok(Vec::new()),
         store::Query::Name(term) => {
-            let needle = term.to_lowercase();
-            // D'abord les jeux de ce PC qui correspondent, puis le magasin
-            let mut hits: Vec<SearchHit> = cached
-                .iter()
-                .filter(|c| c.name.as_ref().is_some_and(|n| n.to_lowercase().contains(&needle)))
-                .map(|c| hit(c.appid, c.name.clone().unwrap_or_default(), &library, &cached))
+            let needle = normalize(&term);
+            // D'abord les jeux de ce PC qui correspondent (même retirés du magasin), puis le magasin
+            let mut hits: Vec<SearchHit> = local_games(&cached)
+                .into_iter()
+                .filter(|(_, n)| name_matches(n, &needle))
+                .map(|(appid, n)| hit(appid, n, &library, &cached))
                 .collect();
             hits.truncate(10);
             match store::search(&term, &lang, &state.country()).await {
@@ -308,4 +342,19 @@ pub fn library_delete(state: State<'_, AppState>, appid: u32) -> Result<(), Stri
         let _ = std::fs::remove_file(state.images_dir.join(rel));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recherche_par_nom() {
+        let q = normalize("Atelier Ryza: Ever Darkness & the Secret Hideout");
+        assert!(name_matches("Atelier Ryza: Ever Darkness & the Secret Hideout", &q));
+        assert!(name_matches("Atelier Ryza", &q), "nom court du schéma");
+        assert!(name_matches("Atelier Ryza 3: Alchemist of the End &amp; the Secret Key", &normalize("ryza 3")));
+        assert!(!name_matches("Atelier Ryza 2: Lost Legends", &q));
+        assert!(!name_matches("RINO", &normalize("yakuza")));
+    }
 }

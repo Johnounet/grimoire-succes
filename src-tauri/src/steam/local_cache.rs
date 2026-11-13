@@ -33,9 +33,11 @@ pub struct CachedGame {
     pub name: Option<String>,
 }
 
-/// Jeux dont le schéma est en cache (= lancés au moins une fois sur ce PC).
+/// Jeux dont le schéma est en cache (= lancés au moins une fois sur ce PC). Nom officiel du manifeste
+/// d'installation s'il existe, sinon celui du schéma (parfois court ou nom de code).
 pub fn list_cached_games(steam: &Path) -> Vec<CachedGame> {
     let Ok(dir) = std::fs::read_dir(stats_dir(steam)) else { return Vec::new() };
+    let mut installed = super::manifests::installed_names(steam);
     let mut games: Vec<CachedGame> = dir
         .flatten()
         .filter_map(|e| {
@@ -46,22 +48,47 @@ pub fn list_cached_games(steam: &Path) -> Vec<CachedGame> {
                 .strip_suffix(".bin")?
                 .parse()
                 .ok()?;
-            Some(CachedGame { appid, name: read_game_name(&e.path()) })
+            let name = installed.remove(&appid).or_else(|| read_game_name(&e.path()));
+            Some(CachedGame { appid, name })
         })
         .collect();
     games.sort_by_key(|g| g.appid);
     games
 }
 
-/// Lit seulement le début du fichier : le nom du jeu y figure en premier.
+/// Nom du jeu inscrit dans le schéma. Il est tantôt au début du fichier, tantôt à la fin : on lit
+/// ces deux morceaux avant de se résoudre à lire tout le fichier (quelques schémas, jusqu'à plusieurs Mo).
 fn read_game_name(path: &Path) -> Option<String> {
-    use std::io::Read;
-    let mut buf = vec![0u8; 512];
-    let n = std::fs::File::open(path).ok()?.read(&mut buf).ok()?;
-    let buf = &buf[..n];
+    use std::io::{Read, Seek, SeekFrom};
+    const PART: u64 = 2048;
+    let mut file = std::fs::File::open(path).ok()?;
+    let size = file.metadata().ok()?.len();
+    let mut head = vec![0u8; PART.min(size) as usize];
+    file.read_exact(&mut head).ok()?;
+    if let Some(name) = find_game_name(&head) {
+        return Some(name);
+    }
+    if size > PART {
+        let mut tail = vec![0u8; PART.min(size) as usize];
+        file.seek(SeekFrom::End(-(tail.len() as i64))).ok()?;
+        file.read_exact(&mut tail).ok()?;
+        if let Some(name) = find_game_name(&tail) {
+            return Some(name);
+        }
+    }
+    find_game_name(&std::fs::read(path).ok()?)
+}
+
+/// Valeur de la chaîne `gamename` dans un morceau de fichier KeyValues binaire.
+fn find_game_name(buf: &[u8]) -> Option<String> {
     let i = buf.windows(10).position(|w| w == b"\x01gamename\0")? + 10;
     let len = buf[i..].iter().position(|&b| b == 0)?;
-    Some(String::from_utf8_lossy(&buf[i..i + len]).into_owned()).filter(|s| !s.is_empty())
+    // Certains schémas gardent des entités HTML (« Atelier Ryza 3: … &amp; the Secret Key »)
+    let name = String::from_utf8_lossy(&buf[i..i + len])
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'");
+    Some(name).filter(|s| !s.is_empty())
 }
 
 /// Texte localisé : nœud `{english: …, french: …}` ou simple chaîne.

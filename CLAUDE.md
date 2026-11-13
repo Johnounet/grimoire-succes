@@ -124,7 +124,9 @@ Diagnostic sans interface : `cd src-tauri && cargo run --example probe -- <appid
 - La langue des pages se choisit par le cookie `Steam_Language=<langue>` (le paramètre `?l=` est ignoré).
 - Profil public + jeu non possédé : la progression arrive quand même, tout à « non obtenu ». Ne pas confondre avec « possédé, rien obtenu ».
 - Cache local : bit débloqué = `(stat, bit)` du schéma ↔ champ de bits `data` de la progression ; dates dans `AchievementTimes`.
-- Le `gamename` du schéma local est choisi par le développeur et peut être un nom de code (Yakuza 3 Remastered → « RINO », constat de l'utilisateur 2026-11-13) : `library_import` prend d'abord le nom du magasin (`store::app_name`), celui de la source seulement hors ligne. La liste « jeux lancés sur ce PC » garde le nom du schéma (pas d'appel réseau par jeu).
+- Le `gamename` du schéma local est choisi par le développeur et peut être un nom de code (Yakuza 3 Remastered → « RINO », constat de l'utilisateur 2026-11-13) : `library_import` prend d'abord le nom du magasin (`store::app_name`), celui de la source seulement hors ligne. Les noms locaux (liste « jeux lancés sur ce PC », recherche) viennent d'abord des manifestes d'installation `steamapps/appmanifest_<appid>.acf` de chaque bibliothèque (`steam/manifests.rs`, nom officiel), sinon du schéma.
+- Recherche « Ajouter un jeu » : un jeu **retiré du magasin** n'est plus dans la recherche du magasin (constat de l'utilisateur, Atelier Ryza: Ever Darkness & the Secret Hideout, 2026-11-13) ; on le trouve parmi les jeux de ce PC (cache + jeux installés jamais lancés), comparaison sans ponctuation, dans les deux sens (`name_matches` dans `library.rs`). Son AppID ou son lien Steam marche aussi (`appdetails` répond encore).
+- Le `gamename` du schéma est tantôt au début du fichier, tantôt à la fin (Atelier, Yakuza…) : lire le début, puis la fin, puis tout le fichier (`read_game_name`). Avant cette correction, une partie des jeux du cache n'avait pas de nom local (introuvables par nom).
 
 ## Nom
 

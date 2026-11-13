@@ -7,6 +7,7 @@
 pub mod detect;
 pub mod kv_binary;
 pub mod local_cache;
+pub mod manifests;
 pub mod model;
 pub mod playtime;
 pub mod store;
