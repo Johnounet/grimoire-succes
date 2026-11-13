@@ -4,10 +4,12 @@
 //! - `library` : commandes de la bibliothèque de jeux
 //! - `blocks` : blocs des guides et leurs images
 //! - `tags` : étiquettes
+//! - `guides` : export / import des guides d'un jeu
 //! - `watch` : actualisation automatique quand Steam réécrit la progression d'un jeu
 
 pub mod blocks;
 pub mod db;
+pub mod guides;
 pub mod library;
 pub mod steam;
 pub mod tags;
@@ -21,6 +23,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // %APPDATA%\<identifiant> sous Windows, ~/.local/share/<identifiant> sous Linux
             let data_dir = app.path().app_data_dir()?;
@@ -72,6 +75,8 @@ pub fn run() {
             tags::tag_delete,
             tags::achievement_tags_list,
             tags::achievement_tag_set,
+            guides::guide_export,
+            guides::guide_import,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

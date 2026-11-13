@@ -14,6 +14,7 @@
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import AchievementList from "./AchievementList.svelte";
+  import ExportDialog from "./ExportDialog.svelte";
   import { blocks, forgetCard, loadBlocks } from "./blocks/store.svelte";
   import { openCompact } from "./compact";
   import MoreMenu from "./MoreMenu.svelte";
@@ -33,6 +34,7 @@
     onchanged,
     ondeleted,
     oncelebrate,
+    onimport,
   }: {
     game: GameSummary;
     imagesDir: string;
@@ -40,11 +42,14 @@
     ondeleted: (appid: number) => void;
     /** Rejouer la célébration du 100 % (jeu terminé). */
     oncelebrate: () => void;
+    /** Importer un guide (choix du fichier, puis le jeu du guide s'ouvre). */
+    onimport: () => void;
   } = $props();
 
   let achievements = $state<AchievementRow[]>([]);
   let refreshing = $state(false);
   let confirmDelete = $state(false);
+  let exporting = $state(false);
   let error = $state("");
   let heroOk = $state(true);
   let workspace = $state.raw<WorkspaceItem[]>([]);
@@ -326,6 +331,16 @@
         label="Plus d'actions sur le jeu"
         items={[
           {
+            label: "Exporter le guide…",
+            hint: "Fichier à garder en sauvegarde ou à envoyer à un ami",
+            onclick: () => (exporting = true),
+          },
+          {
+            label: "Importer un guide…",
+            hint: "Ajoute les cartes et blocs d'un fichier de guide",
+            onclick: onimport,
+          },
+          {
             label: "Réinitialiser tous les succès et statistiques du jeu dans Steam…",
             hint: "Prépare la commande console reset_all_stats, à lancer vous-même",
             onclick: () => openRelock(null),
@@ -341,9 +356,9 @@
         <div class="flex flex-wrap items-center gap-3 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm">
           <span class="flex-1">
             Supprimer « {game.name} » de la bibliothèque ? Ses succès, son espace de travail et ses guides seront effacés.
-            <span class="text-muted">(L'export des guides avant suppression arrivera avec les guides.)</span>
           </span>
           <button onclick={() => (confirmDelete = false)} class="rounded-md px-3 py-1 hover:bg-raised">Annuler</button>
+          <button onclick={() => (exporting = true)} class="rounded-md border border-line px-3 py-1 hover:bg-raised">Exporter le guide d'abord…</button>
           <button onclick={remove} class="rounded-md bg-danger px-3 py-1 font-medium text-white">Supprimer</button>
         </div>
       {/if}
@@ -411,6 +426,10 @@
     {/if}
   </div>
 </section>
+
+{#if exporting}
+  <ExportDialog appid={game.appid} gameName={game.name} onclose={() => (exporting = false)} />
+{/if}
 
 {#if ui.relock.open}
   <RelockDialog

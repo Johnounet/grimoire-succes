@@ -8,7 +8,7 @@ Logiciel de bureau gratuit et open source pour les chasseurs de succès Steam : 
 - Aucune clé API Steam requise
 - Ne modifie jamais vos succès Steam : lecture seule
 
-> Projet en cours de développement (étape 7 sur 9). Le cahier des charges est dans [SPEC.md](SPEC.md).
+> Projet en cours de développement (étape 8 sur 9 : finitions). Le cahier des charges est dans [SPEC.md](SPEC.md).
 
 ## Développement
 

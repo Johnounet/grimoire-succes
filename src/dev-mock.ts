@@ -140,6 +140,18 @@ export function installMock(label = "main") {
         return null;
       case "workspace_list":
         return workspace;
+      case "guide_export":
+        console.info("[mock] guide_export", args.appid, args.keepState);
+        return String.raw`C:\Users\vous\Documents\Portal 2 - guide.json`;
+      case "guide_import":
+        return {
+          game: summary(),
+          blocks: 4,
+          free_cards: 1,
+          placed: 2,
+          duplicates: 1,
+          unmatched: ["Succès d'un DLC"],
+        };
       case "free_cards_list":
         return freeCards.map((f) => ({ ...f }));
       case "free_card_create": {

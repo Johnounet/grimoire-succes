@@ -65,6 +65,10 @@ export const api = {
   workspaceSave: (appid: number, items: WorkspaceItem[]) => invoke<void>("workspace_save", { appid, items }),
   workspaceCardSizes: (appid: number) =>
     invoke<{ achievement_id: number; w: number; h: number }[]>("workspace_card_sizes", { appid }),
+  /** Exporte le guide (fenêtre « Enregistrer sous » de Windows). Chemin du fichier, ou null si annulé. */
+  guideExport: (appid: number, keepState: boolean) => invoke<string | null>("guide_export", { appid, keepState }),
+  /** Importe un guide (fenêtre « Ouvrir » de Windows). Bilan, ou null si annulé. */
+  guideImport: () => invoke<ImportReport | null>("guide_import"),
   freeCards: (appid: number) => invoke<FreeCard[]>("free_cards_list", { appid }),
   freeCardCreate: (appid: number, title: string) => invoke<FreeCard>("free_card_create", { appid, title }),
   freeCardRename: (id: number, title: string) => invoke<void>("free_card_rename", { id, title }),
@@ -95,6 +99,30 @@ export interface GridPos {
   y: number;
   w: number;
   h: number;
+}
+
+/** Bilan de l'import d'un guide (guides.rs). */
+export interface ImportReport {
+  game: GameSummary;
+  blocks: number;
+  free_cards: number;
+  placed: number;
+  duplicates: number;
+  /** Succès du guide introuvables dans ce jeu : leurs blocs sont dans une carte libre. */
+  unmatched: string[];
+}
+
+/** Phrase de bilan affichée après un import. */
+export function importSummary(r: ImportReport): string {
+  const parts: string[] = [];
+  if (r.blocks) parts.push(`${r.blocks} bloc${r.blocks > 1 ? "s" : ""}`);
+  if (r.free_cards) parts.push(`${r.free_cards} carte${r.free_cards > 1 ? "s" : ""} libre${r.free_cards > 1 ? "s" : ""}`);
+  if (r.placed) parts.push(`${r.placed} carte${r.placed > 1 ? "s" : ""} dans l'espace`);
+  let text = parts.length ? `Guide importé dans ${r.game.name} : ${parts.join(", ")}.` : `Rien de nouveau dans ce guide pour ${r.game.name}.`;
+  if (r.duplicates) text += ` ${r.duplicates} élément${r.duplicates > 1 ? "s" : ""} déjà présent${r.duplicates > 1 ? "s" : ""}, ignoré${r.duplicates > 1 ? "s" : ""}.`;
+  if (r.unmatched.length)
+    text += ` ${r.unmatched.length} succès introuvable${r.unmatched.length > 1 ? "s" : ""} dans ce jeu : ${r.unmatched.length > 1 ? "leurs blocs sont rangés dans des cartes libres" : "ses blocs sont rangés dans une carte libre"}.`;
+  return text;
 }
 
 /** Carte libre : un titre et des blocs, rattachée au jeu et non à un succès. */

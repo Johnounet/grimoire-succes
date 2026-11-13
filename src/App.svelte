@@ -6,7 +6,7 @@
   import GameView from "./lib/GameView.svelte";
   import Showcase from "./lib/Showcase.svelte";
   import Sidebar from "./lib/Sidebar.svelte";
-  import { api, isComplete, type GameSummary } from "./lib/library";
+  import { api, importSummary, isComplete, type GameSummary } from "./lib/library";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { flushBlocks, listenBlockChanges, showToast } from "./lib/blocks/store.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
@@ -100,6 +100,26 @@
     adding = false;
   }
 
+  /** Version de la vue du jeu : changée après un import, pour tout recharger (cartes, blocs, étiquettes). */
+  let viewVersion = $state(0);
+
+  /** Importe un guide choisi par le joueur, puis ouvre son jeu (ajouté depuis Steam s'il manquait). */
+  async function importGuide() {
+    adding = false;
+    try {
+      await flushBlocks();
+      const report = await api.guideImport();
+      if (!report) return;
+      upsert(report.game);
+      select(report.game.appid);
+      viewVersion++;
+      send("data-changed", { appid: report.game.appid });
+      showToast(importSummary(report));
+    } catch (e) {
+      showToast(`Import impossible : ${e}`);
+    }
+  }
+
   function select(appid: number) {
     selected = appid;
     showcase = false;
@@ -127,13 +147,16 @@
   {#if showcase}
     <Showcase {games} {imagesDir} onopen={select} oncelebrate={(id) => (celebrating = id)} />
   {:else if current}
-    <GameView
-      game={current}
-      {imagesDir}
-      onchanged={upsert}
-      ondeleted={onDeleted}
-      oncelebrate={() => (celebrating = selected)}
-    />
+    {#key viewVersion}
+      <GameView
+        game={current}
+        {imagesDir}
+        onchanged={upsert}
+        ondeleted={onDeleted}
+        oncelebrate={() => (celebrating = selected)}
+        onimport={importGuide}
+      />
+    {/key}
   {:else}
     <main class="flex flex-1 items-center justify-center p-8 text-center">
       <div class="max-w-sm space-y-3">
@@ -166,7 +189,7 @@
 {/if}
 
 {#if adding}
-  <AddGameDialog onclose={() => (adding = false)} onimported={onImported} />
+  <AddGameDialog onclose={() => (adding = false)} onimported={onImported} onimportguide={importGuide} />
 {/if}
 
 {#if celebrating != null}

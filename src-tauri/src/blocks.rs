@@ -80,6 +80,12 @@ pub fn image_save(state: State<'_, AppState>, request: tauri::ipc::Request<'_>) 
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err("image attendue en binaire brut".into());
     };
+    store_image(&state.images_dir, bytes)
+}
+
+/// Enregistre une image dans `images/blocks/` (nom unique) et renvoie son chemin relatif à `images/`.
+/// Aussi utilisé par l'import d'un guide.
+pub fn store_image(images_dir: &Path, bytes: &[u8]) -> Result<String, String> {
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err("image trop lourde (25 Mo au maximum)".into());
     }
@@ -93,7 +99,7 @@ pub fn image_save(state: State<'_, AppState>, request: tauri::ipc::Request<'_>) 
         .unwrap_or(0);
     let rel = format!("blocks/{stamp}-{}.{ext}", COUNTER.fetch_add(1, Ordering::Relaxed));
 
-    let path = state.images_dir.join(&rel);
+    let path = images_dir.join(&rel);
     std::fs::create_dir_all(path.parent().expect("dossier parent")).map_err(err)?;
     std::fs::write(&path, bytes).map_err(err)?;
     Ok(rel)

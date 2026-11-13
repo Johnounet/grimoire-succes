@@ -304,4 +304,4 @@ On avance en neuf étapes, chacune livrant un logiciel qui fonctionne et se test
 
 - Nom du logiciel.
 - Faut-il gérer plusieurs comptes Steam sur un même PC dès la V1 ?
-- Le lecteur YouTube intégré doit-il continuer à jouer en mode compact ?
+- ~~Le lecteur YouTube intégré doit-il continuer à jouer en mode compact ?~~ Tranché (2026-11-13) : oui, les vidéos des cartes épinglées se lancent dans la fenêtre compacte.

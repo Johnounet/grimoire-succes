@@ -2,7 +2,16 @@
   import { onMount } from "svelte";
   import { api, type GameSummary, type SearchHit } from "./library";
 
-  let { onclose, onimported }: { onclose: () => void; onimported: (g: GameSummary) => void } = $props();
+  let {
+    onclose,
+    onimported,
+    onimportguide,
+  }: {
+    onclose: () => void;
+    onimported: (g: GameSummary) => void;
+    /** Importer un fichier de guide (le jeu est ajouté avec). */
+    onimportguide: () => void;
+  } = $props();
 
   let query = $state("");
   let results = $state<SearchHit[]>([]);
@@ -152,5 +161,10 @@
     {:else}
       <p class="p-4 text-sm text-muted">Tapez le nom d'un jeu, son AppID (ex. 620) ou collez le lien de sa page Steam.</p>
     {/if}
+  </div>
+  <div class="border-t border-line px-4 py-2.5 text-xs text-muted">
+    Vous avez un fichier de guide ?
+    <button onclick={onimportguide} class="text-accent underline-offset-2 hover:underline">Importer un guide…</button>
+    <span>(le jeu est ajouté avec)</span>
   </div>
 </dialog>
