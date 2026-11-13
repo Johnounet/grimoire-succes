@@ -8,7 +8,19 @@
     hint?: string;
   }
 
-  let { items, label = "Plus d'actions", class: klass = "" }: { items: MenuItem[]; label?: string; class?: string } = $props();
+  let {
+    items,
+    label = "Plus d'actions",
+    class: klass = "",
+    buttonClass = "",
+  }: {
+    items: MenuItem[];
+    label?: string;
+    class?: string;
+    /** Style du bouton « ⋯ ». Un flou d'arrière-plan (backdrop-blur), un filtre ou une transformation se met
+     *  ici, jamais dans `class` : sur un ancêtre du menu, il piégerait sa position fixe (voir popover.ts). */
+    buttonClass?: string;
+  } = $props();
   let open = $state(false);
   let button: HTMLButtonElement | undefined = $state();
 </script>
@@ -26,7 +38,7 @@
     aria-haspopup="menu"
     aria-label={label}
     title={label}
-    class="grid h-7 w-7 place-items-center rounded text-muted transition hover:bg-raised hover:text-fg"
+    class="grid h-7 w-7 place-items-center rounded text-muted transition hover:bg-raised hover:text-fg {buttonClass}"
   >
     ⋯
   </button>

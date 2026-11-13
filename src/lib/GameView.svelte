@@ -247,12 +247,12 @@
         Supprimer
       </button>
       <MoreMenu
-        class="rounded-lg bg-panel/80 backdrop-blur"
+        buttonClass="rounded-lg bg-panel/80 backdrop-blur"
         label="Plus d'actions sur le jeu"
         items={[
           {
-            label: "Reset complet dans Steam…",
-            hint: "Prépare la commande console reset_all_stats",
+            label: "Réinitialiser tous les succès et statistiques du jeu dans Steam…",
+            hint: "Prépare la commande console reset_all_stats, à lancer vous-même",
             onclick: () => openRelock(null),
           },
         ]}

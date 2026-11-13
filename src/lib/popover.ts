@@ -1,5 +1,8 @@
 // Position d'un menu déroulant sous son bouton, en coordonnées de la fenêtre (position: fixed).
 // Le menu échappe ainsi aux cartes qui coupent leur contenu (overflow) dans la vue Tableau.
+// Attention : aucun ancêtre du menu ne doit avoir de transform, filter ou backdrop-filter (ex. `backdrop-blur`),
+// sinon `fixed` se rapporte à cet ancêtre ; le menu déborde alors d'un parent `overflow-hidden`, et la mise au
+// point de son premier élément fait défiler ce parent (la bannière du jeu disparaissait ainsi).
 
 export function popoverStyle(anchor: HTMLElement | undefined, width: number, align: "left" | "right" = "left"): string {
   if (!anchor) return "";

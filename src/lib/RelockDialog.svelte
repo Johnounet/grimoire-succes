@@ -80,7 +80,7 @@
 >
   <div role="dialog" aria-modal="true" aria-labelledby="relock-title" transition:pop class="w-full max-w-lg rounded-2xl border border-line bg-panel p-5 shadow-2xl">
     <h2 id="relock-title" class="text-lg font-semibold">
-      {full ? `Reset complet de « ${gameName} »` : `Reverrouiller « ${target?.name} »`}
+      {full ? `Réinitialiser les succès et statistiques de « ${gameName} »` : `Reverrouiller « ${target?.name} »`}
     </h2>
     <p class="mt-1 text-sm text-muted">
       Le logiciel ne touche jamais à vos succès Steam : il prépare la commande, vous la lancez vous-même dans la console Steam.
