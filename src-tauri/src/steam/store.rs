@@ -1,9 +1,10 @@
 //! Magasin Steam : recherche de jeux, nom officiel, jaquettes.
 
-use super::web::{get_bytes, get_text};
+use super::web::{get_bytes, get_text, get_text_within};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Ce que le joueur a tapé : un jeu précis (AppID ou lien) ou un nom à chercher.
 #[derive(Debug, PartialEq)]
@@ -113,7 +114,8 @@ pub struct Assets {
 /// sous-dossier à code (`apps/<id>/<code>/header.jpg`) : l'adresse fixe répond 404.
 /// `IStoreBrowseService/GetItems` (sans clé) donne le chemin exact ; `country_code` est
 /// indispensable, sans lui la réponse est vide. Un jeu inconnu est simplement absent du résultat.
-pub async fn assets(appids: &[u32], country: &str) -> Result<HashMap<u32, Assets>, String> {
+/// `timeout` : délai d'attente de chaque requête (`None` : celui du client, 20 s).
+pub async fn assets(appids: &[u32], country: &str, timeout: Option<Duration>) -> Result<HashMap<u32, Assets>, String> {
     let mut out = HashMap::new();
     for chunk in appids.chunks(100) {
         let input = serde_json::json!({
@@ -125,7 +127,8 @@ pub async fn assets(appids: &[u32], country: &str) -> Result<HashMap<u32, Assets
             "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json={}",
             urlencode(&input.to_string())
         );
-        let v: Value = serde_json::from_str(&get_text(&url, "english").await?).map_err(|e| e.to_string())?;
+        let text = get_text_within(&url, "english", timeout).await?;
+        let v: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
         out.extend(parse_assets(&v));
     }
     Ok(out)
@@ -158,7 +161,7 @@ fn parse_assets(v: &Value) -> HashMap<u32, Assets> {
 /// Adresses exactes du magasin d'abord, puis les anciennes adresses fixes (si le magasin ne répond pas).
 /// Renvoie (octets, type) où type vaut `portrait` ou `header`.
 pub async fn download_cover(appid: u32, country: &str) -> Result<Option<(Vec<u8>, &'static str)>, String> {
-    let known = assets(&[appid], country).await.ok().and_then(|mut m| m.remove(&appid)).unwrap_or_default();
+    let known = assets(&[appid], country, None).await.ok().and_then(|mut m| m.remove(&appid)).unwrap_or_default();
     let candidates = [
         (known.portrait, "portrait"),
         (Some(cdn(appid, "library_600x900.jpg")), "portrait"),

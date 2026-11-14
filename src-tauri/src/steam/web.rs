@@ -36,8 +36,16 @@ pub(crate) async fn get_bytes(url: &str) -> Result<Option<Vec<u8>>, String> {
 }
 
 pub(crate) async fn get_text(url: &str, lang: &str) -> Result<String, String> {
-    let resp = client()
-        .get(url)
+    get_text_within(url, lang, None).await
+}
+
+/// Comme [`get_text`], avec un délai d'attente propre à cette requête (au lieu des 20 s du client).
+pub(crate) async fn get_text_within(url: &str, lang: &str, timeout: Option<Duration>) -> Result<String, String> {
+    let mut req = client().get(url);
+    if let Some(t) = timeout {
+        req = req.timeout(t);
+    }
+    let resp = req
         // La langue de la page suit ce cookie (le paramètre `?l=` est ignoré)
         .header(reqwest::header::COOKIE, format!("Steam_Language={lang}"))
         .send()
