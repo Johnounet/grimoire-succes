@@ -216,6 +216,16 @@
     }
   }
 
+  /** Un chrono affiché tourne-t-il ? (lancé ici ou dans la fenêtre principale) */
+  const anyTimerRunning = $derived(elements.some((b) => b.kind === "timer" && timerRunning(b.data as TimerData)));
+  // Horloge des chronos : seulement quand l'un d'eux tourne, la fenêtre reste ouverte pendant le jeu
+  $effect(() => {
+    if (!anyTimerRunning) return;
+    now = Date.now();
+    const id = setInterval(() => (now = Date.now()), 100);
+    return () => clearInterval(id);
+  });
+
   $effect(applyMotionAttribute);
   $effect(applyTheme);
 
@@ -254,7 +264,6 @@
       on("sound-changed", ({ check }) => (sound.check = check)),
       on("data-restored", () => location.reload()),
     ];
-    const tick = setInterval(() => (now = Date.now()), 100);
     // Fermeture par Alt+F4 ou par le système : les touches sont rendues aux autres logiciels
     let stopClose: (() => void) | null = null;
     try {
@@ -274,7 +283,6 @@
     });
     return () => {
       stops.forEach((s) => s());
-      clearInterval(tick);
       stopClose?.();
     };
   });
