@@ -104,6 +104,7 @@
       <button
         onclick={() => {
           block.data.url = "";
+          delete block.data.title;
           saveBlock(block);
         }}
         class="ml-auto underline hover:text-fg">changer de vidéo</button

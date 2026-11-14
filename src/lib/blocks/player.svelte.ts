@@ -15,9 +15,10 @@ import type { Block } from "./types";
 const PLAYING = 1;
 const BUFFERING = 3;
 
-/** Dernière position connue de chaque vidéo (secondes), pour la fenêtre en cours : un lecteur refermé
- * puis rouvert reprend là où il en était, même si son composant a été recréé entre-temps. */
-const positions = new Map<number, number>();
+/** Dernière position connue de chaque bloc vidéo (secondes), pour la fenêtre en cours : un lecteur refermé
+ * puis rouvert reprend là où il en était, même si son composant a été recréé entre-temps. Gardée avec
+ * l'identifiant de la vidéo : un bloc dont le lien a changé repart du début. */
+const positions = new Map<number, { video: string; t: number }>();
 
 /** Volume (0 à 100) donné à chaque lecteur chargé : 40 %, puis le dernier choisi dans la fenêtre. */
 let volume = 40;
@@ -31,21 +32,30 @@ export class YouTubePlayer {
   title = $state("");
   videoId = $state("");
   #blockId: number;
+  /** Vidéo suivie pour la reprise (mode compact) ; vide : position non gardée. */
+  #video = "";
   /** Réglages de départ envoyés (volume, sous-titres) : au premier message du lecteur, puis à la lecture. */
   #setupSent = false;
   #setupPlaying = false;
   /** Le lecteur a confirmé notre volume : ses changements suivants viennent de l'utilisateur. */
   #volumeApplied = false;
 
-  /** `remember` : reprend à la dernière position connue de cette vidéo dans la fenêtre (mode compact). */
-  constructor(blockId: number, remember = false) {
+  constructor(blockId: number) {
     this.#blockId = blockId;
-    if (remember) this.current = positions.get(blockId) ?? 0;
+  }
+
+  /** Mode compact : garde la position de la vidéo `video` (identifiant YouTube) et reprend la dernière
+   * connue dans la fenêtre. À rappeler quand le lien du bloc change (repart alors du début). */
+  follow(video: string) {
+    if (video === this.#video) return;
+    this.#video = video;
+    const saved = positions.get(this.#blockId);
+    this.current = video && saved?.video === video ? saved.t : 0;
   }
 
   #setCurrent(t: number) {
     this.current = t;
-    positions.set(this.#blockId, t);
+    if (this.#video) positions.set(this.#blockId, { video: this.#video, t });
   }
 
   post(func: string, args: unknown[] = []) {

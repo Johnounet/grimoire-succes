@@ -24,8 +24,13 @@
   const BACK_SECONDS = 10;
 
   // svelte-ignore state_referenced_locally (l'id d'un bloc ne change pas)
-  const player = new YouTubePlayer(block.id, true);
-  const ref = $derived(parseYouTube(block.data.url));
+  const player = new YouTubePlayer(block.id);
+  // Passe par le texte du lien : un bloc reçu de l'autre fenêtre (`block-changed`, ex. repère ajouté)
+  // remplace `block.data` ; sans ce relais, `ref` changerait d'objet et le lecteur ouvert se rechargerait.
+  const url = $derived(block.data.url);
+  const ref = $derived(parseYouTube(url));
+  // Reprise à la dernière position de cette vidéo (avant le calcul de l'adresse)
+  $effect.pre(() => player.follow(ref?.id ?? ""));
   // Adresse calculée à l'ouverture seulement (pas à chaque position reçue, ce qui rechargerait le lecteur)
   const src = $derived.by(() => {
     if (!open || !ref) return "";
