@@ -64,6 +64,7 @@ function renumber(key: number) {
 
 let completedAt: number | null = null;
 let celebrated = false;
+let refreshedAt = 1;
 /** Comme `update_completion` côté Rust. */
 function updateCompletion(when: number | null) {
   const done = achievements.every((a) => a.unlocked);
@@ -80,7 +81,7 @@ const summary = () => ({
   total: achievements.length,
   unlocked: achievements.filter((a) => a.unlocked).length,
   has_api_names: true,
-  refreshed_at: 1,
+  refreshed_at: refreshedAt,
   completed_at: completedAt,
   playtime_minutes: 1504,
   celebrated,
@@ -94,6 +95,45 @@ const otherGames = [
 ].map((g) => ({ ...g, cover_file: null, cover_kind: null, source: "local_cache", has_api_names: true, refreshed_at: 1, playtime_minutes: null, celebrated: true }));
 let gameOrder = [620, ...otherGames.map((g) => g.appid)];
 const allGames = () => gameOrder.map((id) => (id === 620 ? summary() : otherGames.find((g) => g.appid === id)!));
+
+/** Catalogue simulé du magasin pour « Ajouter un jeu » ; `on_this_pc` : proposé d'office (cache local de Steam). */
+const catalogue = [
+  { appid: 620, name: "Portal 2", on_this_pc: true },
+  { appid: 1145360, name: "Hades", on_this_pc: true },
+  { appid: 2379780, name: "Balatro", on_this_pc: false },
+  { appid: 1794680, name: "Vampire Survivors", on_this_pc: true },
+  { appid: 504230, name: "Celeste", on_this_pc: true },
+  { appid: 367520, name: "Hollow Knight", on_this_pc: true },
+  { appid: 413150, name: "Stardew Valley", on_this_pc: false },
+  { appid: 753640, name: "Outer Wilds", on_this_pc: false },
+];
+const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+const searchHit = (g: (typeof catalogue)[number]) => ({
+  ...g,
+  capsule_url: `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${g.appid}/capsule_231x87.jpg`,
+  in_library: gameOrder.includes(g.appid),
+});
+
+/** Comme `library_import` côté Rust : un jeu déjà présent est actualisé, un nouveau arrive en tête du panneau.
+ *  Un jeu ajouté reçoit le nombre de succès de Portal 2 (ouvert, il les montre, comme les autres jeux factices). */
+function importGame(appid: number) {
+  const now = Math.floor(Date.now() / 1000);
+  if (!gameOrder.includes(appid)) gameOrder.unshift(appid);
+  if (appid === 620) {
+    refreshedAt = now;
+    return summary();
+  }
+  let g = otherGames.find((x) => x.appid === appid);
+  if (g) g.refreshed_at = now;
+  else {
+    const name = catalogue.find((c) => c.appid === appid)?.name ?? `AppID ${appid}`;
+    g = { ...otherGames[0], appid, name, total: achievements.length, unlocked: 0, completed_at: null, refreshed_at: now, celebrated: false };
+    otherGames.push(g);
+  }
+  return { ...g };
+}
+/** Délai d'un vrai import (réseau), pour voir l'état « en cours » de l'interface. */
+const later = <T>(f: () => T, ms = 700) => new Promise<T>((ok) => setTimeout(() => ok(f()), ms));
 
 /** Sauvegardes simulées : quelques automatiques des derniers jours. */
 let backups = [0, 1, 2].map((d) => ({
@@ -128,6 +168,8 @@ export function installMock(label = "main") {
   mockConvertFileSrc("windows");
   mockWindows(label);
   if (label === "compact") seedCompact();
+  // http://localhost:1420/?empty : bibliothèque vide (page de bienvenue du premier lancement), où l'on peut ajouter un jeu
+  if (new URLSearchParams(location.search).has("empty")) gameOrder = [];
   mockIPC(
     (cmd, payload) => {
     const args = (payload ?? {}) as Record<string, unknown>;
@@ -135,8 +177,7 @@ export function installMock(label = "main") {
       case "images_dir":
         return "C:\\mock\\images";
       case "library_list":
-        // http://localhost:1420/?empty : bibliothèque vide (page de bienvenue du premier lancement)
-        return new URLSearchParams(location.search).has("empty") ? [] : allGames();
+        return allGames();
       case "backups_list":
         return [...backups].sort((x, y) => y.created_at - x.created_at);
       case "backup_create": {
@@ -157,8 +198,22 @@ export function installMock(label = "main") {
         gameOrder = [...(args.appids as number[])];
         return null;
       case "library_local_suggestions":
-      case "library_search":
-        return [];
+        return catalogue
+          .filter((g) => g.on_this_pc && !gameOrder.includes(g.appid))
+          .map(searchHit)
+          .sort((x, y) => x.name.localeCompare(y.name));
+      case "library_search": {
+        const query = String(args.query).trim();
+        if (/^\d+$/.test(query)) {
+          const g = catalogue.find((c) => c.appid === Number(query));
+          if (!g) throw `Aucun jeu Steam ne porte l'AppID ${query}.`;
+          return later(() => [searchHit(g)], 300);
+        }
+        if (query.length < 2) return [];
+        return later(() => catalogue.filter((g) => fold(g.name).includes(fold(query))).map(searchHit), 300);
+      }
+      case "library_import":
+        return later(() => importGame(args.appid as number));
       case "game_achievements":
         return achievements.map((a) => ({ ...a }));
       case "achievements_lock_all":
