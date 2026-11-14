@@ -29,7 +29,7 @@ Revue en lecture seule de la version 0.2.0 (commit `8f8acd4`). Aucun fichier du 
 
 ## 1. Bugs confirmés
 
-### 1. Import d'un guide : les blocs identiques d'une même carte sont perdus
+### 1. Import d'un guide : les blocs identiques d'une même carte sont perdus (corrigé)
 
 - **Où** : [guides.rs:454-467](../src-tauri/src/guides.rs#L454), fonction `import_all`, avec `comparable` ([guides.rs:296](../src-tauri/src/guides.rs#L296)).
 - **Explication** : pour ne pas doubler un bloc quand on réimporte le même fichier, chaque bloc importé est comparé à ceux « déjà présents ». Mais chaque bloc qui vient d'être créé est ajouté à cette liste (ligne 466). Résultat : le deuxième bloc identique **du même fichier** est pris pour un doublon. Une image se compare par sa légende seule : deux captures sans légende sont donc « identiques ».

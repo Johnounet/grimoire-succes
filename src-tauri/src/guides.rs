@@ -451,11 +451,16 @@ fn import_all(
             Owner::Achievement(id) => (Some(id), None),
             Owner::Card(id) => (None, Some(id)),
         };
+        // Chaque bloc déjà présent n'absorbe qu'un seul bloc identique du guide (il est retiré une fois reconnu),
+        // et les blocs créés ne s'ajoutent pas à la liste : deux images sans légende d'une même carte restent deux.
         for b in &c.blocks {
             let cmp = comparable(&b.kind, &b.data);
-            if existing.get(&key).is_some_and(|list| list.contains(&cmp)) {
-                report.duplicates += 1;
-                continue;
+            if let Some(list) = existing.get_mut(&key) {
+                if let Some(i) = list.iter().position(|x| *x == cmp) {
+                    list.swap_remove(i);
+                    report.duplicates += 1;
+                    continue;
+                }
             }
             let mut data = b.data.clone();
             if b.kind == "image" {
@@ -463,7 +468,6 @@ fn import_all(
                 data["file"] = file.map(Value::from).unwrap_or(Value::Null);
             }
             db::create_block(conn, owner, &b.kind, &data, None).map_err(err)?;
-            existing.entry(key).or_default().push(cmp);
             report.blocks += 1;
         }
 
@@ -744,6 +748,42 @@ mod tests {
         assert_eq!(db::list_tags(&conn).unwrap().len(), before, "« Grind  » retrouve l'étiquette « grind »");
         assert_eq!(db::list_achievement_tags(&conn, 620).unwrap().len(), 1);
         assert_eq!(db::list_workspace(&conn, 620).unwrap().len(), 2, "la disposition est enregistrée");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Des blocs identiques d'une même carte (images sans légende, compteurs remis à 0…) sont tous importés,
+    /// et réimporter le fichier n'en double aucun.
+    #[test]
+    fn blocs_identiques_d_une_carte_tous_importes() {
+        let dir = temp_dir("e");
+        let mut conn = setup(&["A"]);
+        let mut g = guide_vide();
+        g.images.insert("blocks/x.png".into(), STANDARD.encode(PNG));
+        let image = GuideBlock { kind: "image".into(), data: json!({"file": "blocks/x.png", "caption": ""}) };
+        let counter = GuideBlock { kind: "counter".into(), data: json!({"label": "cubes", "value": 0, "goal": 3, "step": 1}) };
+        let list = GuideBlock { kind: "list".into(), data: json!({"items": []}) };
+        let blocks = vec![image.clone(), image.clone(), counter.clone(), counter, list.clone(), list];
+        g.cards.push(GuideCard {
+            achievement: Some(GuideAchievement { api_name: Some("A".into()), name: "a".into() }),
+            blocks: blocks.clone(),
+            ..Default::default()
+        });
+        g.cards.push(GuideCard { title: Some("Route".into()), blocks, ..Default::default() });
+
+        let r = import(&mut conn, &dir, &g).unwrap();
+        assert_eq!((r.blocks, r.duplicates), (12, 0));
+        let again = import(&mut conn, &dir, &g).unwrap();
+        assert_eq!((again.blocks, again.free_cards, again.duplicates), (0, 0, 7), "6 blocs du succès + la carte libre");
+        assert_eq!(db::list_blocks(&conn, 620).unwrap().len(), 12);
+
+        // Une seule image déjà présente : la seconde du guide est ajoutée
+        let mut conn2 = setup(&["A"]);
+        let a = db::list_achievements(&conn2, 620).unwrap()[0].id;
+        db::create_block(&mut conn2, Owner::Achievement(a), "image", &json!({"file": null, "caption": ""}), None).unwrap();
+        g.cards.truncate(1);
+        g.cards[0].blocks.truncate(2);
+        let r2 = import(&mut conn2, &dir, &g).unwrap();
+        assert_eq!((r2.blocks, r2.duplicates), (1, 1));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
