@@ -29,8 +29,11 @@ export interface SyncEvents {
   "shortcuts-status": { errors: Partial<Record<string, string>>; live: boolean };
   /** Envoyé par le cœur Rust (`watch.rs`) : Steam a réécrit la progression d'un jeu de la bibliothèque. */
   "steam-progress": { game: GameSummary; unlocked: { id: number; name: string }[] };
-  /** Une vidéo démarre dans une fenêtre : l'autre met en pause sa copie du même bloc. */
-  "video-playing": { blockId: number };
+  /** Une vidéo démarre dans une fenêtre (à `t` secondes) : l'autre met en pause sa copie du même bloc. */
+  "video-playing": { blockId: number; t: number };
+  /** Position d'une vidéo, suivie par la copie en pause de l'autre fenêtre. `settle` : position arrêtée
+   * (pause, fin, recul), la copie s'y place tout de suite ; sinon envoi périodique pendant la lecture. */
+  "video-position": { blockId: number; t: number; settle: boolean };
   /** Jeu ouvert dans la fenêtre principale. */
   "compact-game": { appid: number };
   /** La fenêtre compacte vient de s'ouvrir et demande le jeu ouvert. */

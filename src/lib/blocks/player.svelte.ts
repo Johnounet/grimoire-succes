@@ -2,7 +2,9 @@
 // pas de script externe à charger. Partagé par le bloc vidéo et la fenêtre compacte.
 //
 // Une même vidéo peut être ouverte dans les deux fenêtres : quand l'une démarre, l'autre se met en pause
-// (événement `video-playing`), pour ne jamais entendre deux fois la même vidéo.
+// (événement `video-playing`), pour ne jamais entendre deux fois la même vidéo. Les deux copies partagent
+// leur position : celle en pause suit celle qui joue (`video-position`, chaque seconde pendant la lecture,
+// et à l'arrêt), pour reprendre là où l'autre en est.
 //
 // Au chargement : volume à 40 % (YouTube démarre à fond) et sous-titres coupés. Un volume changé par
 // l'utilisateur est repris par les lecteurs ouverts ensuite dans la même fenêtre.
@@ -14,6 +16,8 @@ import type { Block } from "./types";
 /** États du lecteur YouTube (API IFrame). */
 const PLAYING = 1;
 const BUFFERING = 3;
+/** Intervalle d'envoi de la position pendant la lecture (ms). */
+const SHARE_MS = 1000;
 
 /** Dernière position connue de chaque bloc vidéo (secondes), pour la fenêtre en cours : un lecteur refermé
  * puis rouvert reprend là où il en était, même si son composant a été recréé entre-temps. Gardée avec
@@ -39,6 +43,13 @@ export class YouTubePlayer {
   #setupPlaying = false;
   /** Le lecteur a confirmé notre volume : ses changements suivants viennent de l'utilisateur. */
   #volumeApplied = false;
+  /** Le lecteur a déjà joué depuis son chargement : un `seekTo` le laisse alors en pause. */
+  #started = false;
+  /** Position reçue de l'autre fenêtre, à appliquer au lecteur (avant cela, ses positions sont ignorées). */
+  #pending: number | null = null;
+  #lastShared = 0;
+  /** Mise en pause parce que l'autre fenêtre démarre : sa position fait foi, ne pas envoyer la nôtre. */
+  #yielding = false;
 
   constructor(blockId: number) {
     this.#blockId = blockId;
@@ -63,6 +74,7 @@ export class YouTubePlayer {
   }
 
   play() {
+    this.#applyPending();
     this.post("playVideo");
   }
 
@@ -76,19 +88,25 @@ export class YouTubePlayer {
   }
 
   seek(t: number) {
+    this.#pending = null;
     this.post("seekTo", [Math.max(0, t), true]);
+    this.#setCurrent(Math.max(0, t));
     this.play();
   }
 
   /** Recule de `sec` secondes (sans relancer une vidéo en pause). */
   back(sec: number) {
+    this.#pending = null;
     this.post("seekTo", [Math.max(0, this.current - sec), true]);
     this.#setCurrent(Math.max(0, this.current - sec));
+    this.#share(!this.playing);
   }
 
   /** À l'événement `load` de l'iframe : demande au lecteur d'envoyer sa position et son état. */
   loaded() {
-    this.#setupSent = this.#setupPlaying = this.#volumeApplied = false;
+    this.#setupSent = this.#setupPlaying = this.#volumeApplied = this.#started = false;
+    // Nouveau lecteur, ouvert à la position voulue (`start`) : une position reçue avant ne vaut plus
+    this.#pending = null;
     this.iframe?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: this.#blockId, channel: "widget" }), "*");
   }
 
@@ -104,7 +122,10 @@ export class YouTubePlayer {
         }
         this.#watchVolume(msg?.info?.volume, msg?.info?.muted);
         const t = msg?.info?.currentTime;
-        if (typeof t === "number") this.#setCurrent(t);
+        if (typeof t === "number" && this.#pending === null) {
+          this.#setCurrent(t);
+          if (this.playing && Date.now() - this.#lastShared >= SHARE_MS) this.#share(false);
+        }
         const v = msg?.info?.videoData;
         if (typeof v?.title === "string" && v.title) {
           this.title = v.title;
@@ -117,12 +138,21 @@ export class YouTubePlayer {
       }
     };
     window.addEventListener("message", onMessage);
-    const stop = on("video-playing", ({ blockId }) => {
-      if (blockId === this.#blockId && this.playing) this.pause();
+    const stopPlaying = on("video-playing", ({ blockId, t }) => {
+      if (blockId !== this.#blockId) return;
+      this.#receive(t, true);
+      if (this.playing) {
+        this.#yielding = true;
+        this.pause();
+      }
+    });
+    const stopPosition = on("video-position", ({ blockId, t, settle }) => {
+      if (blockId === this.#blockId && !this.playing) this.#receive(t, settle);
     });
     return () => {
       window.removeEventListener("message", onMessage);
-      stop();
+      stopPlaying();
+      stopPosition();
     };
   }
 
@@ -149,13 +179,48 @@ export class YouTubePlayer {
     if (muted !== true) volume = Math.round(v);
   }
 
+  /** Envoie notre position à l'autre fenêtre. */
+  #share(settle: boolean) {
+    this.#lastShared = Date.now();
+    send("video-position", { blockId: this.#blockId, t: this.current, settle });
+  }
+
+  /** Position de l'autre fenêtre : affichée tout de suite, appliquée au lecteur dès que possible
+   * (tout de suite s'il est en pause après avoir joué ; sinon au prochain démarrage, car un `seekTo`
+   * sur un lecteur jamais lancé le ferait jouer). Sans lecteur ouvert, la position sert à la réouverture. */
+  #receive(t: number, settle: boolean) {
+    this.#setCurrent(t);
+    if (!this.iframe) return;
+    this.#pending = t;
+    if (settle && this.#started && !this.playing) this.#applyPending();
+  }
+
+  #applyPending() {
+    if (this.#pending === null) return;
+    this.post("seekTo", [this.#pending, true]);
+    this.#pending = null;
+  }
+
   #state(state: number) {
     if (state === PLAYING && !this.#setupPlaying) {
       this.#setupPlaying = true;
       this.#setup();
     }
+    if (state === PLAYING) {
+      this.#started = true;
+      this.#applyPending();
+    }
     const playing = state === PLAYING || (state === BUFFERING && this.playing);
-    if (playing && !this.playing) send("video-playing", { blockId: this.#blockId });
+    if (playing && !this.playing) {
+      this.#yielding = false;
+      send("video-playing", { blockId: this.#blockId, t: this.current });
+    } else if (!playing && this.playing) {
+      // Arrêt (pause, fin) décidé ici : l'autre copie se place à notre position
+      if (!this.#yielding) this.#share(true);
+      this.#yielding = false;
+      // Pause pendant l'application d'une position reçue : le lecteur s'y place maintenant
+      this.#applyPending();
+    }
     this.playing = playing;
   }
 }
