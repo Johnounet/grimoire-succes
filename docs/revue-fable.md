@@ -129,7 +129,7 @@ Revue en lecture seule de la version 0.2.0 (commit `8f8acd4`). Aucun fichier du 
 - **Piste** : `tauri-plugin-single-instance` (licence MIT / Apache, compatible GPL) : le second lancement remet la première fenêtre au premier plan.
 - **Certitude** : très probable (lu, non testé).
 
-### 3. Aucune sauvegarde avant une migration de la base
+### 3. Aucune sauvegarde avant une migration de la base (corrigé)
 
 - **Où** : [lib.rs:66](../src-tauri/src/lib.rs#L66) (ouverture + migrations) puis [lib.rs:73](../src-tauri/src/lib.rs#L73) (sauvegardes lancées après) ; [backup.rs:192-204](../src-tauri/src/backup.rs#L192).
 - **Explication** : au premier lancement après une mise à jour, les migrations modifient la base **avant** la sauvegarde automatique du jour. Si une migration a un défaut, la dernière copie saine date de la veille au mieux (plus si Grimoire n'a pas été ouvert). Les migrations v8 (tables reconstruites) et v12 (colonne supprimée) montrent que ce ne sont pas toujours de petits changements. Avec la mise à jour en un clic, tous les joueurs y passent en même temps.

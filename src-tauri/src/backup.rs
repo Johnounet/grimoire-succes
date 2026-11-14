@@ -10,8 +10,9 @@
 //!
 //! Sortes : `auto` (une par jour, au démarrage puis toutes les heures si l'application reste ouverte ;
 //! les 7 dernières sont gardées), `manuel` (bouton des Réglages) et `avant-restauration` (état remplacé
-//! par une restauration, pour pouvoir revenir en arrière). Seules les automatiques sont supprimées
-//! d'office.
+//! par une restauration, pour pouvoir revenir en arrière) et `avant-mise-a-jour` (base telle
+//! qu'elle était avant les migrations d'une nouvelle version du logiciel ; les 3 dernières gardées).
+//! Les manuelles et `avant-restauration` ne sont jamais supprimées d'office.
 
 use crate::db;
 use crate::library::AppState;
@@ -23,6 +24,8 @@ use tauri::{AppHandle, Manager, State};
 
 /// Sauvegardes automatiques gardées.
 pub const KEEP_AUTO: usize = 7;
+/// Sauvegardes d'avant mise à jour gardées.
+pub const KEEP_BEFORE_UPDATE: usize = 3;
 /// Écart entre deux sauvegardes automatiques.
 const DAY: i64 = 24 * 3600;
 /// Coup d'œil pendant que l'application reste ouverte.
@@ -37,6 +40,7 @@ pub enum Kind {
     Auto,
     Manuel,
     AvantRestauration,
+    AvantMiseAJour,
 }
 
 impl Kind {
@@ -45,6 +49,7 @@ impl Kind {
             Kind::Auto => "auto",
             Kind::Manuel => "manuel",
             Kind::AvantRestauration => "avant-restauration",
+            Kind::AvantMiseAJour => "avant-mise-a-jour",
         }
     }
 }
@@ -138,13 +143,24 @@ pub fn create(conn: &Connection, data_dir: &Path, images_dir: &Path, kind: Kind)
     let result = (|| -> Result<BackupInfo, String> {
         conn.backup(MAIN_DB, tmp.join(DB_FILE), None::<fn(Progress)>).map_err(err)?;
         let mut size = std::fs::metadata(tmp.join(DB_FILE)).map(|m| m.len()).unwrap_or(0);
-        for rel in referenced_images(conn).map_err(err)? {
+        // Avant une migration, la base suit un ancien schéma : les requêtes d'aujourd'hui peuvent
+        // ne pas s'y appliquer. La copie de la base est l'essentiel (les migrations ne touchent pas
+        // aux images), le reste est fait si possible.
+        let lenient = kind == Kind::AvantMiseAJour;
+        let images = match referenced_images(conn) {
+            Err(_) if lenient => Vec::new(),
+            r => r.map_err(err)?,
+        };
+        for rel in images {
             let src = images_dir.join(&rel);
             if safe_rel(&rel) && src.is_file() {
                 size += put(&src, &tmp.join("images").join(&rel), rel.starts_with("blocks/")).map_err(err)?;
             }
         }
-        let games = db::library_appids(conn).map_err(err)?.len() as u32;
+        let games = match db::library_appids(conn) {
+            Err(_) if lenient => 0,
+            r => r.map_err(err)?.len() as u32,
+        };
         let info = BackupInfo { id: id.clone(), created_at, kind, games, size };
         std::fs::write(tmp.join(INFO_FILE), serde_json::to_vec_pretty(&info).map_err(err)?).map_err(err)?;
         Ok(info)
@@ -181,11 +197,24 @@ pub fn list(data_dir: &Path) -> Vec<BackupInfo> {
     out
 }
 
-/// Garde les `KEEP_AUTO` sauvegardes automatiques les plus récentes.
-fn prune(data_dir: &Path) {
-    for old in list(data_dir).into_iter().filter(|b| b.kind == Kind::Auto).skip(KEEP_AUTO) {
+/// Garde les `keep` sauvegardes de la sorte `kind` les plus récentes.
+fn prune(data_dir: &Path, kind: Kind, keep: usize) {
+    for old in list(data_dir).into_iter().filter(|b| b.kind == kind).skip(keep) {
         let _ = std::fs::remove_dir_all(backups_dir(data_dir).join(&old.id));
     }
+}
+
+/// Au démarrage, avant les migrations : copie de la base si une nouvelle version du logiciel va
+/// la modifier. Une migration défectueuse laisse ainsi une copie saine du jour même.
+pub fn before_migration(conn: &Connection, data_dir: &Path, images_dir: &Path) -> Result<Option<BackupInfo>, String> {
+    if !db::needs_migration(conn).map_err(err)? {
+        return Ok(None);
+    }
+    // Sinon le dossier `backups` créé ici empêcherait de reprendre l'ancien `sauvegardes`
+    rename_old_dir(data_dir);
+    let info = create(conn, data_dir, images_dir, Kind::AvantMiseAJour)?;
+    prune(data_dir, Kind::AvantMiseAJour, KEEP_BEFORE_UPDATE);
+    Ok(Some(info))
 }
 
 /// Sauvegarde automatique si la dernière date d'un jour ou plus (ou s'il n'y en a pas).
@@ -199,7 +228,7 @@ pub fn auto_if_due(conn: &Connection, data_dir: &Path, images_dir: &Path) -> Res
         return Ok(None);
     }
     let info = create(conn, data_dir, images_dir, Kind::Auto)?;
-    prune(data_dir);
+    prune(data_dir, Kind::Auto, KEEP_AUTO);
     Ok(Some(info))
 }
 
@@ -361,11 +390,48 @@ mod tests {
         for _ in 0..9 {
             create(&conn, &data, &images, Kind::Auto).unwrap();
         }
-        prune(&data);
+        prune(&data, Kind::Auto, KEEP_AUTO);
         let all = list(&data);
         assert_eq!(all.iter().filter(|b| b.kind == Kind::Auto).count(), KEEP_AUTO);
         assert_eq!(all.iter().filter(|b| b.kind == Kind::AvantRestauration).count(), 1);
         drop(conn);
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// Base d'une ancienne version : copiée telle quelle avant d'être migrée.
+    #[test]
+    fn sauvegarde_avant_mise_a_jour() {
+        let data = temp_dir("avant-maj");
+        let images = data.join("images");
+        let old = db::schema_version() - 1;
+        let mut conn = db::open_at_version(&data.join(DB_FILE), old).unwrap();
+        conn.execute_batch(
+            "INSERT INTO games (appid, name, source, language, imported_at, refreshed_at) VALUES (620, 'P', 'local_cache', 'french', 0, 0);",
+        )
+        .unwrap();
+
+        let info = before_migration(&conn, &data, &images).unwrap().unwrap();
+        assert_eq!((info.kind, info.games), (Kind::AvantMiseAJour, 1));
+        db::migrate_existing(&mut conn).unwrap();
+        assert!(before_migration(&conn, &data, &images).unwrap().is_none(), "base à jour : rien à faire");
+
+        // La copie est restée à l'ancienne version
+        let copy = Connection::open_with_flags(backups_dir(&data).join(&info.id).join(DB_FILE), OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let v: i64 = copy.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        assert_eq!(v as usize, old);
+        drop(copy);
+
+        // Base neuve (version 0) : pas de sauvegarde
+        let fresh = db::open_unmigrated(&data.join("neuve.sqlite")).unwrap();
+        assert!(!db::needs_migration(&fresh).unwrap());
+
+        // Seules les 3 dernières sont gardées
+        for _ in 0..4 {
+            create(&conn, &data, &images, Kind::AvantMiseAJour).unwrap();
+        }
+        prune(&data, Kind::AvantMiseAJour, KEEP_BEFORE_UPDATE);
+        assert_eq!(list(&data).iter().filter(|b| b.kind == Kind::AvantMiseAJour).count(), KEEP_BEFORE_UPDATE);
+        drop((conn, fresh));
         let _ = std::fs::remove_dir_all(&data);
     }
 }

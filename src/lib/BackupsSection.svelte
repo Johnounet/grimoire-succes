@@ -17,6 +17,7 @@
     auto: "automatique",
     manuel: "manuelle",
     "avant-restauration": "avant restauration",
+    "avant-mise-a-jour": "avant mise à jour",
   };
 
   const when = (t: number) =>

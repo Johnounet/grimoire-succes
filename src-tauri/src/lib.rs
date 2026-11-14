@@ -63,8 +63,14 @@ pub fn run() {
                 }
             }
             app.manage(update::UpdateState::new(portable.is_some()));
-            let conn = db::open(&data_dir.join(data_dir::DB_FILE))?;
             let images_dir = data_dir.join("images");
+            let mut conn = db::open_unmigrated(&data_dir.join(data_dir::DB_FILE))?;
+            // Nouvelle version du logiciel : copie de la base avant que les migrations la modifient.
+            // Un échec (disque plein…) n'empêche pas de démarrer.
+            if let Err(e) = backup::before_migration(&conn, &data_dir, &images_dir) {
+                eprintln!("sauvegarde avant mise à jour : {e}");
+            }
+            db::migrate_existing(&mut conn)?;
             // Jaquettes et images des blocs servies par le protocole asset : ce dossier seulement
             app.asset_protocol_scope().allow_directory(&images_dir, true)?;
             blocks::cleanup_orphan_images(&conn, &images_dir);

@@ -225,10 +225,35 @@ const MIGRATIONS: &[&str] = &[
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
-    let mut conn = Connection::open(path)?;
+    let mut conn = open_unmigrated(path)?;
+    migrate(&mut conn)?;
+    Ok(conn)
+}
+
+/// Ouvre la base sans la migrer : le démarrage la sauvegarde d'abord si une migration l'attend
+/// (`needs_migration`), puis appelle `migrate_existing`.
+pub fn open_unmigrated(path: &Path) -> rusqlite::Result<Connection> {
+    let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
-    migrate(&mut conn)?;
+    Ok(conn)
+}
+
+/// Base existante (pas une base neuve, en version 0) écrite par une version plus ancienne du
+/// logiciel : les migrations vont la modifier.
+pub fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
+    let current: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    Ok(current > 0 && (current as usize) < MIGRATIONS.len())
+}
+
+/// Base de test arrêtée à la version `version` du schéma (simule une ancienne version du logiciel).
+#[cfg(test)]
+pub fn open_at_version(path: &Path, version: usize) -> rusqlite::Result<Connection> {
+    let conn = open_unmigrated(path)?;
+    for (i, sql) in MIGRATIONS.iter().take(version).enumerate() {
+        conn.execute_batch(sql)?;
+        conn.pragma_update(None, "user_version", i as i64 + 1)?;
+    }
     Ok(conn)
 }
 
@@ -245,7 +270,8 @@ pub fn schema_version() -> usize {
     MIGRATIONS.len()
 }
 
-/// Met à jour une base remplacée pendant que le logiciel tourne (restauration d'une sauvegarde).
+/// Met à jour une base ouverte par `open_unmigrated`, ou remplacée pendant que le logiciel tourne
+/// (restauration d'une sauvegarde).
 pub fn migrate_existing(conn: &mut Connection) -> rusqlite::Result<()> {
     migrate(conn)
 }

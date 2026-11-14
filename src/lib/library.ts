@@ -69,7 +69,7 @@ export interface RecentUnlock {
 export interface BackupInfo {
   id: string;
   created_at: number;
-  kind: "auto" | "manuel" | "avant-restauration";
+  kind: "auto" | "manuel" | "avant-restauration" | "avant-mise-a-jour";
   games: number;
   /** Octets (base et images copiées). */
   size: number;
