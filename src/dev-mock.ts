@@ -390,7 +390,7 @@ export function installMock(label = "main") {
       case "update_open_page":
         console.info("[mock] update_open_page");
         return null;
-      // Pas de 2ᵉ fenêtre dans un navigateur : openCompact ouvre alors un onglet
+      // Pas de 2ᵉ fenêtre dans un navigateur : openCompact ouvre un onglet sans appeler cette commande
       case "compact_open":
         throw new Error("simulation : fenêtre compacte dans un onglet");
       case "setting_get":

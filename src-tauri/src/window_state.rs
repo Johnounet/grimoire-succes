@@ -11,6 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{
     AppHandle, Manager, PhysicalPosition, PhysicalSize, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
@@ -87,12 +88,29 @@ pub fn restore_main<R: Runtime>(window: &WebviewWindow<R>, data_dir: &Path) -> t
 /// Ouvre la fenêtre compacte (toujours au premier plan, sans bordure, transparente) à sa taille et
 /// à sa place retenues. Déjà ouverte : mise au premier plan. Commande asynchrone : sous Windows,
 /// créer une fenêtre depuis une commande synchrone peut tout bloquer.
+///
+/// Deux appels presque simultanés (double clic sur « Mode compact ») : le second ne fait rien,
+/// le premier ouvrira la fenêtre.
 #[tauri::command]
 pub async fn compact_open(app: AppHandle, state: tauri::State<'_, crate::library::AppState>) -> Result<(), String> {
+    static OPENING: AtomicBool = AtomicBool::new(false);
     if let Some(w) = app.get_webview_window("compact") {
-        return w.set_focus().map_err(|e| e.to_string());
+        // Encore cachée : ouverture en cours, elle sera affichée et mise au premier plan
+        if w.is_visible().unwrap_or(false) {
+            return w.set_focus().map_err(|e| e.to_string());
+        }
+        return Ok(());
     }
-    let window = WebviewWindowBuilder::new(&app, "compact", WebviewUrl::App("index.html".into()))
+    if OPENING.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let result = build_compact(&app, &state.data_dir);
+    OPENING.store(false, Ordering::SeqCst);
+    result
+}
+
+fn build_compact(app: &AppHandle, data_dir: &Path) -> Result<(), String> {
+    let built = WebviewWindowBuilder::new(app, "compact", WebviewUrl::App("index.html".into()))
         .title(format!("{} · compact", app.package_info().name))
         .inner_size(340.0, 540.0)
         .min_inner_size(260.0, 160.0)
@@ -101,9 +119,14 @@ pub async fn compact_open(app: AppHandle, state: tauri::State<'_, crate::library
         .transparent(true)
         .resizable(true)
         .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
-    if let Err(e) = restore_and_track(&window, &state.data_dir.join(COMPACT_FILE), false) {
+        .build();
+    let window = match built {
+        Ok(w) => w,
+        // Créée entre-temps par un autre chemin : rien à faire, ce n'est pas une erreur
+        Err(_) if app.get_webview_window("compact").is_some() => return Ok(()),
+        Err(e) => return Err(e.to_string()),
+    };
+    if let Err(e) = restore_and_track(&window, &data_dir.join(COMPACT_FILE), false) {
         eprintln!("Fenêtre compacte : état non rétabli ({e})");
         let _ = window.show();
     }
