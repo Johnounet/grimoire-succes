@@ -41,6 +41,8 @@ export function embedUrl(ref: YouTubeRef, autoplay = false): string {
   const params = new URLSearchParams({
     enablejsapi: "1",
     rel: "0",
+    // Pas de sous-titres imposés (le lecteur les coupe aussi au chargement : voir player.svelte.ts)
+    cc_load_policy: "0",
     origin: window.location.origin,
   });
   if (ref.start) params.set("start", String(ref.start));

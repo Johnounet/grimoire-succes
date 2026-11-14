@@ -3,6 +3,9 @@
 //
 // Une même vidéo peut être ouverte dans les deux fenêtres : quand l'une démarre, l'autre se met en pause
 // (événement `video-playing`), pour ne jamais entendre deux fois la même vidéo.
+//
+// Au chargement : volume à 40 % (YouTube démarre à fond) et sous-titres coupés. Un volume changé par
+// l'utilisateur est repris par les lecteurs ouverts ensuite dans la même fenêtre.
 import { on, send } from "../sync";
 import type { YouTubeRef } from "../youtube";
 import { saveBlock } from "./store.svelte";
@@ -16,6 +19,9 @@ const BUFFERING = 3;
  * puis rouvert reprend là où il en était, même si son composant a été recréé entre-temps. */
 const positions = new Map<number, number>();
 
+/** Volume (0 à 100) donné à chaque lecteur chargé : 40 %, puis le dernier choisi dans la fenêtre. */
+let volume = 40;
+
 export class YouTubePlayer {
   iframe: HTMLIFrameElement | undefined = $state();
   /** Position de lecture (secondes), remontée par le lecteur. */
@@ -25,6 +31,11 @@ export class YouTubePlayer {
   title = $state("");
   videoId = $state("");
   #blockId: number;
+  /** Réglages de départ envoyés (volume, sous-titres) : au premier message du lecteur, puis à la lecture. */
+  #setupSent = false;
+  #setupPlaying = false;
+  /** Le lecteur a confirmé notre volume : ses changements suivants viennent de l'utilisateur. */
+  #volumeApplied = false;
 
   /** `remember` : reprend à la dernière position connue de cette vidéo dans la fenêtre (mode compact). */
   constructor(blockId: number, remember = false) {
@@ -67,6 +78,7 @@ export class YouTubePlayer {
 
   /** À l'événement `load` de l'iframe : demande au lecteur d'envoyer sa position et son état. */
   loaded() {
+    this.#setupSent = this.#setupPlaying = this.#volumeApplied = false;
     this.iframe?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: this.#blockId, channel: "widget" }), "*");
   }
 
@@ -76,6 +88,11 @@ export class YouTubePlayer {
       if (!this.iframe || e.source !== this.iframe.contentWindow) return;
       try {
         const msg = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+        if (!this.#setupSent) {
+          this.#setupSent = true;
+          this.#setup();
+        }
+        this.#watchVolume(msg?.info?.volume, msg?.info?.muted);
         const t = msg?.info?.currentTime;
         if (typeof t === "number") this.#setCurrent(t);
         const v = msg?.info?.videoData;
@@ -106,7 +123,27 @@ export class YouTubePlayer {
     saveBlock(block);
   }
 
+  /** Volume et sous-titres de départ. Les sous-titres se chargent au début de la lecture : renvoyé alors. */
+  #setup() {
+    this.post("setVolume", [volume]);
+    this.post("unloadModule", ["captions"]);
+    this.post("unloadModule", ["cc"]);
+  }
+
+  #watchVolume(v: unknown, muted: unknown) {
+    if (typeof v !== "number") return;
+    if (!this.#volumeApplied) {
+      this.#volumeApplied = Math.round(v) === volume;
+      return;
+    }
+    if (muted !== true) volume = Math.round(v);
+  }
+
   #state(state: number) {
+    if (state === PLAYING && !this.#setupPlaying) {
+      this.#setupPlaying = true;
+      this.#setup();
+    }
     const playing = state === PLAYING || (state === BUFFERING && this.playing);
     if (playing && !this.playing) send("video-playing", { blockId: this.#blockId });
     this.playing = playing;
