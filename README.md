@@ -8,7 +8,7 @@ Logiciel de bureau gratuit et open source pour les chasseurs de succès Steam : 
 - Aucune clé API Steam requise
 - Ne modifie jamais vos succès Steam : lecture seule
 
-> Projet en cours de développement (étape 8 sur 9 : finitions). Le cahier des charges est dans [SPEC.md](SPEC.md).
+> Projet en cours de développement (finitions).
 
 ## Téléchargement
 
@@ -56,7 +56,6 @@ npm run tauri dev
 ```
 src/          Interface (Svelte 5 + TypeScript)
 src-tauri/    Cœur de l'application (Rust, Tauri 2)
-SPEC.md       Cahier des charges
 ```
 
 ## Licence

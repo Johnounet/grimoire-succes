@@ -17,3 +17,7 @@ Thumbs.db
 
 # Configuration locale de Claude Code
 .claude/
+
+# Notes de travail locales (non publiées)
+CLAUDE.md
+SPEC.md
