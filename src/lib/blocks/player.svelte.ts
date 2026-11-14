@@ -15,6 +15,7 @@ import type { Block } from "./types";
 
 /** États du lecteur YouTube (API IFrame). */
 const PLAYING = 1;
+const PAUSED = 2;
 const BUFFERING = 3;
 /** Intervalle d'envoi de la position pendant la lecture (ms). */
 const SHARE_MS = 1000;
@@ -43,8 +44,9 @@ export class YouTubePlayer {
   #setupPlaying = false;
   /** Le lecteur a confirmé notre volume : ses changements suivants viennent de l'utilisateur. */
   #volumeApplied = false;
-  /** Le lecteur a déjà joué depuis son chargement : un `seekTo` le laisse alors en pause. */
-  #started = false;
+  /** Le lecteur est à l'état « pause » : seul cas où un `seekTo` ne le fait pas jouer (pas avant la
+   * première lecture, ni à la fin de la vidéo). */
+  #paused = false;
   /** Position reçue de l'autre fenêtre, à appliquer au lecteur (avant cela, ses positions sont ignorées). */
   #pending: number | null = null;
   #lastShared = 0;
@@ -104,7 +106,7 @@ export class YouTubePlayer {
 
   /** À l'événement `load` de l'iframe : demande au lecteur d'envoyer sa position et son état. */
   loaded() {
-    this.#setupSent = this.#setupPlaying = this.#volumeApplied = this.#started = false;
+    this.#setupSent = this.#setupPlaying = this.#volumeApplied = this.#paused = false;
     // Nouveau lecteur, ouvert à la position voulue (`start`) : une position reçue avant ne vaut plus
     this.#pending = null;
     this.iframe?.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: this.#blockId, channel: "widget" }), "*");
@@ -186,13 +188,13 @@ export class YouTubePlayer {
   }
 
   /** Position de l'autre fenêtre : affichée tout de suite, appliquée au lecteur dès que possible
-   * (tout de suite s'il est en pause après avoir joué ; sinon au prochain démarrage, car un `seekTo`
-   * sur un lecteur jamais lancé le ferait jouer). Sans lecteur ouvert, la position sert à la réouverture. */
+   * (tout de suite s'il est en pause ; sinon au prochain démarrage, car un `seekTo` sur un lecteur
+   * jamais lancé ou arrivé à la fin le ferait jouer). Sans lecteur ouvert, la position sert à la réouverture. */
   #receive(t: number, settle: boolean) {
     this.#setCurrent(t);
     if (!this.iframe) return;
     this.#pending = t;
-    if (settle && this.#started && !this.playing) this.#applyPending();
+    if (settle && this.#paused) this.#applyPending();
   }
 
   #applyPending() {
@@ -206,10 +208,9 @@ export class YouTubePlayer {
       this.#setupPlaying = true;
       this.#setup();
     }
-    if (state === PLAYING) {
-      this.#started = true;
-      this.#applyPending();
-    }
+    if (state === PLAYING) this.#applyPending();
+    const wasPaused = this.#paused;
+    this.#paused = state === PAUSED;
     const playing = state === PLAYING || (state === BUFFERING && this.playing);
     if (playing && !this.playing) {
       this.#yielding = false;
@@ -218,9 +219,10 @@ export class YouTubePlayer {
       // Arrêt (pause, fin) décidé ici : l'autre copie se place à notre position
       if (!this.#yielding) this.#share(true);
       this.#yielding = false;
-      // Pause pendant l'application d'une position reçue : le lecteur s'y place maintenant
-      this.#applyPending();
     }
+    // Arrivée en pause (dont la pause demandée par l'autre fenêtre) : une position reçue entre-temps
+    // s'applique maintenant. Pas à la fin de la vidéo : le `seekTo` la relancerait.
+    if (this.#paused && !wasPaused) this.#applyPending();
     this.playing = playing;
   }
 }
