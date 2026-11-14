@@ -59,13 +59,6 @@ pub fn run() {
                     Some(dir) => dir.clone(),
                     None => data_dir::resolve(&app.path().data_dir()?, &app.path().app_data_dir()?)?,
                 };
-                // Fenêtre principale créée cachée : taille et position retenues, puis affichage
-                if let Some(main) = app.get_webview_window("main") {
-                    if let Err(e) = window_state::restore_main(&main, &data_dir) {
-                        eprintln!("Fenêtre principale : état non rétabli ({e})");
-                        let _ = main.show();
-                    }
-                }
                 app.manage(update::UpdateState::new(portable.is_some()));
                 let images_dir = data_dir.join("images");
                 // Base abîmée, migration ratée… : expliqué au joueur, avec les solutions
@@ -73,7 +66,17 @@ pub fn run() {
                 // Jaquettes et images des blocs servies par le protocole asset : ce dossier seulement
                 app.asset_protocol_scope().allow_directory(&images_dir, true)?;
                 blocks::cleanup_orphan_images(&conn, &images_dir);
-                app.manage(library::AppState { db: Mutex::new(conn), data_dir, images_dir });
+                app.manage(library::AppState { db: Mutex::new(conn), data_dir: data_dir.clone(), images_dir });
+                // Fenêtre principale créée seulement maintenant (`"create": false`) : pendant une
+                // question de `recovery.rs`, l'interface se chargeait déjà, ne trouvait pas la base
+                // et restait vide après une restauration, jusqu'au lancement suivant
+                let config = app.config().app.windows.first().cloned().ok_or("fenêtre principale absente de la configuration")?;
+                let main = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
+                // Créée cachée : taille et position retenues, puis affichage
+                if let Err(e) = window_state::restore_main(&main, &data_dir) {
+                    eprintln!("Fenêtre principale : état non rétabli ({e})");
+                    let _ = main.show();
+                }
                 watch::start(app.handle().clone());
                 backup::start(app.handle().clone());
                 window_state::start_autosave(app.handle().clone());
