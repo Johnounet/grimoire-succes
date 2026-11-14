@@ -39,7 +39,7 @@ Revue en lecture seule de la version 0.2.0 (commit `8f8acd4`). Aucun fichier du 
 - **Piste** : comparer seulement aux blocs présents **avant** l'import (ne pas ajouter à `existing`), ou compter les exemplaires.
 - **Certitude** : certain. **Gravité** : haute (perte silencieuse dans la fonction faite pour sauvegarder et partager).
 
-### 2. Un fichier Steam rempli de zéros fait planter l'application
+### 2. Un fichier Steam rempli de zéros fait planter l'application (corrigé)
 
 - **Où** : [kv_binary.rs:72-105](../src-tauri/src/steam/kv_binary.rs#L72), fonction `entries` (elle s'appelle elle-même ligne 86, sans limite de profondeur). Appelée par `local_cache::load` ([local_cache.rs:261](../src-tauri/src/steam/local_cache.rs#L261) et [270](../src-tauri/src/steam/local_cache.rs#L270)), donc par l'import, « Actualiser » et la surveillance ([watch.rs:86](../src-tauri/src/watch.rs#L86)).
 - **Explication** : dans ce format, l'octet 0 veut dire « début d'un groupe ». Un fichier plein de zéros est lu comme des milliers de groupes emboîtés ; le programme s'enfonce jusqu'à épuiser sa mémoire de travail (la « pile »). Ce type de plantage ne se rattrape pas : **toute l'application se ferme**, sans message. Or un fichier rempli de zéros est exactement ce que Windows laisse parfois après une coupure de courant ou un plantage pendant une écriture.

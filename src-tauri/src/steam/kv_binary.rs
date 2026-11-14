@@ -39,6 +39,13 @@ const T_END: u8 = 0x08;
 const T_INT64: u8 = 0x0A;
 const T_END_ALT: u8 = 0x0B;
 
+/// Profondeur maximale des groupes emboîtés. Les vrais fichiers de Steam n'en
+/// ont que quelques-uns ; au-delà, le fichier est abîmé (par ex. rempli de
+/// zéros après une coupure de courant, chaque zéro ouvrant un groupe). Sans
+/// cette limite, la lecture récursive épuiserait la pile et fermerait toute
+/// l'application, sans message.
+const MAX_DEPTH: usize = 64;
+
 struct Reader<'a> {
     buf: &'a [u8],
     pos: usize,
@@ -69,7 +76,15 @@ impl<'a> Reader<'a> {
     }
 
     /// Lit des entrées jusqu'à un marqueur de fin ou la fin du fichier.
-    fn entries(&mut self, top_level: bool) -> Result<Vec<(String, Kv)>, KvError> {
+    /// `depth` : 0 pour le premier niveau du fichier.
+    fn entries(&mut self, depth: usize) -> Result<Vec<(String, Kv)>, KvError> {
+        if depth > MAX_DEPTH {
+            return Err(KvError(format!(
+                "plus de {MAX_DEPTH} groupes emboîtés à l'octet {} (fichier abîmé ?)",
+                self.pos
+            )));
+        }
+        let top_level = depth == 0;
         let mut out = Vec::new();
         loop {
             let Some(t) = self.byte()? else {
@@ -83,7 +98,7 @@ impl<'a> Reader<'a> {
             }
             let key = self.cstr()?;
             let val = match t {
-                T_NODE => Kv::Node(self.entries(false)?),
+                T_NODE => Kv::Node(self.entries(depth + 1)?),
                 T_STRING => Kv::Str(self.cstr()?),
                 T_INT32 => Kv::Int(i32::from_le_bytes(self.take(4)?.try_into().unwrap())),
                 T_FLOAT32 => Kv::Float(f32::from_le_bytes(self.take(4)?.try_into().unwrap())),
@@ -108,7 +123,7 @@ impl<'a> Reader<'a> {
 /// Analyse un fichier entier. Renvoie le nœud racine (liste des entrées de premier niveau).
 pub fn parse(buf: &[u8]) -> Result<Kv, KvError> {
     let mut r = Reader { buf, pos: 0 };
-    Ok(Kv::Node(r.entries(true)?))
+    Ok(Kv::Node(r.entries(0)?))
 }
 
 impl Kv {
@@ -185,6 +200,28 @@ mod tests {
     #[test]
     fn refuse_un_fichier_tronque() {
         let b = [T_NODE, b'a', 0, T_INT32, b'x', 0, 1];
+        assert!(parse(&b).is_err());
+    }
+
+    #[test]
+    fn refuse_un_fichier_rempli_de_zeros_sans_planter() {
+        // Ce qu'une coupure de courant peut laisser : chaque zéro ouvre un groupe.
+        // Avant la limite de profondeur, 16 Ko suffisaient à faire déborder la pile.
+        let b = vec![0u8; 1_000_000];
+        let err = parse(&b).unwrap_err();
+        assert!(err.0.contains("emboîtés"), "{err}");
+    }
+
+    #[test]
+    fn accepte_la_profondeur_maximale() {
+        let mut b = Vec::new();
+        for _ in 0..MAX_DEPTH {
+            b.extend([T_NODE, b'n', 0]);
+        }
+        b.extend(std::iter::repeat_n(T_END, MAX_DEPTH));
+        assert!(parse(&b).is_ok());
+        b.splice(0..0, [T_NODE, b'n', 0]);
+        b.push(T_END);
         assert!(parse(&b).is_err());
     }
 }
