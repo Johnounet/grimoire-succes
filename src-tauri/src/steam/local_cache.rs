@@ -252,6 +252,15 @@ fn parse_progress(root: &Kv) -> UserStats {
     UserStats { unlocked: out, values }
 }
 
+/// Contenu du fichier de progression. Fichier vide (Steam peut le vider avant de le réécrire) :
+/// état inconnu, pas « aucun succès débloqué », sinon tous les succès seraient décochés en base.
+fn read_progress(bytes: &[u8]) -> Result<Option<UserStats>, String> {
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(parse_progress(&kv_binary::parse(bytes).map_err(|e| e.to_string())?)))
+}
+
 /// Charge les succès d'un jeu depuis le cache local.
 /// `account_id = None` : schéma seul, état inconnu.
 pub fn load(steam: &Path, appid: u32, account_id: Option<u32>, lang: &str) -> Result<GameAchievements, String> {
@@ -266,7 +275,7 @@ pub fn load(steam: &Path, appid: u32, account_id: Option<u32>, lang: &str) -> Re
 
     let progress = match account_id {
         Some(acc) => match std::fs::read(progress_path(steam, acc, appid)) {
-            Ok(b) => Some(parse_progress(&kv_binary::parse(&b).map_err(|e| e.to_string())?)),
+            Ok(b) => read_progress(&b)?,
             Err(_) => None,
         },
         None => None,
@@ -298,6 +307,11 @@ pub fn load(steam: &Path, appid: u32, account_id: Option<u32>, lang: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fichier_de_progression_vide_etat_inconnu() {
+        assert!(read_progress(&[]).unwrap().is_none());
+    }
 
     #[test]
     fn valeur_des_statistiques() {
