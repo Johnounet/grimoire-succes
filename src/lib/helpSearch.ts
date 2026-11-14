@@ -33,11 +33,13 @@ export function helpLinks(game: HelpGame, achievement: string): HelpLink[] {
   const q = encodeURIComponent;
   // « succès » : les noms sont le plus souvent importés en français, et le mot écarte les homonymes
   const query = `${game.name} ${quoted(achievement)} succès`;
+  // Sans guillemets pour YouTube : avec, il ne renvoie presque rien (essai de l'utilisateur, 2026-11-14)
+  const videoQuery = `${game.name} ${achievement.replace(/"/g, "").trim()} succès`;
   return [
     {
       label: "Vidéos YouTube",
       hint: "Recherche du jeu et du succès",
-      url: `https://www.youtube.com/results?search_query=${q(query)}`,
+      url: `https://www.youtube.com/results?search_query=${q(videoQuery)}`,
     },
     {
       label: "Guides Steam",
