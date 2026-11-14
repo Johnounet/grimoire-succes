@@ -204,6 +204,7 @@ export function installMock(label = "main") {
           placed: 2,
           duplicates: 1,
           unmatched: ["Succès d'un DLC"],
+          ignored_tags: [],
         };
       case "free_cards_list":
         return freeCards.map((f) => ({ ...f }));

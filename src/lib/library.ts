@@ -181,6 +181,8 @@ export interface ImportReport {
   duplicates: number;
   /** Succès du guide introuvables dans ce jeu : leurs blocs sont dans une carte libre. */
   unmatched: string[];
+  /** Étiquettes du guide refusées (nom vide ou trop long) : ignorées, le reste est importé. */
+  ignored_tags: string[];
 }
 
 /** Phrase de bilan affichée après un import. */
@@ -193,6 +195,10 @@ export function importSummary(r: ImportReport): string {
   if (r.duplicates) text += ` ${r.duplicates} élément${r.duplicates > 1 ? "s" : ""} déjà présent${r.duplicates > 1 ? "s" : ""}, ignoré${r.duplicates > 1 ? "s" : ""}.`;
   if (r.unmatched.length)
     text += ` ${r.unmatched.length} succès introuvable${r.unmatched.length > 1 ? "s" : ""} dans ce jeu : ${r.unmatched.length > 1 ? "leurs blocs sont rangés dans des cartes libres" : "ses blocs sont rangés dans une carte libre"}.`;
+  if (r.ignored_tags.length) {
+    const names = r.ignored_tags.map((n) => (n ? `« ${n.length > 20 ? n.slice(0, 20) + "…" : n} »` : "sans nom")).join(", ");
+    text += ` ${r.ignored_tags.length > 1 ? "Étiquettes invalides ignorées" : "Étiquette invalide ignorée"} : ${names}.`;
+  }
   return text;
 }
 

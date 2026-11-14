@@ -273,6 +273,8 @@ pub struct ImportReport {
     pub duplicates: usize,
     /// Succès du guide introuvables dans ce jeu (leurs blocs sont dans une carte libre)
     pub unmatched: Vec<String>,
+    /// Étiquettes du guide refusées (nom vide ou trop long) : ignorées, le reste est importé
+    pub ignored_tags: Vec<String>,
 }
 
 /// Format et version lisibles par cette version du logiciel.
@@ -297,8 +299,32 @@ fn comparable(kind: &str, data: &Value) -> (String, Value) {
     (kind.to_string(), d)
 }
 
+/// Import « tout ou rien » : en cas d'erreur, la base revient à son état d'avant et les images recopiées sont effacées.
 pub fn import(conn: &mut Connection, images_dir: &Path, guide: &GuideFile) -> Result<ImportReport, String> {
     check(guide)?;
+    conn.execute_batch("SAVEPOINT guide_import").map_err(err)?;
+    let mut copied: Vec<String> = Vec::new();
+    match import_all(conn, images_dir, guide, &mut copied) {
+        Ok(report) => {
+            conn.execute_batch("RELEASE guide_import").map_err(err)?;
+            Ok(report)
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK TO guide_import; RELEASE guide_import");
+            for file in copied {
+                let _ = std::fs::remove_file(images_dir.join(file));
+            }
+            Err(e)
+        }
+    }
+}
+
+fn import_all(
+    conn: &mut Connection,
+    images_dir: &Path,
+    guide: &GuideFile,
+    copied: &mut Vec<String>,
+) -> Result<ImportReport, String> {
     let appid = guide.game.appid;
     if db::get_game(conn, appid).map_err(err)?.is_none() {
         return Err("jeu absent de la bibliothèque".into());
@@ -322,7 +348,8 @@ pub fn import(conn: &mut Connection, images_dir: &Path, guide: &GuideFile) -> Re
 
     let mut tag_ids: HashMap<String, i64> =
         db::list_tags(conn).map_err(err)?.into_iter().map(|t| (t.name.to_lowercase(), t.id)).collect();
-    let colors: HashMap<String, &str> = guide.tags.iter().map(|t| (t.name.to_lowercase(), t.color.as_str())).collect();
+    let colors: HashMap<String, &str> =
+        guide.tags.iter().map(|t| (t.name.trim().to_lowercase(), t.color.as_str())).collect();
 
     // Images : chaque fichier du guide n'est enregistré qu'une fois, même s'il sert à plusieurs blocs
     let mut stored: HashMap<String, Option<String>> = HashMap::new();
@@ -331,7 +358,9 @@ pub fn import(conn: &mut Connection, images_dir: &Path, guide: &GuideFile) -> Re
             .entry(name.to_string())
             .or_insert_with(|| {
                 let bytes = STANDARD.decode(guide.images.get(name)?).ok()?;
-                store_image(images_dir, &bytes).ok()
+                let file = store_image(images_dir, &bytes).ok()?;
+                copied.push(file.clone());
+                Some(file)
             })
             .clone()
     };
@@ -343,6 +372,7 @@ pub fn import(conn: &mut Connection, images_dir: &Path, guide: &GuideFile) -> Re
         placed: 0,
         duplicates: 0,
         unmatched: Vec::new(),
+        ignored_tags: Vec::new(),
     };
 
     // Sections du guide : reprises par leur nom si le jeu en a déjà une pareille, créées sinon
@@ -433,14 +463,25 @@ pub fn import(conn: &mut Connection, images_dir: &Path, guide: &GuideFile) -> Re
 
         if let Owner::Achievement(id) = owner {
             for name in &c.tags {
+                let name = name.trim();
                 let lower = name.to_lowercase();
                 let tag = match tag_ids.get(&lower) {
                     Some(&t) => t,
                     None => {
                         let color = colors.get(&lower).copied().unwrap_or("#4f7cff");
-                        let t = db::create_tag(conn, name, color).or_else(|_| db::create_tag(conn, name, "#4f7cff"))?;
-                        tag_ids.insert(lower, t.id);
-                        t.id
+                        match db::create_tag(conn, name, color).or_else(|_| db::create_tag(conn, name, "#4f7cff")) {
+                            Ok(t) => {
+                                tag_ids.insert(lower, t.id);
+                                t.id
+                            }
+                            // Étiquette invalide (nom vide ou trop long) : ignorée et signalée, sans bloquer l'import
+                            Err(_) => {
+                                if !report.ignored_tags.iter().any(|n| n == name) {
+                                    report.ignored_tags.push(name.to_string());
+                                }
+                                continue;
+                            }
+                        }
                     }
                 };
                 db::set_achievement_tag(conn, id, tag, true).map_err(err)?;
@@ -653,6 +694,71 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    fn guide_vide() -> GuideFile {
+        GuideFile {
+            format: FORMAT.into(),
+            version: VERSION,
+            app_version: String::new(),
+            exported_at: 0,
+            game: GuideGame { appid: 620, name: "Portal 2".into() },
+            keeps_state: false,
+            tags: vec![],
+            sections: vec![],
+            cards: vec![],
+            images: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn etiquette_fautive_ignoree() {
+        let dir = temp_dir("c");
+        let mut conn = setup(&["A"]);
+        let before = db::list_tags(&conn).unwrap().len();
+        let mut g = guide_vide();
+        g.sections.push(GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into() });
+        let place = GuidePlace { column: "todo".into(), collapsed: false, grid: None, pinned: false, section: Some(0) };
+        g.cards.push(GuideCard {
+            achievement: Some(GuideAchievement { api_name: Some("A".into()), name: "a".into() }),
+            tags: vec!["Grind ".into(), "x".repeat(41), "  ".into()],
+            workspace: Some(place.clone()),
+            ..Default::default()
+        });
+        g.cards.push(GuideCard { title: Some("Route".into()), workspace: Some(place), ..Default::default() });
+
+        let r = import(&mut conn, &dir, &g).unwrap();
+        assert_eq!(r.ignored_tags, vec!["x".repeat(41), String::new()]);
+        assert_eq!(db::list_tags(&conn).unwrap().len(), before, "« Grind  » retrouve l'étiquette « grind »");
+        assert_eq!(db::list_achievement_tags(&conn, 620).unwrap().len(), 1);
+        assert_eq!(db::list_workspace(&conn, 620).unwrap().len(), 2, "la disposition est enregistrée");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_rate_ne_laisse_rien() {
+        let dir = temp_dir("d");
+        let mut conn = setup(&["A"]);
+        let mut g = guide_vide();
+        g.sections.push(GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into() });
+        g.images.insert("blocks/x.png".into(), STANDARD.encode(PNG));
+        g.cards.push(GuideCard {
+            title: Some("Route".into()),
+            blocks: vec![
+                GuideBlock { kind: "image".into(), data: json!({"file": "blocks/x.png", "caption": ""}) },
+                GuideBlock { kind: "bidon".into(), data: json!({}) },
+            ],
+            ..Default::default()
+        });
+
+        assert!(import(&mut conn, &dir, &g).is_err());
+        assert!(db::list_sections(&conn, 620).unwrap().is_empty());
+        assert!(db::list_free_cards(&conn, 620).unwrap().is_empty());
+        assert!(db::list_blocks(&conn, 620).unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(dir.join("blocks")).unwrap().count(), 0, "image recopiée effacée");
+        // La connexion reste utilisable après l'annulation
+        db::create_free_card(&conn, 620, "Après").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

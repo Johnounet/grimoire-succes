@@ -245,7 +245,7 @@ pub fn migrate_existing(conn: &mut Connection) -> rusqlite::Result<()> {
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
     let current: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {
-        let tx = conn.transaction()?;
+        let tx = conn.savepoint()?;
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", i as i64 + 1)?;
         tx.commit()?;
@@ -370,7 +370,7 @@ pub fn save_game(
     name: &str,
     cover: Option<(&str, &str)>,
 ) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
+    let tx = conn.savepoint()?;
     let t = now();
 
     // Nouveau jeu : en haut de la liste (déjà terminé, `update_completion` le range ensuite en tête des jeux à 100 %)
@@ -516,7 +516,7 @@ fn move_to_completed(conn: &Connection, appid: u32) -> rusqlite::Result<()> {
 /// Ordre choisi par le joueur dans le panneau des jeux. Les jeux absents de `appids` (cas limite :
 /// liste périmée) gardent leur rang relatif, à la suite.
 pub fn reorder_games(conn: &mut Connection, appids: &[u32]) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
+    let tx = conn.savepoint()?;
     let current: Vec<u32> = game_order(&tx)?.into_iter().map(|(id, _)| id).collect();
     let chosen = appids.iter().copied().filter(|id| current.contains(id));
     let rest = current.iter().copied().filter(|id| !appids.contains(id));
@@ -764,7 +764,7 @@ pub fn card_sizes(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<CardSiz
 /// Les succès et cartes libres qui n'appartiennent pas à ce jeu sont ignorés. Une carte libre absente
 /// de `items` n'est pas supprimée pour autant (voir `delete_free_card`).
 pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
+    let tx = conn.savepoint()?;
     tx.execute("DELETE FROM workspace_items WHERE appid = ?1", [appid])?;
     {
         let mut insert = tx.prepare(
@@ -872,7 +872,7 @@ pub fn create_section(conn: &Connection, appid: u32, title: &str, color: &str) -
 /// Enregistre titre, état replié, couleur et ordre (celui de `sections`) des sections de ce jeu.
 /// Les sections inconnues ou d'un autre jeu sont ignorées ; aucune n'est créée ni supprimée.
 pub fn save_sections(conn: &mut Connection, appid: u32, sections: &[Section]) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
+    let tx = conn.savepoint()?;
     {
         let mut update =
             tx.prepare("UPDATE sections SET title = ?3, collapsed = ?4, position = ?5, color = ?6 WHERE id = ?1 AND appid = ?2")?;
@@ -1044,7 +1044,7 @@ pub fn create_block(
         return Err(rusqlite::Error::InvalidParameterName(format!("type de bloc inconnu : {kind}")));
     }
     let (col, oid) = (owner.column(), owner.id());
-    let tx = conn.transaction()?;
+    let tx = conn.savepoint()?;
     let appid: u32 = tx.query_row(&format!("SELECT appid FROM {} WHERE id = ?1", owner.table()), [oid], |r| r.get(0))?;
     let end: i64 = tx.query_row(
         &format!("SELECT COALESCE(MAX(position) + 1, 0) FROM blocks WHERE {col} = ?1"),
@@ -1085,7 +1085,7 @@ pub fn delete_block(conn: &Connection, id: i64) -> rusqlite::Result<()> {
 
 /// Nouvel ordre des blocs d'un succès ou d'une carte libre. Les blocs d'ailleurs sont ignorés.
 pub fn reorder_blocks(conn: &mut Connection, owner: Owner, ids: &[i64]) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
+    let tx = conn.savepoint()?;
     {
         let mut stmt =
             tx.prepare(&format!("UPDATE blocks SET position = ?3 WHERE id = ?1 AND {} = ?2", owner.column()))?;
