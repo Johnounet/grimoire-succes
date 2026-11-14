@@ -98,9 +98,15 @@ export class YouTubePlayer {
 
   /** Recule de `sec` secondes (sans relancer une vidéo en pause). */
   back(sec: number) {
-    this.#pending = null;
-    this.post("seekTo", [Math.max(0, this.current - sec), true]);
-    this.#setCurrent(Math.max(0, this.current - sec));
+    const t = Math.max(0, this.current - sec);
+    this.#setCurrent(t);
+    if (this.playing || this.#paused) {
+      this.#pending = null;
+      this.post("seekTo", [t, true]);
+    } else {
+      // Vidéo terminée ou jamais lancée : un `seekTo` la relancerait, la position attend la lecture
+      this.#pending = t;
+    }
     this.#share(!this.playing);
   }
 
