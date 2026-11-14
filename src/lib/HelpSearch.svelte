@@ -1,14 +1,15 @@
 <script lang="ts">
   // Bouton « Aide » d'un succès, toujours visible : menu YouTube, guides Steam, Google (navigateur par défaut).
-  import { helpGame, helpLinks, openHelp } from "./helpSearch";
+  import { HELP_TARGETS, helpGame, openHelp } from "./helpSearch";
   import MoreMenu from "./MoreMenu.svelte";
 
   let { name }: { name: string } = $props();
 
   const game = helpGame();
-  const items = $derived(
-    game ? helpLinks(game(), name).map((l) => ({ label: l.label, hint: l.hint, onclick: () => openHelp(l.url) })) : [],
-  );
+  // Jeu et nom lus au clic : rien n'est recalculé quand le jeu change (une coche, par exemple)
+  const items = game
+    ? HELP_TARGETS.map((t) => ({ label: t.label, hint: t.hint, onclick: () => openHelp(t.url(game(), name)) }))
+    : [];
 </script>
 
 {#if items.length}

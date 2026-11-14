@@ -20,39 +20,36 @@ export function helpGame(): (() => HelpGame) | undefined {
   return getContext(KEY);
 }
 
-export interface HelpLink {
+/** Une destination du menu « Aide ». L'adresse n'est construite qu'au clic (`url`), pas à chaque affichage. */
+export interface HelpTarget {
   label: string;
   hint: string;
-  url: string;
+  url: (game: HelpGame, achievement: string) => string;
 }
 
-/** Nom du succès entre guillemets : le moteur garde le nom entier au lieu de mots épars. */
-const quoted = (s: string) => `"${s.replace(/"/g, "").trim()}"`;
+const q = encodeURIComponent;
+const clean = (s: string) => s.replace(/"/g, "").trim();
 
-export function helpLinks(game: HelpGame, achievement: string): HelpLink[] {
-  const q = encodeURIComponent;
-  // « succès » : les noms sont le plus souvent importés en français, et le mot écarte les homonymes
-  const query = `${game.name} ${quoted(achievement)} succès`;
-  // Sans guillemets pour YouTube : avec, il ne renvoie presque rien (essai de l'utilisateur, 2026-11-14)
-  const videoQuery = `${game.name} ${achievement.replace(/"/g, "").trim()} succès`;
-  return [
-    {
-      label: "Vidéos YouTube",
-      hint: "Recherche du jeu et du succès",
-      url: `https://www.youtube.com/results?search_query=${q(videoQuery)}`,
-    },
-    {
-      label: "Guides Steam",
-      hint: "Guides de la communauté qui parlent de ce succès",
-      url: `https://steamcommunity.com/app/${game.appid}/guides/?searchText=${q(achievement.trim())}&browsefilter=trend`,
-    },
-    {
-      label: "Recherche Google",
-      hint: "Recherche du jeu et du succès",
-      url: `https://www.google.com/search?q=${q(query)}`,
-    },
-  ];
-}
+// « succès » : les noms sont le plus souvent importés en français, et le mot écarte les homonymes
+export const HELP_TARGETS: HelpTarget[] = [
+  {
+    label: "Vidéos YouTube",
+    hint: "Recherche du jeu et du succès",
+    // Sans guillemets : avec, YouTube ne renvoie presque rien (essai de l'utilisateur, 2026-11-14)
+    url: (g, a) => `https://www.youtube.com/results?search_query=${q(`${g.name} ${clean(a)} succès`)}`,
+  },
+  {
+    label: "Guides Steam",
+    hint: "Guides de la communauté qui parlent de ce succès",
+    url: (g, a) => `https://steamcommunity.com/app/${g.appid}/guides/?searchText=${q(a.trim())}&browsefilter=trend`,
+  },
+  {
+    label: "Recherche Google",
+    hint: "Recherche du jeu et du succès",
+    // Nom entre guillemets : Google garde le nom entier au lieu de mots épars
+    url: (g, a) => `https://www.google.com/search?q=${q(`${g.name} "${clean(a)}" succès`)}`,
+  },
+];
 
 export function openHelp(url: string) {
   // Hors de Tauri (interface simulée), l'ouverture passe par le navigateur
