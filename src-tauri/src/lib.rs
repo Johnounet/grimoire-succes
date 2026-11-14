@@ -8,6 +8,7 @@
 //! - `watch` : actualisation automatique quand Steam réécrit la progression d'un jeu
 //! - `backup` : sauvegardes de sécurité des données
 //! - `update` : mises à jour (installeur) ou annonce des nouvelles versions (version portable)
+//! - `window_state` : taille et position de la fenêtre principale retenues d'un lancement à l'autre
 
 pub mod backup;
 pub mod blocks;
@@ -19,6 +20,7 @@ pub mod steam;
 pub mod tags;
 pub mod update;
 pub mod watch;
+pub mod window_state;
 
 use std::sync::Mutex;
 use tauri::utils::config::{AppDirectoriesOverride, AppDirectoryOverrides};
@@ -52,6 +54,13 @@ pub fn run() {
                 Some(dir) => dir.clone(),
                 None => data_dir::resolve(&app.path().data_dir()?, &app.path().app_data_dir()?)?,
             };
+            // Fenêtre principale créée cachée : taille et position retenues, puis affichage
+            if let Some(main) = app.get_webview_window("main") {
+                if let Err(e) = window_state::restore_and_track(&main, &data_dir) {
+                    eprintln!("Fenêtre principale : état non rétabli ({e})");
+                    let _ = main.show();
+                }
+            }
             app.manage(update::UpdateState::new(portable.is_some()));
             let conn = db::open(&data_dir.join(data_dir::DB_FILE))?;
             let images_dir = data_dir.join("images");
