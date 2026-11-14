@@ -61,8 +61,9 @@
   const icon = $derived(a ? (a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)) : null);
   const label = $derived(a ? (spoiler ? "succès caché" : a.name) : free?.title || "Carte sans titre");
   const blockCount = $derived(blocksOf(key).length);
-  /** Liseré gauche vert pour un succès obtenu, discret sinon (et pour une carte libre). */
-  const borderColor = $derived(a?.unlocked ? "var(--color-ok)" : "var(--color-line)");
+  /** Succès obtenu ou carte libre cochée : coche pleine et liseré gauche vert. */
+  const checked = $derived(a ? a.unlocked : !!free?.done);
+  const borderColor = $derived(checked ? "var(--color-ok)" : "var(--color-line)");
   /** Carte libre avec des blocs : la suppression demande confirmation (rien ne les garde ailleurs). */
   let confirming = $state(false);
 
@@ -118,17 +119,20 @@
       >
     {/if}
 
-    {#if a}
     <button
       onclick={ontoggle}
-      aria-pressed={a.unlocked}
-      aria-label={a.unlocked ? `Marquer « ${label} » comme non obtenu` : `Marquer « ${label} » comme obtenu`}
-      title={a.unlocked ? "Marquer comme non obtenu" : "Marquer comme obtenu"}
+      aria-pressed={checked}
+      aria-label={a
+        ? checked ? `Marquer « ${label} » comme non obtenu` : `Marquer « ${label} » comme obtenu`
+        : checked ? `Marquer « ${label} » comme à faire` : `Marquer « ${label} » comme faite`}
+      title={a
+        ? checked ? "Marquer comme non obtenu" : "Marquer comme obtenu"
+        : checked ? "Marquer comme à faire" : "Marquer comme faite"}
       class="grid h-6 w-6 shrink-0 place-items-center rounded-[4px] border-2 transition
         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent
-        {a.unlocked ? 'border-ok bg-ok text-bg' : 'border-line hover:border-muted'}"
+        {checked ? 'border-ok bg-ok text-bg' : 'border-line hover:border-muted'}"
     >
-      {#if a.unlocked}
+      {#if checked}
         <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
           <path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" stroke-width="2.4"
             stroke-linecap="round" stroke-linejoin="round" class={animate ? "check-draw" : ""} />
@@ -136,6 +140,7 @@
       {/if}
     </button>
 
+    {#if a}
     <div
       class="h-9 w-9 shrink-0 overflow-hidden rounded-[3px] bg-raised
         {a.unlocked ? 'shadow-[0_0_14px_-3px] shadow-accent/60' : ''}

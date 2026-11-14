@@ -34,7 +34,7 @@ type MockItem = { achievement_id: number | null; card_id: number | null; grid: {
 let sections: { id: number; title: string; collapsed: boolean; color: string }[] = [];
 let nextSectionId = 1;
 let workspace: MockItem[] = [];
-let freeCards: { id: number; title: string }[] = [];
+let freeCards: { id: number; title: string; done: boolean }[] = [];
 let nextFreeId = 1;
 let tags = [
   ["ratable", "#ef5b5b"],
@@ -147,7 +147,7 @@ let backups = [0, 1, 2].map((d) => ({
 /** Fenêtre compacte simulée (onglet « ?compact », données propres à l'onglet) : une carte épinglée
  *  de démonstration avec un élément de chaque sorte, et « Le pont le vit » épinglé avec un compteur (il a une progression Steam). */
 function seedCompact() {
-  freeCards = [{ id: nextFreeId++, title: "Route générale" }];
+  freeCards = [{ id: nextFreeId++, title: "Route générale", done: false }];
   const free = freeCards[0].id;
   const add = (owner: { achievement_id: number | null; card_id: number | null }, kind: string, data: unknown) =>
     blocks.push({ id: nextBlockId++, ...owner, kind, position: blocks.filter((b) => ownerKey(b) === ownerKey(owner)).length, data });
@@ -264,13 +264,18 @@ export function installMock(label = "main") {
       case "free_cards_list":
         return freeCards.map((f) => ({ ...f }));
       case "free_card_create": {
-        const f = { id: nextFreeId++, title: String(args.title).trim() };
+        const f = { id: nextFreeId++, title: String(args.title).trim(), done: false };
         freeCards.push(f);
         return { ...f };
       }
       case "free_card_rename": {
         const f = freeCards.find((x) => x.id === args.id);
         if (f) f.title = String(args.title).trim();
+        return null;
+      }
+      case "free_card_set_done": {
+        const f = freeCards.find((x) => x.id === args.id);
+        if (f) f.done = Boolean(args.done);
         return null;
       }
       case "free_card_delete":

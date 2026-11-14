@@ -51,6 +51,7 @@
     onadd,
     onaddfree,
     onrename,
+    ontogglefree,
     ondeletefree,
     onaddsection,
     onsections,
@@ -75,6 +76,8 @@
     /** Nouvelle carte libre. */
     onaddfree: () => void;
     onrename: (id: number, title: string) => void;
+    /** Carte libre cochée ou décochée. */
+    ontogglefree: (id: number) => void;
     /** Carte libre supprimée (après son retrait de l'espace). */
     ondeletefree: (id: number) => void;
     onaddsection: () => void;
@@ -221,7 +224,8 @@
     if (!dragging) lists = next;
   });
 
-  let justToggled = $state<number | null>(null);
+  /** Carte (clé) qui vient d'être cochée ou décochée : sa coche s'anime. */
+  let justToggled = $state<CardKey | null>(null);
   /** Tableaux affichés, par zone. */
   const boards: Record<string, ReturnType<typeof Board> | undefined> = $state({});
   let listHover = $state<string | null>(null);
@@ -347,11 +351,14 @@
       collapsed={it.collapsed}
       pinned={it.pinned}
       spoiler={false}
-      animate={false}
+      animate={justToggled === key}
       {board}
       {imagesDir}
       moves={movesFor(it)}
-      ontoggle={() => {}}
+      ontoggle={() => {
+        justToggled = key;
+        ontogglefree(free.id);
+      }}
       onreveal={() => {}}
       oncollapse={() => update(key, { collapsed: !it.collapsed })}
       onremove={() => remove(key)}

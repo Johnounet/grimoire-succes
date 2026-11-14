@@ -117,6 +117,7 @@ export const api = {
   freeCards: (appid: number) => invoke<FreeCard[]>("free_cards_list", { appid }),
   freeCardCreate: (appid: number, title: string) => invoke<FreeCard>("free_card_create", { appid, title }),
   freeCardRename: (id: number, title: string) => invoke<void>("free_card_rename", { id, title }),
+  freeCardSetDone: (id: number, done: boolean) => invoke<void>("free_card_set_done", { id, done }),
   freeCardDelete: (id: number) => invoke<void>("free_card_delete", { id }),
   backups: () => invoke<BackupInfo[]>("backups_list"),
   backupCreate: () => invoke<BackupInfo>("backup_create"),
@@ -205,10 +206,12 @@ export function importSummary(r: ImportReport): string {
   return text;
 }
 
-/** Carte libre : un titre et des blocs, rattachée au jeu et non à un succès. */
+/** Carte libre : un titre, des blocs et une coche, rattachée au jeu et non à un succès. */
 export interface FreeCard {
   id: number;
   title: string;
+  /** Cochée par le joueur (faite). */
+  done: boolean;
 }
 
 /** Couleurs possibles d'une section (même liste que `SECTION_COLORS` côté Rust). La teinte dépend du thème :
@@ -273,7 +276,6 @@ export interface WorkspaceItem extends CardOwner {
  *  de l'espace de travail (table `card_sizes`), par id du succès. Tenu à jour par la vue du jeu. */
 export const cardSizes = new Map<number, { w: number; h: number }>();
 
-/** Type MIME du glisser natif depuis le panneau des succès vers l'espace de travail. */
 /** Événement DOM (qui remonte) émis par un bloc dont le contenu vient de grandir : dans le Tableau,
  *  la carte qui le contient s'agrandit pour tout montrer si elle est trop petite. */
 export const FIT_CARD_EVENT = "fit-card";

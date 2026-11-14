@@ -132,6 +132,21 @@
     }
   }
 
+  async function toggleFree(card: FreeCard) {
+    const done = !card.done;
+    // État « raw » : on remplace la carte pour que l'affichage suive
+    const set = (d: boolean) => (freeCards = freeCards.map((f) => (f.id === card.id ? { ...f, done: d } : f)));
+    set(done);
+    if (done) chime();
+    try {
+      await api.freeCardSetDone(card.id, done);
+      send("data-changed", { appid });
+    } catch (e) {
+      set(!done);
+      error = String(e);
+    }
+  }
+
   // ----- Raccourcis globaux -----
 
   function feedback(ok: boolean, text: string) {
@@ -434,7 +449,15 @@
       <section class="space-y-1.5">
         {#if free}
           <div class="flex items-center gap-2">
-            <span class="grid h-5 w-5 shrink-0 place-items-center text-xs text-muted" aria-hidden="true">✎</span>
+            <button
+              onclick={() => toggleFree(free)}
+              aria-pressed={free.done}
+              aria-label={free.done ? "Marquer comme à faire" : "Marquer comme faite"}
+              class="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 text-[10px] transition
+                {free.done ? 'border-ok bg-ok text-bg' : 'border-line hover:border-muted'}"
+            >
+              {#if free.done}✓{/if}
+            </button>
             <div class="min-w-0 flex-1 truncate text-sm font-medium {free.title ? '' : 'text-muted'}">
               {free.title || "Carte sans titre"}
             </div>

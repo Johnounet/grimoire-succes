@@ -279,6 +279,20 @@
     }
   }
 
+  async function toggleFreeCard(id: number) {
+    const card = freeCards.find((f) => f.id === id);
+    if (!card) return;
+    card.done = !card.done;
+    if (card.done) chime();
+    try {
+      await api.freeCardSetDone(id, card.done);
+      send("data-changed", { appid: game.appid });
+    } catch (e) {
+      card.done = !card.done;
+      error = `Enregistrement impossible : ${e}`;
+    }
+  }
+
   /** Appelé une fois la carte retirée de l'espace : supprime la carte et ses blocs. */
   async function deleteFreeCard(id: number) {
     try {
@@ -471,6 +485,7 @@
         onadd={addToWorkspace}
         onaddfree={addFreeCard}
         onrename={renameFreeCard}
+        ontogglefree={toggleFreeCard}
         ondeletefree={deleteFreeCard}
       />
     </div>

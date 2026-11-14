@@ -111,6 +111,7 @@ pub fn run() {
             library::free_cards_list,
             library::free_card_create,
             library::free_card_rename,
+            library::free_card_set_done,
             library::free_card_delete,
             library::setting_get,
             library::setting_set,

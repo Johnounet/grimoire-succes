@@ -330,6 +330,12 @@ pub fn free_card_rename(state: State<'_, AppState>, id: i64, title: String) -> R
     db::rename_free_card(&state.conn(), id, &title).map_err(err)
 }
 
+/// Coche ou décoche une carte libre.
+#[tauri::command]
+pub fn free_card_set_done(state: State<'_, AppState>, id: i64, done: bool) -> Result<(), String> {
+    db::set_free_card_done(&state.conn(), id, done).map_err(err)
+}
+
 /// Supprime une carte libre et ses blocs (leurs images partent au prochain démarrage).
 #[tauri::command]
 pub fn free_card_delete(state: State<'_, AppState>, id: i64) -> Result<(), String> {

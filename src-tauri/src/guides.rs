@@ -83,6 +83,9 @@ pub struct GuideCard {
     pub tags: Vec<String>,
     #[serde(default)]
     pub blocks: Vec<GuideBlock>,
+    /// Carte libre cochée : gardé seulement avec l'état (sauvegarde), comme les coches des succès ne le sont jamais
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub done: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,8 +157,8 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
     let game = db::get_game(conn, appid).map_err(err)?.ok_or("jeu introuvable")?;
     let achievements = db::list_achievements(conn, appid).map_err(err)?;
     let by_id: HashMap<i64, &db::AchievementRow> = achievements.iter().map(|a| (a.id, a)).collect();
-    let free_titles: HashMap<i64, String> =
-        db::list_free_cards(conn, appid).map_err(err)?.into_iter().map(|f| (f.id, f.title)).collect();
+    let free_cards: HashMap<i64, db::FreeCard> =
+        db::list_free_cards(conn, appid).map_err(err)?.into_iter().map(|f| (f.id, f)).collect();
     let all_tags: HashMap<i64, db::Tag> = db::list_tags(conn).map_err(err)?.into_iter().map(|t| (t.id, t)).collect();
     let mut tags_of: HashMap<i64, Vec<i64>> = HashMap::new();
     for t in db::list_achievement_tags(conn, appid).map_err(err)? {
@@ -217,7 +220,8 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
             achievement: achievement_id
                 .and_then(|id| by_id.get(&id))
                 .map(|a| GuideAchievement { api_name: a.api_name.clone(), name: a.name.clone() }),
-            title: card_id.map(|id| free_titles.get(&id).cloned().unwrap_or_default()),
+            title: card_id.map(|id| free_cards.get(&id).map(|f| f.title.clone()).unwrap_or_default()),
+            done: keep_state && card_id.and_then(|id| free_cards.get(&id)).is_some_and(|f| f.done),
             workspace: place,
             tags,
             blocks,
@@ -433,6 +437,9 @@ fn import_all(
                     continue;
                 }
                 let f = db::create_free_card(conn, appid, &title).map_err(err)?;
+                if c.done {
+                    db::set_free_card_done(conn, f.id, true).map_err(err)?;
+                }
                 report.free_cards += 1;
                 workspace.push(place(c.workspace.as_ref().unwrap_or(&default_place), None, Some(f.id)));
                 report.placed += 1;
@@ -636,11 +643,12 @@ mod tests {
         let phase = db::create_section(&conn, 620, "Phase 1", "ambre").unwrap();
         let in_phase = WorkspaceItem { section: Some(phase.id), ..item(Some(ids[0]), None) };
         db::save_workspace(&mut conn, 620, &[in_phase, item(None, Some(free.id))]).unwrap();
+        db::set_free_card_done(&conn, free.id, true).unwrap();
 
         // Guide vierge : ni progression ni état, mais tout le contenu
         let guide = export(&conn, &dir, 620, false).unwrap();
         let text = serde_json::to_string(&guide).unwrap();
-        assert!(!text.contains("\"unlocked\"") && !text.contains("\"pinned\":true"));
+        assert!(!text.contains("\"unlocked\"") && !text.contains("\"pinned\":true") && !text.contains("\"done\""));
         assert_eq!(guide.cards.len(), 3);
         assert_eq!(guide.cards[0].blocks[0].data["value"], 0);
         assert_eq!(guide.cards[0].tags, vec!["grind"]);
@@ -656,6 +664,12 @@ mod tests {
         let backup = export(&conn, &dir, 620, true).unwrap();
         assert_eq!(backup.cards[0].blocks[0].data["value"], 7);
         assert!(backup.cards[0].workspace.as_ref().unwrap().pinned);
+        assert!(backup.cards[1].done, "carte libre cochée");
+        let mut fresh = setup(&["A"]);
+        let dir3 = temp_dir("c");
+        import(&mut fresh, &dir3, &backup).unwrap();
+        let _ = std::fs::remove_dir_all(&dir3);
+        assert!(db::list_free_cards(&fresh, 620).unwrap().iter().any(|f| f.title == "Route" && f.done));
 
         // Import dans une autre installation : B absent du jeu, nouvelle étiquette créée, image recopiée
         let dir2 = temp_dir("b");
@@ -673,6 +687,7 @@ mod tests {
         assert_eq!(ws.len(), 3, "A, la carte libre et la carte du succès introuvable");
         assert_eq!(ws[0].grid, Some(GridPos { x: 0, y: 0, w: 4, h: 8 }), "espace vide : la disposition est reprise");
         assert!(db::list_free_cards(&other, 620).unwrap().iter().any(|f| f.title == "Succès introuvable : b"));
+        assert!(db::list_free_cards(&other, 620).unwrap().iter().all(|f| !f.done), "guide vierge : rien de coché");
         assert_eq!(db::list_achievement_tags(&other, 620).unwrap().len(), 1);
         let img = db::list_blocks(&other, 620).unwrap().into_iter().find(|b| b.kind == "image").unwrap();
         let file = img.data["file"].as_str().unwrap().to_string();

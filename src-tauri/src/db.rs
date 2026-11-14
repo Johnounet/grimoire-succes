@@ -218,6 +218,10 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE workspace_items DROP COLUMN column_name;
     "#,
+    // v13 : carte libre cochée (« faite »), comme un succès obtenu
+    r#"
+    ALTER TABLE free_cards ADD COLUMN done INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -886,11 +890,13 @@ pub fn delete_section(conn: &Connection, id: i64) -> rusqlite::Result<()> {
 
 // ---------- Cartes libres ----------
 
-/// Carte de l'espace de travail qui n'est rattachée à aucun succès : un titre et des blocs.
+/// Carte de l'espace de travail qui n'est rattachée à aucun succès : un titre, des blocs, et une coche.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct FreeCard {
     pub id: i64,
     pub title: String,
+    /// Cochée par le joueur (faite)
+    pub done: bool,
 }
 
 const MAX_TITLE_CHARS: usize = 200;
@@ -900,8 +906,8 @@ fn clean_title(title: &str) -> String {
 }
 
 pub fn list_free_cards(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<FreeCard>> {
-    let mut stmt = conn.prepare("SELECT id, title FROM free_cards WHERE appid = ?1 ORDER BY id")?;
-    let rows = stmt.query_map([appid], |r| Ok(FreeCard { id: r.get(0)?, title: r.get(1)? }))?;
+    let mut stmt = conn.prepare("SELECT id, title, done FROM free_cards WHERE appid = ?1 ORDER BY id")?;
+    let rows = stmt.query_map([appid], |r| Ok(FreeCard { id: r.get(0)?, title: r.get(1)?, done: r.get(2)? }))?;
     rows.collect()
 }
 
@@ -909,10 +915,15 @@ pub fn list_free_cards(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Fr
 /// l'y remet).
 pub fn create_free_card(conn: &Connection, appid: u32, title: &str) -> rusqlite::Result<FreeCard> {
     conn.query_row(
-        "INSERT INTO free_cards (appid, title, created_at) VALUES (?1, ?2, ?3) RETURNING id, title",
+        "INSERT INTO free_cards (appid, title, created_at) VALUES (?1, ?2, ?3) RETURNING id, title, done",
         params![appid, clean_title(title), now()],
-        |r| Ok(FreeCard { id: r.get(0)?, title: r.get(1)? }),
+        |r| Ok(FreeCard { id: r.get(0)?, title: r.get(1)?, done: r.get(2)? }),
     )
+}
+
+pub fn set_free_card_done(conn: &Connection, id: i64, done: bool) -> rusqlite::Result<()> {
+    conn.execute("UPDATE free_cards SET done = ?2 WHERE id = ?1", params![id, done])?;
+    Ok(())
 }
 
 pub fn rename_free_card(conn: &Connection, id: i64, title: &str) -> rusqlite::Result<()> {
@@ -1470,7 +1481,13 @@ mod tests {
         let f = create_free_card(&conn, 620, "  Route générale ").unwrap();
         assert_eq!(f.title, "Route générale");
         rename_free_card(&conn, f.id, "Objets à ne pas rater").unwrap();
-        assert_eq!(list_free_cards(&conn, 620).unwrap(), vec![FreeCard { id: f.id, title: "Objets à ne pas rater".into() }]);
+        assert!(!f.done);
+        set_free_card_done(&conn, f.id, true).unwrap();
+        assert_eq!(
+            list_free_cards(&conn, 620).unwrap(),
+            vec![FreeCard { id: f.id, title: "Objets à ne pas rater".into(), done: true }]
+        );
+        set_free_card_done(&conn, f.id, false).unwrap();
 
         // Pas encore enregistrée dans l'espace : elle y est remise plutôt que perdue
         let ws = list_workspace(&conn, 620).unwrap();
