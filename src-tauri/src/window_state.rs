@@ -118,6 +118,9 @@ fn build_compact(app: &AppHandle, data_dir: &Path) -> Result<(), String> {
         .decorations(false)
         .transparent(true)
         .resizable(true)
+        // Pas d'agrandissement (double clic sur la barre de titre) : une fenêtre plein écran et
+        // toujours au premier plan cacherait tout, et serait retenue ainsi
+        .maximizable(false)
         .visible(false)
         .build();
     let window = match built {
@@ -134,8 +137,9 @@ fn build_compact(app: &AppHandle, data_dir: &Path) -> Result<(), String> {
 }
 
 /// Applique l'état retenu à la fenêtre, l'affiche et suit ses changements.
-/// `first_maximized` : agrandie quand rien n'est encore retenu.
-fn restore_and_track<R: Runtime>(window: &WebviewWindow<R>, path: &Path, first_maximized: bool) -> tauri::Result<()> {
+/// `maximizable` : agrandie quand rien n'est encore retenu, et l'état agrandi est retenu ;
+/// sinon (fenêtre compacte) jamais rouverte agrandie, même agrandie par Windows (glissée en haut de l'écran).
+fn restore_and_track<R: Runtime>(window: &WebviewWindow<R>, path: &Path, maximizable: bool) -> tauri::Result<()> {
     let saved = load(path);
     let monitors: Vec<_> = window
         .available_monitors()
@@ -157,11 +161,11 @@ fn restore_and_track<R: Runtime>(window: &WebviewWindow<R>, path: &Path, first_m
                 window.set_size(size)?;
                 window.center()?;
             }
-            if s.maximized {
+            if s.maximized && maximizable {
                 window.maximize()?;
             }
         }
-        None if first_maximized => window.maximize()?,
+        None if maximizable => window.maximize()?,
         None => {}
     }
     window.show()?;
@@ -173,15 +177,15 @@ fn restore_and_track<R: Runtime>(window: &WebviewWindow<R>, path: &Path, first_m
     let tracked = Arc::new(Mutex::new(Tracked {
         path: path.to_path_buf(),
         normal: saved.map(|s| (s.x, s.y, s.width, s.height)),
-        maximized: saved.map_or(first_maximized, |s| s.maximized),
+        maximized: saved.map_or(maximizable, |s| s.maximized && maximizable),
     }));
-    let snapshot = |w: &WebviewWindow<R>, tracked: &Mutex<Tracked>| {
+    let snapshot = move |w: &WebviewWindow<R>, tracked: &Mutex<Tracked>| {
         if w.is_minimized().unwrap_or(true) {
             return;
         }
         let Ok(maximized) = w.is_maximized() else { return };
         let mut t = tracked.lock().unwrap();
-        t.maximized = maximized;
+        t.maximized = maximized && maximizable;
         if !maximized {
             if let (Ok(p), Ok(s)) = (w.outer_position(), w.inner_size()) {
                 t.normal = Some((p.x, p.y, s.width, s.height));
