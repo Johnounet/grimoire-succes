@@ -53,11 +53,15 @@ pub fn restore_and_track<R: Runtime>(window: &WebviewWindow<R>, data_dir: &Path)
 
     match saved {
         Some(s) => {
-            // Taille d'abord : elle sert à centrer si la position n'est plus sur aucun écran
-            window.set_size(PhysicalSize::new(s.width, s.height))?;
+            let size = PhysicalSize::new(s.width, s.height);
             if on_a_monitor(&s, &monitors) {
+                // Position d'abord : arrivée sur un écran à une autre échelle (100 % → 150 %),
+                // la fenêtre est remise à l'échelle par Windows ; la taille retenue vient après.
                 window.set_position(PhysicalPosition::new(s.x, s.y))?;
+                window.set_size(size)?;
             } else {
+                // Taille d'abord : elle sert à centrer sur l'écran où la fenêtre a été créée
+                window.set_size(size)?;
                 window.center()?;
             }
             if s.maximized {
@@ -69,25 +73,33 @@ pub fn restore_and_track<R: Runtime>(window: &WebviewWindow<R>, data_dir: &Path)
     window.show()?;
     window.set_focus()?;
 
-    // Position et taille « normales » : seulement quand la fenêtre n'est ni agrandie ni réduite
-    let normal = Arc::new(Mutex::new(saved.map(|s| (s.x, s.y, s.width, s.height))));
-    let snapshot = |w: &WebviewWindow<R>, normal: &Mutex<Option<(i32, i32, u32, u32)>>| {
-        if w.is_maximized().unwrap_or(true) || w.is_minimized().unwrap_or(true) {
+    // Suivi tant que la fenêtre n'est pas réduite : état agrandi, et position et taille
+    // « normales » (fenêtre ni agrandie ni réduite). Réduite, Windows la dit non agrandie :
+    // fermée depuis la barre des tâches, elle doit garder l'état d'avant la réduction.
+    let normal = saved.map(|s| (s.x, s.y, s.width, s.height));
+    let tracked = Arc::new(Mutex::new((normal, saved.map_or(true, |s| s.maximized))));
+    let snapshot = |w: &WebviewWindow<R>, tracked: &Mutex<(Option<(i32, i32, u32, u32)>, bool)>| {
+        if w.is_minimized().unwrap_or(true) {
             return;
         }
-        if let (Ok(p), Ok(s)) = (w.outer_position(), w.inner_size()) {
-            *normal.lock().unwrap() = Some((p.x, p.y, s.width, s.height));
+        let Ok(maximized) = w.is_maximized() else { return };
+        let mut t = tracked.lock().unwrap();
+        t.1 = maximized;
+        if !maximized {
+            if let (Ok(p), Ok(s)) = (w.outer_position(), w.inner_size()) {
+                t.0 = Some((p.x, p.y, s.width, s.height));
+            }
         }
     };
-    snapshot(window, &normal);
+    snapshot(window, &tracked);
 
     let w = window.clone();
     window.on_window_event(move |event| match event {
-        WindowEvent::Moved(_) | WindowEvent::Resized(_) => snapshot(&w, &normal),
+        WindowEvent::Moved(_) | WindowEvent::Resized(_) => snapshot(&w, &tracked),
         WindowEvent::CloseRequested { .. } => {
-            let Some((x, y, width, height)) = *normal.lock().unwrap() else { return };
-            let state = State { x, y, width, height, maximized: w.is_maximized().unwrap_or(false) };
-            save(&path, &state);
+            let (normal, maximized) = *tracked.lock().unwrap();
+            let Some((x, y, width, height)) = normal else { return };
+            save(&path, &State { x, y, width, height, maximized });
         }
         _ => {}
     });
