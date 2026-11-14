@@ -13,7 +13,13 @@
     "opener:default",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "steam://open/console" }, { "url": "https://github.com/Johnounet/grimoire-succes*" }]
+      "allow": [
+        { "url": "steam://open/console" },
+        { "url": "https://github.com/Johnounet/grimoire-succes*" },
+        { "url": "https://www.youtube.com/results?*" },
+        { "url": "https://www.google.com/search?*" },
+        { "url": "https://steamcommunity.com/app/*/guides/*" }
+      ]
     },
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",

@@ -8,6 +8,7 @@
   import BlockList from "./blocks/BlockList.svelte";
   import { blocksOf, createBlock, imageFrom, saveBlock, uploadImage } from "./blocks/store.svelte";
   import CopyId from "./CopyId.svelte";
+  import HelpSearch from "./HelpSearch.svelte";
   import MoreMenu from "./MoreMenu.svelte";
   import { openRelock } from "./settings.svelte";
   import TagPicker from "./TagPicker.svelte";
@@ -284,6 +285,7 @@
 
       <div class="flex flex-wrap items-center gap-2">
         {#if a?.api_name}<CopyId id={a.api_name} />{/if}
+        {#if a && !spoiler}<HelpSearch name={a.name} />{/if}
         {#if a}<TagPicker achievementId={a.id} />{/if}
         <select
           value={column}

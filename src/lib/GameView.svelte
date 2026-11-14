@@ -17,6 +17,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import AchievementList from "./AchievementList.svelte";
   import ExportDialog from "./ExportDialog.svelte";
+  import { provideHelpGame } from "./helpSearch";
   import { blocks, forgetCard, loadBlocks } from "./blocks/store.svelte";
   import { openCompact } from "./compact";
   import MoreMenu from "./MoreMenu.svelte";
@@ -47,6 +48,9 @@
     /** Importer un guide (choix du fichier, puis le jeu du guide s'ouvre). */
     onimport: () => void;
   } = $props();
+
+  // Boutons « Aide » des succès : nom et appid du jeu lus au clic
+  provideHelpGame(() => game);
 
   let achievements = $state<AchievementRow[]>([]);
   let refreshing = $state(false);

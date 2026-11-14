@@ -70,6 +70,10 @@ Refonte (2026-11-13) :
 
 (2026-11-14, avec la refonte des sections) `WorkspaceCard.svelte` : coins de 4 px, **liseré gauche de 3 px selon l'état** : vert si le succès est obtenu ou la carte « Fait », accent si « En cours », couleur des bordures (presque invisible) si « À faire », pour que seuls les états utiles ressortent. L'état est aussi écrit sous le nom, avant la rareté. Coche carrée, icône 36 px. **Le nom passe en premier** : « ⋯ » et ✕ sont dans un petit bloc en surimpression en haut à droite, visible au survol, au clavier (`focus-within`) ou menu ouvert (`has-[[aria-expanded=true]]`), sinon le nom disparaissait dans les cartes étroites. Ce bloc reste **dans le `<header>`** : `neededRows` (Board.svelte) suppose que l'en-tête et le corps sont les deux premiers enfants de l'`<article>`.
 
+## Aide sur un succès
+
+(demande de l'utilisateur, 2026-11-14) Bouton « 🔍 Aide » **toujours visible** (pastille comme « + étiquette ») sur chaque succès, dans la liste (`AchievementItem.svelte`) et sur les cartes (`WorkspaceCard.svelte`), absent tant qu'un succès caché est flouté. Menu (`MoreMenu` avec `trigger`) : vidéos YouTube, guides Steam, Google, ouverts dans le navigateur par défaut (`openUrl`, repli `window.open` hors de Tauri). Adresses construites dans `src/lib/helpSearch.ts` : jeu + nom du succès entre guillemets + « succès » ; guides Steam = `steamcommunity.com/app/<appid>/guides/?searchText=<nom>` (vérifié : le guide du succès sort en tête). Jeu transmis par contexte Svelte (`provideHelpGame` dans `GameView.svelte`). Les trois domaines sont autorisés dans `capabilities/default.json` (`opener:allow-open-url`) : toute nouvelle adresse doit y être ajoutée. Limite connue : le nom est celui de la langue d'import (souvent le français) alors que la plupart des guides sont en anglais ; garder aussi le nom anglais serait l'amélioration suivante.
+
 ## Cartes libres
 
 Blocs sans succès, choisis plutôt que des blocs isolés dans le Tableau.

@@ -1,5 +1,6 @@
 <script lang="ts">
   // Menu « ⋯ » discret : quelques actions rares (re-lock, épingle…).
+  import type { Snippet } from "svelte";
   import { pop } from "./motion.svelte";
   import { popoverStyle } from "./popover";
   export interface MenuItem {
@@ -13,6 +14,7 @@
     label = "Plus d'actions",
     class: klass = "",
     buttonClass = "",
+    trigger,
   }: {
     items: MenuItem[];
     label?: string;
@@ -20,6 +22,8 @@
     /** Style du bouton « ⋯ ». Un flou d'arrière-plan (backdrop-blur), un filtre ou une transformation se met
      *  ici, jamais dans `class` : sur un ancêtre du menu, il piégerait sa position fixe (voir popover.ts). */
     buttonClass?: string;
+    /** Contenu du bouton à la place de « ⋯ » ; `buttonClass` donne alors tout son style. */
+    trigger?: Snippet;
   } = $props();
   let open = $state(false);
   let button: HTMLButtonElement | undefined = $state();
@@ -38,9 +42,11 @@
     aria-haspopup="menu"
     aria-label={label}
     title={label}
-    class="grid h-7 w-7 place-items-center rounded text-muted transition hover:bg-raised hover:text-fg {buttonClass}"
+    class={trigger
+      ? buttonClass
+      : `grid h-7 w-7 place-items-center rounded text-muted transition hover:bg-raised hover:text-fg ${buttonClass}`}
   >
-    ⋯
+    {#if trigger}{@render trigger()}{:else}⋯{/if}
   </button>
   {#if open}
     <div
