@@ -71,12 +71,17 @@ fn run(app: AppHandle) {
         for appid in appids {
             let file = local_cache::progress_path(path, *account, appid);
             let Ok(mtime) = std::fs::metadata(&file).and_then(|m| m.modified()) else { continue };
-            match seen.insert(appid, mtime) {
-                Some(prev) if prev != mtime => {}
-                _ => continue,
+            if !file_changed(&mut seen, appid, mtime) {
+                continue;
             }
+            // Lecture ratée (fichier verrouillé ou à moitié écrit par Steam) : la nouvelle date n'est
+            // pas retenue, le passage suivant réessaie
             let lang = state.language();
             let Ok(data) = local_cache::load(path, appid, Some(*account), &lang) else { continue };
+            if !state_known(&data) {
+                continue;
+            }
+            seen.insert(appid, mtime);
             let now = signature(&data);
             if states.insert(appid, now.clone()).as_ref() == Some(&now) {
                 continue;
@@ -99,6 +104,24 @@ fn switch_account(current: &mut Option<(PathBuf, u32)>, found: Option<(PathBuf, 
     let changed = current.as_ref().is_some_and(|c| *c != found);
     *current = Some(found);
     changed
+}
+
+/// Le fichier a-t-il changé depuis la dernière lecture réussie ? La première date vue sert de
+/// référence (retenue tout de suite, sans lecture).
+fn file_changed(seen: &mut HashMap<u32, SystemTime>, appid: u32, mtime: SystemTime) -> bool {
+    match seen.get(&appid) {
+        None => {
+            seen.insert(appid, mtime);
+            false
+        }
+        Some(prev) => *prev != mtime,
+    }
+}
+
+/// Lecture utilisable : l'état des succès est connu. Un fichier de progression illisible donne un
+/// état « inconnu », qui ne change rien en base : à relire plus tard.
+fn state_known(data: &GameAchievements) -> bool {
+    data.achievements.iter().all(|a| a.unlocked.is_some())
 }
 
 /// État et progression d'un succès dans le fichier (clé : ID technique, sinon nom).
@@ -186,6 +209,23 @@ mod tests {
         assert_eq!(cur, a());
         assert!(switch_account(&mut cur, b())); // passage au compte B
         assert_eq!(cur, b());
+    }
+
+    #[test]
+    fn date_retenue_seulement_apres_lecture_reussie() {
+        let mut seen = HashMap::new();
+        let t0 = SystemTime::UNIX_EPOCH;
+        let t1 = t0 + Duration::from_secs(1);
+        assert!(!file_changed(&mut seen, 620, t0)); // première vue : référence
+        assert!(!file_changed(&mut seen, 620, t0));
+        assert!(file_changed(&mut seen, 620, t1));
+        // Lecture ratée : date non retenue, le passage suivant réessaie
+        assert!(file_changed(&mut seen, 620, t1));
+        seen.insert(620, t1); // lecture réussie
+        assert!(!file_changed(&mut seen, 620, t1));
+
+        assert!(state_known(&game(vec![ach("A", Some(false)), ach("B", Some(true))])));
+        assert!(!state_known(&game(vec![ach("A", None), ach("B", None)])));
     }
 
     #[test]
