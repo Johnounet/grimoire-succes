@@ -97,6 +97,19 @@ fn hit(appid: u32, name: String, library: &[u32], cached: &[local_cache::CachedG
     }
 }
 
+/// Remplace les adresses fixes des petites images par celles du magasin (les jeux récents
+/// n'ont plus d'image à l'adresse fixe, voir `store::assets`). Hors ligne : adresses fixes gardées.
+async fn fill_capsules(hits: &mut [SearchHit], country: &str) {
+    let ids: Vec<u32> = hits.iter().map(|h| h.appid).collect();
+    if let Ok(found) = store::assets(&ids, country).await {
+        for h in hits.iter_mut() {
+            if let Some(url) = found.get(&h.appid).and_then(|a| a.small_capsule.clone()) {
+                h.capsule_url = url;
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn images_dir(state: State<'_, AppState>) -> PathBuf {
     state.images_dir.clone()
@@ -120,7 +133,7 @@ pub fn game_achievements(state: State<'_, AppState>, appid: u32) -> Result<Vec<A
 
 /// Jeux déjà lancés sur ce PC et pas encore importés (parcours « premier lancement »).
 #[tauri::command]
-pub fn library_local_suggestions(state: State<'_, AppState>) -> Result<Vec<SearchHit>, String> {
+pub async fn library_local_suggestions(state: State<'_, AppState>) -> Result<Vec<SearchHit>, String> {
     let library = db::library_appids(&state.conn()).map_err(err)?;
     let cached = cached_games();
     let mut hits: Vec<SearchHit> = cached
@@ -129,6 +142,7 @@ pub fn library_local_suggestions(state: State<'_, AppState>) -> Result<Vec<Searc
         .filter_map(|c| Some(hit(c.appid, c.name.clone()?, &library, &cached)))
         .collect();
     hits.sort_by_key(|h| h.name.to_lowercase());
+    fill_capsules(&mut hits, &state.country()).await;
     Ok(hits)
 }
 
@@ -147,7 +161,9 @@ pub async fn library_search(state: State<'_, AppState>, query: String) -> Result
                 _ => local_name,
             };
             let name = name.ok_or_else(|| format!("Aucun jeu Steam ne porte l'AppID {appid}."))?;
-            Ok(vec![hit(appid, name, &library, &cached)])
+            let mut hits = vec![hit(appid, name, &library, &cached)];
+            fill_capsules(&mut hits, &state.country()).await;
+            Ok(hits)
         }
         store::Query::Name(term) if term.chars().count() < 2 => Ok(Vec::new()),
         store::Query::Name(term) => {
@@ -170,6 +186,7 @@ pub async fn library_search(state: State<'_, AppState>, query: String) -> Result
                 Err(e) if hits.is_empty() => return Err(format!("Recherche impossible : {e}")),
                 Err(_) => {}
             }
+            fill_capsules(&mut hits, &state.country()).await;
             Ok(hits)
         }
     }
@@ -193,7 +210,7 @@ pub async fn library_import(state: State<'_, AppState>, appid: u32) -> Result<Ga
     let already = db::get_game(&state.conn(), appid).map_err(err)?;
     let mut cover: Option<(String, &str)> = None;
     if already.as_ref().and_then(|g| g.cover_file.as_ref()).is_none() {
-        if let Ok(Some((bytes, kind))) = store::download_cover(appid).await {
+        if let Ok(Some((bytes, kind))) = store::download_cover(appid, &state.country()).await {
             let rel = format!("covers/{appid}.jpg");
             let path = state.images_dir.join(&rel);
             if let Some(dir) = path.parent() {

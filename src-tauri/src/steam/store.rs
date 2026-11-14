@@ -3,6 +3,7 @@
 use super::web::{get_bytes, get_text};
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// Ce que le joueur a tapé : un jeu précis (AppID ou lien) ou un nom à chercher.
 #[derive(Debug, PartialEq)]
@@ -84,26 +85,93 @@ pub async fn app_name(appid: u32, lang: &str) -> Result<Option<String>, String> 
     Ok(entry["data"]["name"].as_str().map(str::to_string))
 }
 
+const CDN: &str = "https://shared.fastly.steamstatic.com/store_item_assets/";
+
+/// Ancienne adresse fixe d'une image : seulement en secours (voir [`assets`]).
 fn cdn(appid: u32, file: &str) -> String {
-    format!("https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appid}/{file}")
+    format!("{CDN}steam/apps/{appid}/{file}")
 }
 
-/// Petite image horizontale, pour les listes de résultats.
+/// Petite image horizontale, pour les listes de résultats (adresse fixe, voir [`assets`]).
 pub fn capsule_url(appid: u32) -> String {
     cdn(appid, "capsule_231x87.jpg")
 }
 
-pub fn hero_url(appid: u32) -> String {
-    cdn(appid, "library_hero.jpg")
+/// Adresses exactes des images d'un jeu.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Assets {
+    /// Jaquette verticale 600×900
+    pub portrait: Option<String>,
+    pub header: Option<String>,
+    /// Petite image horizontale 231×87
+    pub small_capsule: Option<String>,
 }
 
-/// Jaquette verticale, avec repli sur l'image d'en-tête pour les vieux jeux.
-/// Renvoie (octets, type) où type vaut `portrait` ou `header`.
-pub async fn download_cover(appid: u32) -> Result<Option<(Vec<u8>, &'static str)>, String> {
-    if let Some(b) = get_bytes(&cdn(appid, "library_600x900.jpg")).await? {
-        return Ok(Some((b, "portrait")));
+/// Adresses des images de plusieurs jeux, d'après le magasin.
+///
+/// Les images des jeux récents (ou dont l'éditeur a changé les images) sont rangées dans un
+/// sous-dossier à code (`apps/<id>/<code>/header.jpg`) : l'adresse fixe répond 404.
+/// `IStoreBrowseService/GetItems` (sans clé) donne le chemin exact ; `country_code` est
+/// indispensable, sans lui la réponse est vide. Un jeu inconnu est simplement absent du résultat.
+pub async fn assets(appids: &[u32], country: &str) -> Result<HashMap<u32, Assets>, String> {
+    let mut out = HashMap::new();
+    for chunk in appids.chunks(100) {
+        let input = serde_json::json!({
+            "ids": chunk.iter().map(|id| serde_json::json!({ "appid": id })).collect::<Vec<_>>(),
+            "context": { "country_code": country },
+            "data_request": { "include_assets": true },
+        });
+        let url = format!(
+            "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json={}",
+            urlencode(&input.to_string())
+        );
+        let v: Value = serde_json::from_str(&get_text(&url, "english").await?).map_err(|e| e.to_string())?;
+        out.extend(parse_assets(&v));
     }
-    Ok(get_bytes(&cdn(appid, "header.jpg")).await?.map(|b| (b, "header")))
+    Ok(out)
+}
+
+fn parse_assets(v: &Value) -> HashMap<u32, Assets> {
+    v.pointer("/response/store_items")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|i| i["success"] == 1)
+        .filter_map(|i| {
+            let appid = u32::try_from(i["appid"].as_u64()?).ok()?;
+            let a = &i["assets"];
+            // Ex. « steam/apps/620/${FILENAME}?t=1790187113 »
+            let format = a["asset_url_format"].as_str()?;
+            let url = |key: &str| a[key].as_str().filter(|f| !f.is_empty()).map(|f| format!("{CDN}{}", format.replace("${FILENAME}", f)));
+            // `library_capsule` vaut 600×900 pour les jeux anciens (`library_600x900.jpg`),
+            // 300×450 pour les récents (`<code>/library_capsule.jpg`) : leur 600×900 est alors le `_2x`.
+            let portrait = match a["library_capsule"].as_str() {
+                Some(f) if f.contains("600x900") => url("library_capsule"),
+                _ => url("library_capsule_2x").or_else(|| url("library_capsule")),
+            };
+            Some((appid, Assets { portrait, header: url("header"), small_capsule: url("small_capsule") }))
+        })
+        .collect()
+}
+
+/// Jaquette verticale, avec repli sur l'image d'en-tête pour les jeux qui n'en ont pas.
+/// Adresses exactes du magasin d'abord, puis les anciennes adresses fixes (si le magasin ne répond pas).
+/// Renvoie (octets, type) où type vaut `portrait` ou `header`.
+pub async fn download_cover(appid: u32, country: &str) -> Result<Option<(Vec<u8>, &'static str)>, String> {
+    let known = assets(&[appid], country).await.ok().and_then(|mut m| m.remove(&appid)).unwrap_or_default();
+    let candidates = [
+        (known.portrait, "portrait"),
+        (Some(cdn(appid, "library_600x900.jpg")), "portrait"),
+        (known.header, "header"),
+        (Some(cdn(appid, "header.jpg")), "header"),
+    ];
+    for (url, kind) in candidates {
+        let Some(url) = url else { continue };
+        if let Some(b) = get_bytes(&url).await? {
+            return Ok(Some((b, kind)));
+        }
+    }
+    Ok(None)
 }
 
 fn urlencode(s: &str) -> String {
@@ -129,6 +197,27 @@ mod tests {
         assert_eq!(id("steam://store/400"), Query::AppId(400));
         assert_eq!(id("Portal 2"), Query::Name("Portal 2".into()));
         assert_eq!(id("https://example.com/app/12"), Query::Name("https://example.com/app/12".into()));
+    }
+
+    #[test]
+    fn lit_les_adresses_des_images() {
+        let v = serde_json::json!({"response": {"store_items": [
+            {"appid": 620, "success": 1, "assets": {"asset_url_format": "steam/apps/620/${FILENAME}?t=1",
+                "library_capsule": "library_600x900.jpg", "library_capsule_2x": "library_600x900_2x.jpg",
+                "header": "abc/header.jpg", "small_capsule": "abc/capsule_231x87.jpg"}},
+            {"appid": 3764200, "success": 1, "assets": {"asset_url_format": "steam/apps/3764200/${FILENAME}?t=2",
+                "library_capsule": "ed3b/library_capsule.jpg", "library_capsule_2x": "ed3b/library_capsule_2x.jpg"}},
+            {"id": 999999999, "success": 15}
+        ]}});
+        let m = parse_assets(&v);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[&620].portrait.as_deref(), Some(&*format!("{CDN}steam/apps/620/library_600x900.jpg?t=1")));
+        assert_eq!(m[&620].header.as_deref(), Some(&*format!("{CDN}steam/apps/620/abc/header.jpg?t=1")));
+        assert_eq!(
+            m[&3764200].portrait.as_deref(),
+            Some(&*format!("{CDN}steam/apps/3764200/ed3b/library_capsule_2x.jpg?t=2"))
+        );
+        assert_eq!(m[&3764200].header, None);
     }
 
     #[test]
