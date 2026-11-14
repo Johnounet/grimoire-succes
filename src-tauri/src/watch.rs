@@ -22,6 +22,9 @@ use tauri::{AppHandle, Emitter, Manager};
 const POLL: Duration = Duration::from_secs(2);
 /// Steam introuvable (pas installé, pas encore connecté) : nouvel essai de temps en temps.
 const REDETECT: Duration = Duration::from_secs(60);
+/// Lectures ratées de suite pour une même modification avant d'abandonner (jusqu'à la suivante) :
+/// laisse à Steam le temps de finir d'écrire, sans relire sans fin un fichier abîmé.
+const MAX_FAILURES: u32 = 5;
 
 /// Événement `steam-progress`, reçu par les deux fenêtres.
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +55,8 @@ fn run(app: AppHandle) {
     // États lus en dernier dans chaque fichier : un fichier réécrit sans changement d'état ni de
     // progression des succès (autres statistiques du jeu) ne touche pas à la base
     let mut states: HashMap<u32, Vec<Signature>> = HashMap::new();
+    // Lectures ratées de suite depuis la dernière modification, par jeu
+    let mut failures: HashMap<u32, u32> = HashMap::new();
 
     loop {
         std::thread::sleep(POLL);
@@ -62,6 +67,7 @@ fn run(app: AppHandle) {
                 // Les fichiers du nouveau compte servent de nouvelle référence, pas de « changements »
                 seen.clear();
                 states.clear();
+                failures.clear();
             }
         }
         let Some((path, account)) = &steam else { continue };
@@ -75,18 +81,24 @@ fn run(app: AppHandle) {
                 continue;
             }
             // Lecture ratée (fichier verrouillé ou à moitié écrit par Steam) : la nouvelle date n'est
-            // pas retenue, le passage suivant réessaie
+            // pas retenue, le passage suivant réessaie, MAX_FAILURES fois au plus
             let lang = state.language();
-            let Ok(data) = local_cache::load(path, appid, Some(*account), &lang) else { continue };
-            if !state_known(&data) {
+            let read = local_cache::load(path, appid, Some(*account), &lang);
+            let Some(data) = read.as_ref().ok().filter(|d| state_known(d)) else {
+                if give_up(&mut failures, appid) {
+                    let why = read.err().unwrap_or_else(|| "état des succès illisible".into());
+                    eprintln!("actualisation automatique de {appid} abandonnée jusqu'à la prochaine modification : {why}");
+                    seen.insert(appid, mtime);
+                }
                 continue;
-            }
+            };
+            failures.remove(&appid);
             seen.insert(appid, mtime);
-            let now = signature(&data);
+            let now = signature(data);
             if states.insert(appid, now.clone()).as_ref() == Some(&now) {
                 continue;
             }
-            match refresh(&state, appid, &data) {
+            match refresh(&state, appid, data) {
                 Ok(Some(event)) => {
                     let _ = app.emit("steam-progress", event);
                 }
@@ -116,6 +128,17 @@ fn file_changed(seen: &mut HashMap<u32, SystemTime>, appid: u32, mtime: SystemTi
         }
         Some(prev) => *prev != mtime,
     }
+}
+
+/// Compte une lecture ratée. `true` au bout de `MAX_FAILURES` de suite : abandonner (compteur remis à zéro).
+fn give_up(failures: &mut HashMap<u32, u32>, appid: u32) -> bool {
+    let n = failures.entry(appid).or_insert(0);
+    *n += 1;
+    if *n < MAX_FAILURES {
+        return false;
+    }
+    failures.remove(&appid);
+    true
 }
 
 /// Lecture utilisable : l'état des succès est connu. Un fichier de progression illisible donne un
@@ -223,6 +246,13 @@ mod tests {
         assert!(file_changed(&mut seen, 620, t1));
         seen.insert(620, t1); // lecture réussie
         assert!(!file_changed(&mut seen, 620, t1));
+
+        let mut failures = HashMap::new();
+        for _ in 1..MAX_FAILURES {
+            assert!(!give_up(&mut failures, 620));
+        }
+        assert!(give_up(&mut failures, 620)); // abandon, compteur remis à zéro
+        assert!(!give_up(&mut failures, 620));
 
         assert!(state_known(&game(vec![ach("A", Some(false)), ach("B", Some(true))])));
         assert!(!state_known(&game(vec![ach("A", None), ach("B", None)])));
