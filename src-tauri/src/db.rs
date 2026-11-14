@@ -1008,30 +1008,6 @@ pub fn list_blocks(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Block>
     rows.collect()
 }
 
-/// Un bloc et la carte qui le porte (compteur ou chrono « actif », qui peut être d'un autre jeu).
-#[derive(Debug, Clone, Serialize)]
-pub struct BlockInfo {
-    pub block: Block,
-    pub appid: u32,
-    /// Nom du succès, ou titre de la carte libre
-    pub card_title: String,
-}
-
-pub fn get_block(conn: &Connection, id: i64) -> rusqlite::Result<Option<BlockInfo>> {
-    conn.query_row(
-        &format!(
-            "SELECT {BLOCK_COLUMNS}, b.appid, COALESCE(a.name, f.title, '')
-             FROM blocks b
-             LEFT JOIN achievements a ON a.id = b.achievement_id
-             LEFT JOIN free_cards f ON f.id = b.card_id
-             WHERE b.id = ?1"
-        ),
-        [id],
-        |r| Ok(BlockInfo { block: block_row(r)?, appid: r.get(6)?, card_title: r.get(7)? }),
-    )
-    .optional()
-}
-
 /// Crée un bloc sous un succès ou une carte libre, à la fin ou à `position` (les suivants sont décalés).
 pub fn create_block(
     conn: &mut Connection,
@@ -1407,18 +1383,12 @@ mod tests {
     }
 
     #[test]
-    fn reset_complet_et_bloc_actif() {
-        use serde_json::json;
+    fn reset_complet() {
         let mut conn = open_in_memory().unwrap();
         save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("B", Some(true))]), "Portal 2", None).unwrap();
         lock_all(&conn, 620).unwrap();
         let list = list_achievements(&conn, 620).unwrap();
         assert!(list.iter().all(|a| !a.unlocked && a.manual && a.unlock_time.is_none()));
-
-        let c = create_block(&mut conn, Owner::Achievement(list[0].id), "counter", &json!({"value": 1}), None).unwrap();
-        let info = get_block(&conn, c.id).unwrap().unwrap();
-        assert_eq!((info.appid, info.card_title.as_str(), info.block.id), (620, "a", c.id));
-        assert!(get_block(&conn, 9999).unwrap().is_none());
     }
 
     #[test]
@@ -1539,7 +1509,6 @@ mod tests {
         reorder_blocks(&mut conn, Owner::Card(f.id), &[b1.id, b2.id]).unwrap();
         let mine: Vec<i64> = list_blocks(&conn, 620).unwrap().iter().filter(|b| b.card_id == Some(f.id)).map(|b| b.id).collect();
         assert_eq!(mine, vec![b1.id, b2.id]);
-        assert_eq!(get_block(&conn, b1.id).unwrap().unwrap().card_title, "Objets à ne pas rater");
         assert!(Owner::from_ids(Some(1), Some(2)).is_err() && Owner::from_ids(None, None).is_err());
 
         // L'actualisation n'y touche pas ; la suppression emporte place et blocs, pas ceux du succès
@@ -1589,8 +1558,9 @@ mod tests {
                 section: None,
             }]
         );
-        let b = get_block(&conn, 42).unwrap().unwrap();
-        assert_eq!((b.block.achievement_id, b.block.data["value"].as_i64(), b.card_title.as_str()), (Some(5), Some(7), "a"));
+        let blocks = list_blocks(&conn, 620).unwrap();
+        let b = blocks.iter().find(|b| b.id == 42).unwrap();
+        assert_eq!((b.achievement_id, b.data["value"].as_i64()), (Some(5), Some(7)));
         let fk: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();
         assert_eq!(fk, 0);
     }

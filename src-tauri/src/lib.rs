@@ -102,7 +102,6 @@ pub fn run() {
             library::setting_get,
             library::setting_set,
             blocks::blocks_list,
-            blocks::block_get,
             blocks::block_create,
             blocks::block_update,
             blocks::block_delete,

@@ -305,11 +305,6 @@ export function installMock(label = "main") {
         for (const it of workspace) if (it.grid && it.achievement_id != null) cardSizes.set(it.achievement_id, { w: it.grid.w, h: it.grid.h });
         console.info("[mock] workspace_save", JSON.stringify(workspace));
         return null;
-      case "block_get": {
-        const b = blocks.find((x) => x.id === args.id);
-        const name = b && (achievements.find((x) => x.id === b.achievement_id)?.name ?? freeCards.find((f) => f.id === b.card_id)?.title);
-        return b && name != null ? { block: structuredClone(b), appid: 620, card_title: name } : null;
-      }
       case "tags_list":
         return tags.map((t) => ({ ...t }));
       case "tag_create": {
