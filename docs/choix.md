@@ -119,6 +119,11 @@ Table `blocks` (migration v3) rattachée au succès, pas à l'espace de travail.
 - Vue Liste : `svelte-dnd-action` (`dragHandleZone`, `useCursorForDetection: true`).
 - Arrivée depuis le panneau : glisser HTML natif, d'où `dragDropEnabled: false` dans `tauri.conf.json`. Dans le Tableau, la case est calculée à la main (`cellAt`) : **ne pas utiliser `grid.getCellFromPixel`**, qui compare les coordonnées écran à `offsetLeft/offsetTop` et décale la carte. Aperçu de la place d'arrivée, toujours la place libre la plus proche (aucune carte n'est poussée) ; les cartes ignorent la souris pendant ce glisser (sinon les iframes YouTube avalent l'événement).
 
+## Sécurité de la fenêtre (CSP)
+
+Filet de sécurité pour les guides importés : `tauri.conf.json` (`csp` et `devCsp`) n'autorise que les scripts de l'application, les images locales (`asset:` / `http://asset.localhost`), `data:` et `https://*.steamstatic.com` (icônes de succès, jaquettes, capsules de recherche), et les vidéos de `https://www.youtube-nocookie.com` seulement. `devCsp` ajoute `ws://localhost:1420` (rechargement à chaud de Vite).
+- Pièges : Tauri ajoute des « nonces » à `style-src`, ce qui annule `'unsafe-inline'` ; or Svelte (transitions, `style=`) et gridstack posent des styles en ligne. D'où `dangerousDisableAssetCspModification: ["style-src"]`. Toute nouvelle source externe (autre domaine d'images, autre lecteur vidéo) doit être ajoutée aux deux CSP, sinon elle est bloquée sans message visible.
+
 ## Sources Steam (constats, le SPEC date d'avant)
 
 - **`?xml=1` des profils ne marche plus** : renvoie une page HTML.

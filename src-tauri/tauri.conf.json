@@ -21,7 +21,33 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' asset: http://asset.localhost https://*.steamstatic.com data:",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost",
+        "frame-src": "https://www.youtube-nocookie.com",
+        "media-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'"
+      },
+      "devCsp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' asset: http://asset.localhost https://*.steamstatic.com data:",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:1420",
+        "frame-src": "https://www.youtube-nocookie.com",
+        "media-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'"
+      },
+      "dangerousDisableAssetCspModification": ["style-src"],
       "assetProtocol": {
         "enable": true,
         "scope": []
