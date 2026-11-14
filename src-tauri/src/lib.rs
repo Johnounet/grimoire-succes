@@ -7,6 +7,7 @@
 //! - `guides` : export / import des guides d'un jeu
 //! - `watch` : actualisation automatique quand Steam réécrit la progression d'un jeu
 //! - `backup` : sauvegardes de sécurité des données
+//! - `recovery` : ouverture de la base au démarrage, et secours (boîtes de dialogue) quand elle échoue
 //! - `update` : mises à jour (installeur) ou annonce des nouvelles versions (version portable)
 //! - `window_state` : taille et position des fenêtres retenues d'un lancement à l'autre, ouverture de la fenêtre compacte
 
@@ -16,6 +17,7 @@ pub mod data_dir;
 pub mod db;
 pub mod guides;
 pub mod library;
+pub mod recovery;
 pub mod steam;
 pub mod tags;
 pub mod update;
@@ -49,35 +51,37 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(window_state::Trackers::default())
         .setup(move |app| {
-            // %APPDATA%\Grimoire sous Windows, ~/.local/share/Grimoire sous Linux (data_dir.rs) ;
-            // `donnees\` à côté de l'exécutable pour la version portable
-            let data_dir = match &portable {
-                Some(dir) => dir.clone(),
-                None => data_dir::resolve(&app.path().data_dir()?, &app.path().app_data_dir()?)?,
-            };
-            // Fenêtre principale créée cachée : taille et position retenues, puis affichage
-            if let Some(main) = app.get_webview_window("main") {
-                if let Err(e) = window_state::restore_main(&main, &data_dir) {
-                    eprintln!("Fenêtre principale : état non rétabli ({e})");
-                    let _ = main.show();
+            // Version publiée sans console : toute erreur au démarrage est montrée au joueur
+            let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+                // %APPDATA%\Grimoire sous Windows, ~/.local/share/Grimoire sous Linux (data_dir.rs) ;
+                // `donnees\` à côté de l'exécutable pour la version portable
+                let data_dir = match &portable {
+                    Some(dir) => dir.clone(),
+                    None => data_dir::resolve(&app.path().data_dir()?, &app.path().app_data_dir()?)?,
+                };
+                // Fenêtre principale créée cachée : taille et position retenues, puis affichage
+                if let Some(main) = app.get_webview_window("main") {
+                    if let Err(e) = window_state::restore_main(&main, &data_dir) {
+                        eprintln!("Fenêtre principale : état non rétabli ({e})");
+                        let _ = main.show();
+                    }
                 }
+                app.manage(update::UpdateState::new(portable.is_some()));
+                let images_dir = data_dir.join("images");
+                // Base abîmée, migration ratée… : expliqué au joueur, avec les solutions
+                let conn = recovery::open_or_recover(app, &data_dir, &images_dir);
+                // Jaquettes et images des blocs servies par le protocole asset : ce dossier seulement
+                app.asset_protocol_scope().allow_directory(&images_dir, true)?;
+                blocks::cleanup_orphan_images(&conn, &images_dir);
+                app.manage(library::AppState { db: Mutex::new(conn), data_dir, images_dir });
+                watch::start(app.handle().clone());
+                backup::start(app.handle().clone());
+                window_state::start_autosave(app.handle().clone());
+                Ok(())
+            })();
+            if let Err(e) = result {
+                recovery::fatal(&e.to_string());
             }
-            app.manage(update::UpdateState::new(portable.is_some()));
-            let images_dir = data_dir.join("images");
-            let mut conn = db::open_unmigrated(&data_dir.join(data_dir::DB_FILE))?;
-            // Nouvelle version du logiciel : copie de la base avant que les migrations la modifient.
-            // Un échec (disque plein…) n'empêche pas de démarrer.
-            if let Err(e) = backup::before_migration(&conn, &data_dir, &images_dir) {
-                eprintln!("sauvegarde avant mise à jour : {e}");
-            }
-            db::migrate_existing(&mut conn)?;
-            // Jaquettes et images des blocs servies par le protocole asset : ce dossier seulement
-            app.asset_protocol_scope().allow_directory(&images_dir, true)?;
-            blocks::cleanup_orphan_images(&conn, &images_dir);
-            app.manage(library::AppState { db: Mutex::new(conn), data_dir, images_dir });
-            watch::start(app.handle().clone());
-            backup::start(app.handle().clone());
-            window_state::start_autosave(app.handle().clone());
             Ok(())
         })
         // Fermer la fenêtre principale quitte l'application, fenêtre compacte comprise

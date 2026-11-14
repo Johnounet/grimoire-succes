@@ -22,6 +22,9 @@ keyvalues-parser = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
 rusqlite = { version = "0.42", features = ["bundled", "backup"] }
 tauri-plugin-opener = "2"
+# Boîtes de dialogue du démarrage (recovery.rs), avant que la boucle d'événements tourne ; déjà
+# utilisé par tauri-plugin-dialog (licence MIT)
+rfd = { version = "0.17", default-features = false, features = ["common-controls-v6"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-dialog = "2"
 base64 = "0.22"

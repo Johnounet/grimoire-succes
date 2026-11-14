@@ -248,8 +248,11 @@ pub fn restore(conn: &mut Connection, data_dir: &Path, images_dir: &Path, id: &s
     create(conn, data_dir, images_dir, Kind::AvantRestauration)?;
     conn.restore(MAIN_DB, &src, None::<fn(Progress)>).map_err(err)?;
     db::migrate_existing(conn).map_err(err)?;
+    copy_missing_images(conn, &dir, images_dir)
+}
 
-    // Images de la sauvegarde absentes des données actuelles
+/// Remet les images d'une sauvegarde absentes des données actuelles.
+fn copy_missing_images(conn: &Connection, dir: &Path, images_dir: &Path) -> Result<(), String> {
     for rel in referenced_images(conn).map_err(err)? {
         let from = dir.join("images").join(&rel);
         let to = images_dir.join(&rel);
@@ -258,6 +261,39 @@ pub fn restore(conn: &mut Connection, data_dir: &Path, images_dir: &Path, id: &s
         }
     }
     Ok(())
+}
+
+/// Base abîmée, déjà mise de côté (`recovery.rs`) : remet la plus récente des sauvegardes
+/// utilisables à sa place et l'ouvre. Une sauvegarde illisible ou d'une version plus récente du
+/// logiciel est passée au profit de la suivante.
+pub fn restore_latest_offline(data_dir: &Path, images_dir: &Path) -> Result<Connection, String> {
+    let target = data_dir.join(DB_FILE);
+    let mut last_error = "aucune sauvegarde".to_string();
+    for info in list(data_dir) {
+        let dir = backups_dir(data_dir).join(&info.id);
+        let attempt = (|| -> Result<Connection, String> {
+            let version: i64 = Connection::open_with_flags(dir.join(DB_FILE), OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .and_then(|c| c.pragma_query_value(None, "user_version", |r| r.get(0)))
+                .map_err(err)?;
+            if version as usize > db::schema_version() {
+                return Err("sauvegarde d'une version plus récente".into());
+            }
+            std::fs::copy(dir.join(DB_FILE), &target).map_err(err)?;
+            let conn = db::open(&target).map_err(err)?;
+            copy_missing_images(&conn, &dir, images_dir)?;
+            Ok(conn)
+        })();
+        match attempt {
+            Ok(conn) => return Ok(conn),
+            Err(e) => {
+                last_error = e;
+                for suffix in ["", "-wal", "-shm"] {
+                    let _ = std::fs::remove_file(data_dir.join(format!("{DB_FILE}{suffix}")));
+                }
+            }
+        }
+    }
+    Err(last_error)
 }
 
 pub fn delete(data_dir: &Path, id: &str) -> Result<(), String> {

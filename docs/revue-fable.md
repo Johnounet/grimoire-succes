@@ -48,7 +48,7 @@ Revue en lecture seule de la version 0.2.0 (commit `8f8acd4`). Aucun fichier du 
 - **Piste** : limiter la profondeur (64 niveaux suffisent largement) et renvoyer une erreur au-delà.
 - **Certitude** : certain pour le plantage ; la fréquence réelle d'un tel fichier est faible. **Gravité** : haute quand ça arrive (le jeu concerné fait planter à chaque actualisation).
 
-### 3. Base de données abîmée ou illisible : Grimoire ne démarre plus, sans message
+### 3. Base de données abîmée ou illisible : Grimoire ne démarre plus, sans message (corrigé)
 
 - **Où** : [lib.rs:66](../src-tauri/src/lib.rs#L66) (`db::open(...)?` dans `setup`) et [lib.rs:138-139](../src-tauri/src/lib.rs#L138) (`.expect("erreur au lancement…")`). Même chemin pour une migration qui échoue ([db.rs:253-262](../src-tauri/src/db.rs#L253)).
 - **Explication** : si `donnees.sqlite` est illisible, l'ouverture échoue, le démarrage s'arrête, et la version publiée n'a pas de console : la fenêtre apparaît un instant puis disparaît. Le joueur ne sait pas quoi faire, alors que ses sauvegardes sont juste à côté dans `backups/`.
