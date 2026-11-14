@@ -55,9 +55,14 @@ fn run(app: AppHandle) {
 
     loop {
         std::thread::sleep(POLL);
-        if steam.is_none() && last_detect.is_none_or(|t| t.elapsed() >= REDETECT) {
+        // Compte relu de temps en temps, même trouvé : Steam a pu changer de compte connecté
+        if last_detect.is_none_or(|t| t.elapsed() >= REDETECT) {
             last_detect = Some(Instant::now());
-            steam = steam::local_account();
+            if switch_account(&mut steam, steam::local_account()) {
+                // Les fichiers du nouveau compte servent de nouvelle référence, pas de « changements »
+                seen.clear();
+                states.clear();
+            }
         }
         let Some((path, account)) = &steam else { continue };
         let state = app.state::<AppState>();
@@ -85,6 +90,15 @@ fn run(app: AppHandle) {
             }
         }
     }
+}
+
+/// Garde le compte détecté. Steam momentanément introuvable : on garde le compte d'avant.
+/// Renvoie `true` si on passe d'un compte (ou dossier Steam) à un autre.
+fn switch_account(current: &mut Option<(PathBuf, u32)>, found: Option<(PathBuf, u32)>) -> bool {
+    let Some(found) = found else { return false };
+    let changed = current.as_ref().is_some_and(|c| *c != found);
+    *current = Some(found);
+    changed
 }
 
 /// État et progression d'un succès dans le fichier (clé : ID technique, sinon nom).
@@ -158,6 +172,20 @@ mod tests {
             language: "french".into(),
             achievements,
         }
+    }
+
+    #[test]
+    fn suit_le_changement_de_compte() {
+        let a = || Some((PathBuf::from("steam"), 1));
+        let b = || Some((PathBuf::from("steam"), 2));
+        let mut cur = None;
+        assert!(!switch_account(&mut cur, None)); // Steam introuvable
+        assert!(!switch_account(&mut cur, a())); // premier compte trouvé : pas un changement
+        assert!(!switch_account(&mut cur, a())); // même compte
+        assert!(!switch_account(&mut cur, None)); // introuvable un moment : compte gardé
+        assert_eq!(cur, a());
+        assert!(switch_account(&mut cur, b())); // passage au compte B
+        assert_eq!(cur, b());
     }
 
     #[test]
