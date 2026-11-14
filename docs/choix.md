@@ -123,6 +123,7 @@ Table `blocks` (migration v3) rattachée au succès, pas à l'espace de travail.
 
 - **`?xml=1` des profils ne marche plus** : renvoie une page HTML.
 - Les pages `steamcommunity.com/stats/<appid>/achievements/` et `…/profiles/<id>/stats/<appid>/achievements/` sont rendues côté serveur avec un JSON embarqué (`<script id="valve-ssr-data">` → `renderContext.queryData` → requêtes `["achievements", appid, "schema_v2" | "globalpercentages" | "user_achievements"]`). La page publique fournit donc **l'ID technique, les descriptions des succès cachés, la rareté et le DLC de chaque succès** ; le profil y ajoute l'état et la date. Lecture dans `src-tauri/src/steam/web.rs`.
+- Ordre des sources (`load_best`) : le cache local du compte du PC passe avant le lien de profil réglé. Voulu : ce lien vise le propre compte du joueur (réponse de l'utilisateur, 2026-11-14), pas le suivi d'un autre compte. Ne pas inverser.
 - La langue des pages se choisit par le cookie `Steam_Language=<langue>` (le paramètre `?l=` est ignoré).
 - Profil public + jeu non possédé : la progression arrive quand même, tout à « non obtenu ». Ne pas confondre avec « possédé, rien obtenu ».
 - Cache local : bit débloqué = `(stat, bit)` du schéma ↔ champ de bits `data` de la progression ; dates dans `AchievementTimes`.
