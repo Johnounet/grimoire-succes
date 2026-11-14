@@ -39,7 +39,17 @@ fn portable_dir_in(exe_dir: &Path) -> Option<PathBuf> {
 
 /// Dossier utilisable : absent, vide, ou déjà celui de Grimoire.
 fn usable(dir: &Path) -> bool {
-    !dir.exists() || dir.join(DB_FILE).is_file() || std::fs::read_dir(dir).is_ok_and(|mut d| d.next().is_none())
+    !dir.exists() || is_grimoire_dir(dir) || std::fs::read_dir(dir).is_ok_and(|mut d| d.next().is_none())
+}
+
+/// Dossier de Grimoire : sa base, ou à défaut une de ses sauvegardes (`info.json` dans `backups\` ou
+/// l'ancien `sauvegardes\`). Sans ce second signe, une base disparue (déplacée, effacée) faisait
+/// passer au dossier suivant, neuf et sans sauvegarde : bibliothèque vide, restauration jamais proposée.
+fn is_grimoire_dir(dir: &Path) -> bool {
+    dir.join(DB_FILE).is_file()
+        || ["backups", "sauvegardes"].iter().any(|b| {
+            std::fs::read_dir(dir.join(b)).is_ok_and(|mut d| d.any(|e| e.is_ok_and(|e| e.path().join("info.json").is_file())))
+        })
 }
 
 /// Choisit le dossier des données dans `base` (dossier des données de l'utilisateur) et y déplace
@@ -146,6 +156,19 @@ mod tests {
         let dir = resolve(&base, &base.join("ancien")).unwrap();
         assert_eq!(dir, base.join("Grimoire (succès)"));
         assert!(dir.is_dir());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Base disparue mais sauvegardes présentes : le dossier reste celui de Grimoire (la
+    /// restauration y sera proposée), on ne part pas dans un dossier neuf.
+    #[test]
+    fn base_disparue_garde_le_dossier() {
+        let base = temp("data-dir-disparue");
+        std::fs::create_dir_all(base.join("Grimoire/backups/1-auto")).unwrap();
+        std::fs::write(base.join("Grimoire/backups/1-auto/info.json"), b"{}").unwrap();
+        std::fs::create_dir_all(base.join("Grimoire/images")).unwrap();
+        assert_eq!(resolve(&base, &base.join("ancien")).unwrap(), base.join("Grimoire"));
+        assert!(!base.join("Grimoire (succès)").exists());
         let _ = std::fs::remove_dir_all(&base);
     }
 }
