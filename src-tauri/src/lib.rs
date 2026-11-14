@@ -71,6 +71,7 @@ pub fn run() {
             app.manage(library::AppState { db: Mutex::new(conn), data_dir, images_dir });
             watch::start(app.handle().clone());
             backup::start(app.handle().clone());
+            window_state::start_autosave(app.handle().clone());
             Ok(())
         })
         // Fermer la fenêtre principale quitte l'application, fenêtre compacte comprise

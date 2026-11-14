@@ -57,12 +57,18 @@ struct Tracked {
     path: PathBuf,
     normal: Option<(i32, i32, u32, u32)>,
     maximized: bool,
+    /// Dernier état écrit dans le fichier (ou lu au démarrage) : rien n'est réécrit s'il n'a pas changé.
+    written: Option<State>,
 }
 
 impl Tracked {
-    fn save(&self) {
+    fn save(&mut self) {
         let Some((x, y, width, height)) = self.normal else { return };
-        save(&self.path, &State { x, y, width, height, maximized: self.maximized });
+        let state = State { x, y, width, height, maximized: self.maximized };
+        if self.written != Some(state) {
+            save(&self.path, &state);
+            self.written = Some(state);
+        }
     }
 }
 
@@ -71,13 +77,23 @@ impl Tracked {
 #[derive(Default)]
 pub struct Trackers(Mutex<Vec<Arc<Mutex<Tracked>>>>);
 
-/// Enregistre l'état de toutes les fenêtres suivies (avant de quitter).
+/// Enregistre l'état de toutes les fenêtres suivies qui a changé.
 pub fn save_all<R: Runtime>(app: &AppHandle<R>) {
     if let Some(trackers) = app.try_state::<Trackers>() {
         for t in trackers.0.lock().unwrap().iter() {
             t.lock().unwrap().save();
         }
     }
+}
+
+/// Enregistrement automatique toutes les 2 s (seulement ce qui a changé) : l'application peut
+/// quitter sans fermeture des fenêtres (installation d'une mise à jour, arrêt de Windows,
+/// plantage), et un déplacement récent serait perdu.
+pub fn start_autosave<R: Runtime>(app: AppHandle<R>) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        save_all(&app);
+    });
 }
 
 /// Fenêtre principale : état retenu appliqué, affichage et suivi.
@@ -178,6 +194,7 @@ fn restore_and_track<R: Runtime>(window: &WebviewWindow<R>, path: &Path, maximiz
         path: path.to_path_buf(),
         normal: saved.map(|s| (s.x, s.y, s.width, s.height)),
         maximized: saved.map_or(maximizable, |s| s.maximized && maximizable),
+        written: saved,
     }));
     let snapshot = move |w: &WebviewWindow<R>, tracked: &Mutex<Tracked>| {
         if w.is_minimized().unwrap_or(true) {
@@ -230,6 +247,27 @@ mod tests {
         assert!(on_a_monitor(&State { x: -8, y: -8, width: 1936, height: 1048, maximized: true }, &screens));
         assert!(!on_a_monitor(&at(5000, 100), &screens), "écran débranché");
         assert!(!on_a_monitor(&at(-3000, 100), &screens));
+    }
+
+    #[test]
+    fn etat_reecrit_seulement_s_il_change() {
+        let dir = std::env::temp_dir().join(format!("grimoire-test-fenetre-auto-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(COMPACT_FILE);
+        let mut t = Tracked { path: path.clone(), normal: None, maximized: false, written: None };
+        t.save();
+        assert_eq!(load(&path), None, "rien à écrire tant que la place n'est pas connue");
+        t.normal = Some((10, 20, 340, 540));
+        t.save();
+        assert_eq!(load(&path).map(|s| (s.x, s.width)), Some((10, 340)));
+        // Fichier effacé : pas réécrit tant que rien ne change
+        std::fs::remove_file(&path).unwrap();
+        t.save();
+        assert_eq!(load(&path), None);
+        t.normal = Some((50, 20, 340, 540));
+        t.save();
+        assert_eq!(load(&path).map(|s| s.x), Some(50));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
