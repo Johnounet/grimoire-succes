@@ -214,6 +214,10 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE sections ADD COLUMN color TEXT NOT NULL DEFAULT 'violet';
     "#,
+    // v12 : statut des cartes (à faire / en cours / fait) retiré, reste de l'ancienne vue Colonnes
+    r#"
+    ALTER TABLE workspace_items DROP COLUMN column_name;
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -686,8 +690,6 @@ pub struct WorkspaceItem {
     pub achievement_id: Option<i64>,
     #[serde(default)]
     pub card_id: Option<i64>,
-    /// Statut : `todo`, `doing` ou `done`
-    pub column: String,
     pub collapsed: bool,
     /// `None` : pas encore placée dans le tableau
     #[serde(default)]
@@ -706,23 +708,22 @@ pub struct WorkspaceItem {
 /// interrompu), elle est remise à la fin plutôt que perdue avec ses blocs.
 pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<WorkspaceItem>> {
     let mut stmt = conn.prepare(
-        "SELECT achievement_id, card_id, column_name, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id
+        "SELECT achievement_id, card_id, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id
          FROM workspace_items WHERE appid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map([appid], |r| {
         let (x, y, w, h): (Option<i64>, Option<i64>, Option<i64>, Option<i64>) =
-            (r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?);
+            (r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?);
         Ok(WorkspaceItem {
             achievement_id: r.get(0)?,
             card_id: r.get(1)?,
-            column: r.get(2)?,
-            collapsed: r.get(3)?,
+            collapsed: r.get(2)?,
             grid: match (x, y, w, h) {
                 (Some(x), Some(y), Some(w), Some(h)) => Some(GridPos { x, y, w, h }),
                 _ => None,
             },
-            pinned: r.get(8)?,
-            section: r.get(9)?,
+            pinned: r.get(7)?,
+            section: r.get(8)?,
         })
     })?;
     let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -736,7 +737,6 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
         items.push(WorkspaceItem {
             achievement_id: None,
             card_id: Some(id?),
-            column: "todo".into(),
             collapsed: false,
             grid: None,
             pinned: false,
@@ -769,16 +769,16 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
     {
         let mut insert = tx.prepare(
             "INSERT OR IGNORE INTO workspace_items
-                 (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id)
-             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                    (SELECT s.id FROM sections s WHERE s.id = ?11 AND s.appid = ?2)
+                 (achievement_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id)
+             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                    (SELECT s.id FROM sections s WHERE s.id = ?10 AND s.appid = ?2)
              FROM achievements WHERE id = ?1 AND appid = ?2",
         )?;
         let mut insert_free = tx.prepare(
             "INSERT OR IGNORE INTO workspace_items
-                 (card_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id)
-             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                    (SELECT s.id FROM sections s WHERE s.id = ?11 AND s.appid = ?2)
+                 (card_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id)
+             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                    (SELECT s.id FROM sections s WHERE s.id = ?10 AND s.appid = ?2)
              FROM free_cards WHERE id = ?1 AND appid = ?2",
         )?;
         let mut remember = tx.prepare(
@@ -787,10 +787,6 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
              ON CONFLICT (achievement_id) DO UPDATE SET w = excluded.w, h = excluded.h",
         )?;
         for (pos, it) in items.iter().enumerate() {
-            let column = match it.column.as_str() {
-                c @ ("todo" | "doing" | "done") => c,
-                _ => "todo",
-            };
             // Grille de 12 colonnes : on borne ce qui arrive de l'interface
             let g = it.grid.map(|g| {
                 let w = g.w.clamp(1, 12);
@@ -804,7 +800,6 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
             stmt.execute(params![
                 id,
                 appid,
-                column,
                 pos as i64,
                 it.collapsed,
                 g.map(|g| g.x),
@@ -1271,23 +1266,21 @@ mod tests {
         let mut conn = open_in_memory().unwrap();
         save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None)]), "P", None).unwrap();
         let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
-        let item = |id, col: &str| WorkspaceItem {
+        let item = |id| WorkspaceItem {
             achievement_id: Some(id),
             card_id: None,
-            column: col.into(),
             collapsed: false,
             grid: None,
             pinned: false,
             section: None,
         };
 
-        let mut wanted = vec![item(ids[2], "doing"), item(ids[0], "todo")];
+        let mut wanted = vec![item(ids[2]), item(ids[0])];
         wanted[0].grid = Some(GridPos { x: 4, y: 0, w: 8, h: 10 });
         wanted[1].pinned = true;
-        // Un succès d'un autre jeu et une colonne inconnue ne passent pas
+        // Un succès d'un autre jeu ne passe pas
         let mut sent = wanted.clone();
-        sent.push(item(9999, "todo"));
-        sent[1].column = "n'importe quoi".into();
+        sent.push(item(9999));
         save_workspace(&mut conn, 620, &sent).unwrap();
         assert_eq!(list_workspace(&conn, 620).unwrap(), wanted);
 
@@ -1487,7 +1480,6 @@ mod tests {
         let free = WorkspaceItem {
             achievement_id: None,
             card_id: Some(f.id),
-            column: "doing".into(),
             collapsed: false,
             grid: Some(GridPos { x: 0, y: 0, w: 6, h: 6 }),
             pinned: true,
@@ -1551,7 +1543,6 @@ mod tests {
             vec![WorkspaceItem {
                 achievement_id: Some(5),
                 card_id: None,
-                column: "doing".into(),
                 collapsed: true,
                 grid: Some(GridPos { x: 2, y: 3, w: 4, h: 5 }),
                 pinned: true,
@@ -1591,7 +1582,6 @@ mod tests {
         let item = |id, section| WorkspaceItem {
             achievement_id: Some(id),
             card_id: None,
-            column: "todo".into(),
             collapsed: false,
             grid: None,
             pinned: false,

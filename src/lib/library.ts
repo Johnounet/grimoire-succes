@@ -162,8 +162,6 @@ export type SettingKey =
   | "last_game"
   | "update_check";
 
-export type Column = "todo" | "doing" | "done";
-
 /** Place d'une carte dans la vue Tableau : grille de 12 colonnes, hauteur en rangées. */
 export interface GridPos {
   x: number;
@@ -258,8 +256,6 @@ export const ownerOf = (key: CardKey): CardOwner =>
   key < 0 ? { achievement_id: null, card_id: -key } : { achievement_id: key, card_id: null };
 
 export interface WorkspaceItem extends CardOwner {
-  /** Statut de la carte. */
-  column: Column;
   collapsed: boolean;
   /** null : pas encore placée dans le tableau (une place libre lui sera trouvée). */
   grid: GridPos | null;
@@ -276,13 +272,6 @@ export interface WorkspaceItem extends CardOwner {
 /** Dernière taille connue des cartes de succès du jeu ouvert dans le tableau, y compris celles retirées
  *  de l'espace de travail (table `card_sizes`), par id du succès. Tenu à jour par la vue du jeu. */
 export const cardSizes = new Map<number, { w: number; h: number }>();
-
-/** Statuts possibles d'une carte (anciennement les colonnes de la vue Colonnes). */
-export const columns: { id: Column; label: string }[] = [
-  { id: "todo", label: "À faire" },
-  { id: "doing", label: "En cours" },
-  { id: "done", label: "Fait" },
-];
 
 /** Type MIME du glisser natif depuis le panneau des succès vers l'espace de travail. */
 /** Événement DOM (qui remonte) émis par un bloc dont le contenu vient de grandir : dans le Tableau,

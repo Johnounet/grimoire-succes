@@ -2,8 +2,8 @@
 //!
 //! Le fichier contient le guide, jamais qui l'a fait ni où il en est : pas de progression Steam, de coches,
 //! de compte, de temps de jeu ni de réglages. Les succès y sont repérés par leur ID technique (à défaut,
-//! leur nom), pour que le guide marche sur un autre PC. L'état des compteurs, listes et chronos et le statut
-//! des cartes ne sont gardés que sur demande (`keep_state`, pour une sauvegarde) ; sinon le guide est vierge.
+//! leur nom), pour que le guide marche sur un autre PC. L'état des compteurs, listes, chronos et
+//! l'épingle au mode compact ne sont gardés que sur demande (`keep_state`, pour une sauvegarde) ; sinon le guide est vierge.
 //!
 //! L'import fusionne avec le jeu (créé depuis Steam s'il manque) : les blocs s'ajoutent après ceux déjà
 //! présents, et ce qui existe déjà à l'identique n'est pas recréé (importer deux fois le même fichier ne
@@ -41,7 +41,7 @@ pub struct GuideFile {
     #[serde(default)]
     pub exported_at: i64,
     pub game: GuideGame,
-    /// État des compteurs, listes, chronos et statut des cartes gardés (sauvegarde)
+    /// État des compteurs, listes, chronos et épingles des cartes gardés (sauvegarde)
     #[serde(default)]
     pub keeps_state: bool,
     /// Étiquettes utilisées par le guide
@@ -103,7 +103,6 @@ pub struct GuideSection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuidePlace {
-    pub column: String,
     pub collapsed: bool,
     pub grid: Option<GridPos>,
     pub pinned: bool,
@@ -228,7 +227,6 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
     let mut cards = Vec::new();
     for it in workspace {
         let place = GuidePlace {
-            column: if keep_state { it.column } else { "todo".into() },
             collapsed: it.collapsed,
             grid: it.grid,
             pinned: keep_state && it.pinned,
@@ -396,13 +394,12 @@ fn import_all(
     let place = |p: &GuidePlace, achievement_id: Option<i64>, card_id: Option<i64>| WorkspaceItem {
         achievement_id,
         card_id,
-        column: p.column.clone(),
         collapsed: p.collapsed,
         grid: if keep_grid { p.grid } else { None },
         pinned: p.pinned,
         section: p.section.and_then(|i| section_ids.get(i).copied()),
     };
-    let default_place = GuidePlace { column: "todo".into(), collapsed: false, grid: None, pinned: false, section: None };
+    let default_place = GuidePlace { collapsed: false, grid: None, pinned: false, section: None };
 
     for c in &guide.cards {
         let matched = c.achievement.as_ref().and_then(|a| {
@@ -631,7 +628,6 @@ mod tests {
         let item = |a: Option<i64>, c: Option<i64>| WorkspaceItem {
             achievement_id: a,
             card_id: c,
-            column: "doing".into(),
             collapsed: false,
             grid: Some(GridPos { x: 0, y: 0, w: 4, h: 8 }),
             pinned: true,
@@ -644,7 +640,7 @@ mod tests {
         // Guide vierge : ni progression ni état, mais tout le contenu
         let guide = export(&conn, &dir, 620, false).unwrap();
         let text = serde_json::to_string(&guide).unwrap();
-        assert!(!text.contains("\"unlocked\"") && !text.contains("\"pinned\":true") && !text.contains("doing"));
+        assert!(!text.contains("\"unlocked\"") && !text.contains("\"pinned\":true"));
         assert_eq!(guide.cards.len(), 3);
         assert_eq!(guide.cards[0].blocks[0].data["value"], 0);
         assert_eq!(guide.cards[0].tags, vec!["grind"]);
@@ -719,7 +715,7 @@ mod tests {
         let before = db::list_tags(&conn).unwrap().len();
         let mut g = guide_vide();
         g.sections.push(GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into() });
-        let place = GuidePlace { column: "todo".into(), collapsed: false, grid: None, pinned: false, section: Some(0) };
+        let place = GuidePlace { collapsed: false, grid: None, pinned: false, section: Some(0) };
         g.cards.push(GuideCard {
             achievement: Some(GuideAchievement { api_name: Some("A".into()), name: "a".into() }),
             tags: vec!["Grind ".into(), "x".repeat(41), "  ".into()],
@@ -784,5 +780,13 @@ mod tests {
         assert!(check(&g).is_err());
         assert_eq!(file_name("Portal 2: \"édition\" <x>"), "Portal 2 édition x - guide.json");
         assert_eq!(file_name("Portal 2"), "Portal 2 - guide.json");
+    }
+
+    /// Un guide exporté quand les cartes avaient un statut (« column ») se lit toujours : le champ est ignoré.
+    #[test]
+    fn ancien_statut_ignore() {
+        let p: GuidePlace =
+            serde_json::from_str(r#"{"column":"doing","collapsed":true,"grid":null,"pinned":false}"#).unwrap();
+        assert!(p.collapsed && p.grid.is_none());
     }
 }

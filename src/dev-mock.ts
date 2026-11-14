@@ -159,8 +159,8 @@ function seedCompact() {
   const ach = { achievement_id: 4, card_id: null };
   add(ach, "counter", { label: "", value: 0, goal: null, step: 1 });
   workspace = [
-    { ...card, grid: null, column: "todo", collapsed: false, pinned: true } as MockItem,
-    { ...ach, grid: null, column: "todo", collapsed: false, pinned: true } as MockItem,
+    { ...card, grid: null, collapsed: false, pinned: true } as MockItem,
+    { ...ach, grid: null, collapsed: false, pinned: true } as MockItem,
   ];
 }
 

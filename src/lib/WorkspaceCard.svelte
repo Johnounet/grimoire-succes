@@ -13,14 +13,13 @@
   import { openRelock } from "./settings.svelte";
   import TagPicker from "./TagPicker.svelte";
   import { rarityText } from "./filters";
-  import { columns, type AchievementRow, type CardKey, type Column, type FreeCard } from "./library";
+  import type { AchievementRow, CardKey, FreeCard } from "./library";
   import SteamProgress from "./SteamProgress.svelte";
 
   let {
     a = null,
     free = null,
     focusTitle = false,
-    column,
     collapsed,
     pinned,
     spoiler,
@@ -31,7 +30,6 @@
     onreveal,
     oncollapse,
     onremove,
-    oncolumn,
     onpin,
     onrename,
     moves = [],
@@ -40,7 +38,6 @@
     free?: FreeCard | null;
     /** Carte libre qui vient d'être créée : son titre prend le focus. */
     focusTitle?: boolean;
-    column: Column;
     collapsed: boolean;
     /** Affichée dans le mode compact. */
     pinned: boolean;
@@ -53,7 +50,6 @@
     onreveal: () => void;
     oncollapse: () => void;
     onremove: () => void;
-    oncolumn: (c: Column) => void;
     onpin: () => void;
     /** Nouveau titre d'une carte libre. */
     onrename?: (title: string) => void;
@@ -65,14 +61,8 @@
   const icon = $derived(a ? (a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)) : null);
   const label = $derived(a ? (spoiler ? "succès caché" : a.name) : free?.title || "Carte sans titre");
   const blockCount = $derived(blocksOf(key).length);
-  /** État affiché par le liseré gauche : obtenu (succès coché, ou carte « Fait »), en cours, à faire (discret). */
-  const status = $derived(
-    a?.unlocked || column === "done"
-      ? { label: a?.unlocked ? "Obtenu" : "Fait", color: "var(--color-ok)" }
-      : column === "doing"
-        ? { label: "En cours", color: "var(--color-accent)" }
-        : { label: "À faire", color: "var(--color-line)" },
-  );
+  /** Liseré gauche vert pour un succès obtenu, discret sinon (et pour une carte libre). */
+  const borderColor = $derived(a?.unlocked ? "var(--color-ok)" : "var(--color-line)");
   /** Carte libre avec des blocs : la suppression demande confirmation (rien ne les garde ailleurs). */
   let confirming = $state(false);
 
@@ -107,7 +97,7 @@
 <article
   class="group rounded-[4px] border border-l-[3px] border-line bg-panel transition-colors
     {board ? 'flex h-full flex-col overflow-hidden' : ''}"
-  style:border-left-color={status.color}
+  style:border-left-color={borderColor}
   aria-label={label}
   onpaste={paste}
 >
@@ -191,7 +181,7 @@
         </div>
       {/if}
       <div class="flex items-center gap-1.5 text-xs whitespace-nowrap">
-        <span class="font-medium" style:color={status.label === "À faire" ? "var(--color-muted)" : status.color}>{status.label}</span>
+        <span class="font-medium {a.unlocked ? 'text-ok' : 'text-muted'}">{a.unlocked ? "Obtenu" : "À obtenir"}</span>
         {#if a.rarity != null}<span class="text-muted">·</span><span class="font-semibold {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
         {#if collapsed && !board && blockCount > 0}<span class="text-muted">· {blockCount} bloc{blockCount > 1 ? "s" : ""}</span>{/if}
       </div>
@@ -283,21 +273,13 @@
         {#if a.progress && !a.unlocked}<SteamProgress progress={a.progress} />{/if}
       {/if}
 
-      <div class="flex flex-wrap items-center gap-2">
-        {#if a?.api_name}<CopyId id={a.api_name} />{/if}
-        {#if a && !spoiler}<HelpSearch name={a.name} />{/if}
-        {#if a}<TagPicker achievementId={a.id} />{/if}
-        <select
-          value={column}
-          onchange={(e) => oncolumn((e.currentTarget as HTMLSelectElement).value as Column)}
-          aria-label="Statut"
-          title="Statut"
-          class="ml-auto rounded-md border border-line bg-bg px-1.5 py-0.5 text-xs outline-none focus:border-accent
-            {column === 'done' ? 'text-ok' : column === 'doing' ? 'text-accent' : 'text-muted'}"
-        >
-          {#each columns as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
-        </select>
-      </div>
+      {#if a}
+        <div class="flex flex-wrap items-center gap-2">
+          {#if a.api_name}<CopyId id={a.api_name} />{/if}
+          {#if !spoiler}<HelpSearch name={a.name} />{/if}
+          <TagPicker achievementId={a.id} />
+        </div>
+      {/if}
 
       <BlockList cardKey={key} {imagesDir} />
       </div>

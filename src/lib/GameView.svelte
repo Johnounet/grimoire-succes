@@ -166,7 +166,6 @@
       ...fresh.map((id, i) => ({
         achievement_id: id,
         card_id: null,
-        column: "todo" as const,
         collapsed: false,
         grid: place(id, i),
         pinned: false,
@@ -254,7 +253,6 @@
         {
           achievement_id: null,
           card_id: card.id,
-          column: "todo",
           collapsed: false,
           grid: null,
           pinned: false,

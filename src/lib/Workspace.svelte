@@ -344,7 +344,6 @@
     <WorkspaceCard
       {free}
       focusTitle={focusKey === key}
-      column={it.column}
       collapsed={it.collapsed}
       pinned={it.pinned}
       spoiler={false}
@@ -356,14 +355,12 @@
       onreveal={() => {}}
       oncollapse={() => update(key, { collapsed: !it.collapsed })}
       onremove={() => remove(key)}
-      oncolumn={(column) => update(key, { column })}
       onpin={() => togglePin(it)}
       onrename={(title) => onrename(free.id, title)}
     />
   {:else if a}
     <WorkspaceCard
       {a}
-      column={it.column}
       collapsed={it.collapsed}
       pinned={it.pinned}
       spoiler={spoiler(a)}
@@ -375,7 +372,6 @@
       onreveal={() => revealed.add(a.id)}
       oncollapse={() => update(a.id, { collapsed: !it.collapsed })}
       onremove={() => remove(a.id)}
-      oncolumn={(column) => update(a.id, { column })}
       onpin={() => togglePin(it)}
     />
   {/if}
