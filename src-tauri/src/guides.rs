@@ -304,11 +304,11 @@ pub fn import(conn: &mut Connection, images_dir: &Path, guide: &GuideFile) -> Re
     check(guide)?;
     conn.execute_batch("SAVEPOINT guide_import").map_err(err)?;
     let mut copied: Vec<String> = Vec::new();
-    match import_all(conn, images_dir, guide, &mut copied) {
-        Ok(report) => {
-            conn.execute_batch("RELEASE guide_import").map_err(err)?;
-            Ok(report)
-        }
+    // Une validation finale ratée (disque plein…) passe aussi par l'annulation : le savepoint ne reste jamais ouvert
+    let result = import_all(conn, images_dir, guide, &mut copied)
+        .and_then(|report| conn.execute_batch("RELEASE guide_import").map(|_| report).map_err(err));
+    match result {
+        Ok(report) => Ok(report),
         Err(e) => {
             let _ = conn.execute_batch("ROLLBACK TO guide_import; RELEASE guide_import");
             for file in copied {
