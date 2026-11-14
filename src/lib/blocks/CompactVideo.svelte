@@ -2,6 +2,9 @@
   // Vidéo d'une carte épinglée, dans la fenêtre compacte : une ligne, et le lecteur une fois lancée
   // (lecture dès l'ouverture). Un seul lecteur ouvert à la fois : c'est la fenêtre compacte qui décide
   // (`open`). Actions des raccourcis : `right` (lancer, lecture / pause) et `left` (recul de 10 s).
+  // Titre YouTube toujours affiché (pour distinguer plusieurs vidéos repliées) ; un lecteur rouvert
+  // reprend à la dernière position connue.
+  import { untrack } from "svelte";
   import { embedUrl, parseYouTube } from "../youtube";
   import { YouTubePlayer } from "./player.svelte";
   import { formatClock, type Block } from "./types";
@@ -21,11 +24,18 @@
   const BACK_SECONDS = 10;
 
   // svelte-ignore state_referenced_locally (l'id d'un bloc ne change pas)
-  const player = new YouTubePlayer(block.id);
+  const player = new YouTubePlayer(block.id, true);
   const ref = $derived(parseYouTube(block.data.url));
+  // Adresse calculée à l'ouverture seulement (pas à chaque position reçue, ce qui rechargerait le lecteur)
+  const src = $derived.by(() => {
+    if (!open || !ref) return "";
+    const at = Math.floor(untrack(() => player.current));
+    return embedUrl(at > 0 ? { ...ref, start: at } : ref, true);
+  });
   const markers = $derived([...block.data.markers].sort((a, b) => a.time - b.time));
 
   $effect(() => player.attach());
+  $effect(() => player.keepTitle(block, ref));
   $effect(() => {
     if (!open) player.playing = false;
   });
@@ -53,7 +63,7 @@
 <div class="space-y-1.5">
   <div class="flex items-center gap-2">
     <div class="min-w-0 flex-1">
-      <div class="truncate text-[11px] text-muted">▶ Vidéo</div>
+      <div class="truncate text-[11px] text-muted" title={block.data.title}>▶ {block.data.title || "Vidéo"}</div>
       <div class="truncate text-sm">
         {#if !ref}
           <span class="text-muted">sans lien</span>
@@ -61,7 +71,10 @@
           <span class="font-mono tabular-nums">{formatClock(player.current)}</span>
           <span class="text-xs text-muted">· {player.playing ? "lecture" : "pause"}</span>
         {:else}
-          <span class="text-muted">{markers.length ? `${markers.length} repère${markers.length > 1 ? "s" : ""}` : "YouTube"}</span>
+          <span class="text-muted">
+            {#if player.current >= 1}<span class="font-mono tabular-nums">{formatClock(player.current)}</span> ·{/if}
+            {markers.length ? `${markers.length} repère${markers.length > 1 ? "s" : ""}` : "YouTube"}
+          </span>
         {/if}
       </div>
     </div>
@@ -84,7 +97,7 @@
       <iframe
         bind:this={player.iframe}
         onload={() => player.loaded()}
-        src={embedUrl(ref, true)}
+        {src}
         title="Vidéo YouTube"
         class="h-full w-full"
         allow="autoplay; encrypted-media; picture-in-picture; fullscreen"

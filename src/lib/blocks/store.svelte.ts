@@ -102,8 +102,8 @@ export async function createBlock<K extends BlockKind>(
 export function saveBlock(block: Block) {
   const id = block.id;
   const push = () => invoke<void>("block_update", { id, data: $state.snapshot(block.data) }).catch(fail);
-  // Blocs affichés aussi dans la fenêtre compacte (hors vidéo, dont les données ne changent pas en jeu)
-  if (block.kind === "counter" || block.kind === "timer" || block.kind === "list")
+  // Blocs affichés aussi dans la fenêtre compacte (vidéo : lien, repères et titre)
+  if (block.kind === "counter" || block.kind === "timer" || block.kind === "list" || block.kind === "video")
     send("block-changed", { block: $state.snapshot(block) as Block });
   clearTimeout(pending.get(id)?.timer);
   pending.set(id, {

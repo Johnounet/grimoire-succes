@@ -30,6 +30,7 @@
       return;
     }
     block.data.url = urlDraft.trim();
+    delete block.data.title;
     urlDraft = "";
     urlError = "";
     saveBlock(block);
@@ -42,6 +43,8 @@
 
   // Position et état de lecture, pause quand la même vidéo démarre dans la fenêtre compacte
   $effect(() => player.attach());
+  // Titre YouTube gardé dans le bloc : la fenêtre compacte l'affiche même lecteur fermé
+  $effect(() => player.keepTitle(block, ref));
 
   function addMarker(e: SubmitEvent) {
     e.preventDefault();

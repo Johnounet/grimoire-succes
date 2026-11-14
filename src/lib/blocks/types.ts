@@ -7,6 +7,8 @@ export interface VideoData {
   url: string;
   /** Repères : temps en secondes et libellé (« 3:42 → le coffre caché »). */
   markers: { time: number; label: string }[];
+  /** Titre YouTube, relevé par le lecteur à l'affichage (absent tant que la vidéo n'a pas été chargée). */
+  title?: string;
 }
 export interface ImageData {
   /** Chemin relatif au dossier images/ (ex. blocks/123.png). */
