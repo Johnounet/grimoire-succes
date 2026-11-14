@@ -98,7 +98,7 @@ fn hit(appid: u32, name: String, library: &[u32], cached: &[local_cache::CachedG
 }
 
 /// Remplace les adresses fixes des petites images par celles du magasin (les jeux récents
-/// n'ont plus d'image à l'adresse fixe, voir `store::assets`). Hors ligne ou après 3 s
+/// n'ont plus d'image à l'adresse fixe, voir `store::assets`). Hors ligne ou après 3 s en tout
 /// (connexion lente) : adresses fixes gardées, pour ne pas retarder l'affichage de la liste.
 async fn fill_capsules(hits: &mut [SearchHit], country: &str) {
     let ids: Vec<u32> = hits.iter().map(|h| h.appid).collect();

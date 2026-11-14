@@ -114,10 +114,22 @@ pub struct Assets {
 /// sous-dossier à code (`apps/<id>/<code>/header.jpg`) : l'adresse fixe répond 404.
 /// `IStoreBrowseService/GetItems` (sans clé) donne le chemin exact ; `country_code` est
 /// indispensable, sans lui la réponse est vide. Un jeu inconnu est simplement absent du résultat.
-/// `timeout` : délai d'attente de chaque requête (`None` : celui du client, 20 s).
-pub async fn assets(appids: &[u32], country: &str, timeout: Option<Duration>) -> Result<HashMap<u32, Assets>, String> {
+///
+/// Une requête par paquet de 100 jeux. `budget` : temps total accordé à toutes les requêtes,
+/// chacune n'a droit qu'au temps restant (`None` : 20 s par requête, délai du client).
+/// Un paquet raté n'efface pas les précédents : erreur seulement si rien n'a pu être lu.
+pub async fn assets(appids: &[u32], country: &str, budget: Option<Duration>) -> Result<HashMap<u32, Assets>, String> {
+    let start = std::time::Instant::now();
     let mut out = HashMap::new();
+    let mut last_err = None;
     for chunk in appids.chunks(100) {
+        let timeout = match budget.map(|b| b.saturating_sub(start.elapsed())) {
+            Some(left) if left.is_zero() => {
+                last_err = Some("délai dépassé".to_string());
+                break;
+            }
+            t => t,
+        };
         let input = serde_json::json!({
             "ids": chunk.iter().map(|id| serde_json::json!({ "appid": id })).collect::<Vec<_>>(),
             "context": { "country_code": country },
@@ -127,11 +139,19 @@ pub async fn assets(appids: &[u32], country: &str, timeout: Option<Duration>) ->
             "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json={}",
             urlencode(&input.to_string())
         );
-        let text = get_text_within(&url, "english", timeout).await?;
-        let v: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        out.extend(parse_assets(&v));
+        let read = async {
+            let text = get_text_within(&url, "english", timeout).await?;
+            serde_json::from_str::<Value>(&text).map_err(|e| e.to_string())
+        };
+        match read.await {
+            Ok(v) => out.extend(parse_assets(&v)),
+            Err(e) => last_err = Some(e),
+        }
     }
-    Ok(out)
+    match last_err {
+        Some(e) if out.is_empty() => Err(e),
+        _ => Ok(out),
+    }
 }
 
 fn parse_assets(v: &Value) -> HashMap<u32, Assets> {
