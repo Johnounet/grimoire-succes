@@ -196,7 +196,12 @@ export function importSummary(r: ImportReport): string {
   if (r.unmatched.length)
     text += ` ${r.unmatched.length} succès introuvable${r.unmatched.length > 1 ? "s" : ""} dans ce jeu : ${r.unmatched.length > 1 ? "leurs blocs sont rangés dans des cartes libres" : "ses blocs sont rangés dans une carte libre"}.`;
   if (r.ignored_tags.length) {
-    const names = r.ignored_tags.map((n) => (n ? `« ${n.length > 20 ? n.slice(0, 20) + "…" : n} »` : "sans nom")).join(", ");
+    // Coupe par caractère (Array.from), pas par unité UTF-16 : un emoji n'est jamais coupé en deux
+    const short = (n: string) => {
+      const chars = Array.from(n);
+      return chars.length > 20 ? chars.slice(0, 20).join("") + "…" : n;
+    };
+    const names = r.ignored_tags.map((n) => (n ? `« ${short(n)} »` : "sans nom")).join(", ");
     text += ` ${r.ignored_tags.length > 1 ? "Étiquettes invalides ignorées" : "Étiquette invalide ignorée"} : ${names}.`;
   }
   return text;
