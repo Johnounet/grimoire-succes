@@ -226,7 +226,7 @@ dialog.dialog-pop[open]::backdrop {
   display: none;
 }
 
-/* Fenêtre compacte : fond transparent, la carte arrondie porte l'opacité réglable */
+/* Fenêtre compacte : fond transparent, le fond de la carte arrondie porte l'opacité réglable */
 html.compact,
 html.compact body {
   background: transparent;

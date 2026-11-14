@@ -316,7 +316,7 @@
           Petite fenêtre toujours au premier plan : cartes épinglées (icône punaise), avec leurs compteurs, chronos, vidéos et listes.
         </p>
         <label class="mt-3 flex items-center gap-3 text-sm">
-          Opacité
+          Opacité du fond
           <input
             type="range"
             min="0.3"

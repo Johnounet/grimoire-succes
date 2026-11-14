@@ -279,6 +279,10 @@
     };
   });
 
+  /** Couleur du thème rendue transparente selon le réglage d'opacité (fonds seulement). */
+  const seeThrough = (color: string, factor = 1) =>
+    `color-mix(in srgb, var(${color}) ${Math.round(settings.compactOpacity * factor * 100)}%, transparent)`;
+
   const spoiler = (a: AchievementRow) => settings.antiSpoiler && a.hidden && !a.unlocked;
 
   /** Rappel des touches : « Ctrl + Alt + ↑ ↓ : choisir · ← → : agir » quand elles ont les mêmes modificateurs. */
@@ -304,7 +308,8 @@
     data-element={b.id}
     role="presentation"
     onpointerdown={() => (selectedId = b.id)}
-    class="rounded-lg px-2 py-1.5 transition {isSelected ? 'bg-accent/10 ring-2 ring-accent' : 'bg-bg/60 ring-1 ring-transparent'}"
+    class="rounded-lg px-2 py-1.5 transition {isSelected ? 'bg-accent/10 ring-2 ring-accent' : 'ring-1 ring-transparent'}"
+    style:background-color={isSelected ? undefined : seeThrough("--color-bg", 0.6)}
   >
     {#if b.kind === "counter"}
       {@const d = b.data as CounterData}
@@ -377,9 +382,17 @@
   </div>
 {/snippet}
 
-<div class="flex h-full flex-col overflow-hidden rounded-xl border border-line bg-bg text-fg" style:opacity={settings.compactOpacity}>
+<!-- L'opacité réglable ne touche que les fonds : texte, icônes et vidéo restent nets par-dessus un jeu -->
+<div
+  class="flex h-full flex-col overflow-hidden rounded-xl border border-line text-fg"
+  style:background-color={seeThrough("--color-bg")}
+>
   <!-- Barre de titre (déplace la fenêtre) -->
-  <header data-tauri-drag-region class="flex shrink-0 items-center gap-2 border-b border-line bg-panel px-2.5 py-1.5 select-none">
+  <header
+    data-tauri-drag-region
+    class="flex shrink-0 items-center gap-2 border-b border-line px-2.5 py-1.5 select-none"
+    style:background-color={seeThrough("--color-panel")}
+  >
     <span data-tauri-drag-region class="min-w-0 flex-1 truncate text-sm font-semibold">
       {game?.name ?? "Mode compact"}
       {#if game}<span class="font-normal text-muted"> · {game.unlocked}/{game.total}</span>{/if}
@@ -391,8 +404,8 @@
       step="0.05"
       value={settings.compactOpacity}
       oninput={(e) => setCompactOpacity(Number(e.currentTarget.value))}
-      title="Opacité"
-      aria-label="Opacité de la fenêtre"
+      title="Opacité du fond"
+      aria-label="Opacité du fond de la fenêtre"
       class="w-16 accent-accent"
     />
     <button onclick={close} class="rounded px-1.5 text-muted hover:bg-raised hover:text-fg" aria-label="Fermer le mode compact" title="Fermer">✕</button>
