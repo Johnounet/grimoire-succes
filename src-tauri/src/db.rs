@@ -1119,7 +1119,7 @@ pub struct Tag {
 }
 
 /// Nom nettoyé et couleur `#rrggbb` ; sinon un message pour le joueur.
-fn check_tag(name: &str, color: &str) -> Result<String, String> {
+pub fn check_tag(name: &str, color: &str) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() {
         return Err("Le nom de l'étiquette est vide.".into());

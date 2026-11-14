@@ -26,6 +26,8 @@ pub const FORMAT: &str = "grimoire-guide";
 const LEGACY_FORMATS: &[&str] = &["chasse-succes-guide"];
 pub const VERSION: u32 = 1;
 const MAX_FILE_BYTES: u64 = 300 * 1024 * 1024;
+/// Couleur d'une étiquette du guide sans couleur valide.
+const DEFAULT_TAG_COLOR: &str = "#4f7cff";
 
 /// Ce qui porte un bloc, sous la forme de la base : (succès, carte libre).
 type OwnerKey = (Option<i64>, Option<i64>);
@@ -468,20 +470,19 @@ fn import_all(
                 let tag = match tag_ids.get(&lower) {
                     Some(&t) => t,
                     None => {
-                        let color = colors.get(&lower).copied().unwrap_or("#4f7cff");
-                        match db::create_tag(conn, name, color).or_else(|_| db::create_tag(conn, name, "#4f7cff")) {
-                            Ok(t) => {
-                                tag_ids.insert(lower, t.id);
-                                t.id
+                        // Nom invalide (vide ou trop long) : étiquette ignorée et signalée, sans bloquer l'import.
+                        // Toute autre erreur (panne de la base…) remonte et annule l'import.
+                        if db::check_tag(name, DEFAULT_TAG_COLOR).is_err() {
+                            if !report.ignored_tags.iter().any(|n| n == name) {
+                                report.ignored_tags.push(name.to_string());
                             }
-                            // Étiquette invalide (nom vide ou trop long) : ignorée et signalée, sans bloquer l'import
-                            Err(_) => {
-                                if !report.ignored_tags.iter().any(|n| n == name) {
-                                    report.ignored_tags.push(name.to_string());
-                                }
-                                continue;
-                            }
+                            continue;
                         }
+                        let color = colors.get(&lower).copied().unwrap_or(DEFAULT_TAG_COLOR);
+                        let color = if db::check_tag(name, color).is_ok() { color } else { DEFAULT_TAG_COLOR };
+                        let t = db::create_tag(conn, name, color)?;
+                        tag_ids.insert(lower, t.id);
+                        t.id
                     }
                 };
                 db::set_achievement_tag(conn, id, tag, true).map_err(err)?;
