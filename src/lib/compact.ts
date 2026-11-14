@@ -1,6 +1,6 @@
 // Ouverture de la fenêtre compacte (fenêtre Tauri « compact », toujours au premier plan).
+import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { APP_NAME } from "./library";
 import { send } from "./sync";
 
 export async function openCompact(appid: number) {
@@ -11,20 +11,10 @@ export async function openCompact(appid: number) {
       send("compact-game", { appid });
       return;
     }
+    // Créée par le cœur Rust (window_state.rs), cachée puis remise à sa taille et à sa place retenues.
     // Même page que la fenêtre principale : main.ts affiche la vue compacte selon le nom de la fenêtre.
     // Le jeu ouvert lui est envoyé quand elle annonce qu'elle est prête (« compact-ready »).
-    new WebviewWindow("compact", {
-      url: "index.html",
-      title: `${APP_NAME} · compact`,
-      width: 340,
-      height: 540,
-      minWidth: 260,
-      minHeight: 160,
-      alwaysOnTop: true,
-      decorations: false,
-      transparent: true,
-      resizable: true,
-    });
+    await invoke("compact_open");
   } catch {
     // Interface simulée dans un navigateur : simple onglet
     window.open("/?compact", "compact", "width=360,height=560");

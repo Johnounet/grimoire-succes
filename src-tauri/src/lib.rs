@@ -8,7 +8,7 @@
 //! - `watch` : actualisation automatique quand Steam réécrit la progression d'un jeu
 //! - `backup` : sauvegardes de sécurité des données
 //! - `update` : mises à jour (installeur) ou annonce des nouvelles versions (version portable)
-//! - `window_state` : taille et position de la fenêtre principale retenues d'un lancement à l'autre
+//! - `window_state` : taille et position des fenêtres retenues d'un lancement à l'autre, ouverture de la fenêtre compacte
 
 pub mod backup;
 pub mod blocks;
@@ -47,6 +47,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .manage(window_state::Trackers::default())
         .setup(move |app| {
             // %APPDATA%\Grimoire sous Windows, ~/.local/share/Grimoire sous Linux (data_dir.rs) ;
             // `donnees\` à côté de l'exécutable pour la version portable
@@ -56,7 +57,7 @@ pub fn run() {
             };
             // Fenêtre principale créée cachée : taille et position retenues, puis affichage
             if let Some(main) = app.get_webview_window("main") {
-                if let Err(e) = window_state::restore_and_track(&main, &data_dir) {
+                if let Err(e) = window_state::restore_main(&main, &data_dir) {
                     eprintln!("Fenêtre principale : état non rétabli ({e})");
                     let _ = main.show();
                 }
@@ -75,6 +76,8 @@ pub fn run() {
         // Fermer la fenêtre principale quitte l'application, fenêtre compacte comprise
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                // La fenêtre compacte ne reçoit pas de demande de fermeture : sa place est enregistrée ici
+                window_state::save_all(window.app_handle());
                 window.app_handle().exit(0);
             }
         })
@@ -128,6 +131,7 @@ pub fn run() {
             update::update_check,
             update::update_install,
             update::update_open_page,
+            window_state::compact_open,
         ])
         .run(context)
         .expect("erreur au lancement de l'application");
