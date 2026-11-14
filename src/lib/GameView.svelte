@@ -137,6 +137,12 @@
       if (row) Object.assign(row, { unlocked, manual: true, unlock_time: unlocked ? (row.unlock_time ?? Math.floor(Date.now() / 1000)) : null });
     }),
   );
+  $effect(() =>
+    on("free-card-changed", ({ id, done }) => {
+      const card = freeCards.find((f) => f.id === id);
+      if (card) card.done = done;
+    }),
+  );
 
   // Enregistrements de l'espace mis en file, pour qu'ils arrivent dans l'ordre
   let saving: Promise<unknown> = Promise.resolve();
@@ -286,7 +292,7 @@
     if (card.done) chime();
     try {
       await api.freeCardSetDone(id, card.done);
-      send("data-changed", { appid: game.appid });
+      send("free-card-changed", { id, done: card.done });
     } catch (e) {
       card.done = !card.done;
       error = `Enregistrement impossible : ${e}`;

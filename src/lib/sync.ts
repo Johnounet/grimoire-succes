@@ -23,6 +23,8 @@ export interface SyncEvents {
   "data-changed": { appid: number };
   /** Un succès a été coché ou décoché depuis la fenêtre compacte. */
   "achievement-changed": { id: number; unlocked: boolean; game: GameSummary };
+  /** Une carte libre a été cochée ou décochée (dans l'une ou l'autre fenêtre). */
+  "free-card-changed": { id: number; done: boolean };
   /** Réglage des raccourcis changé (fenêtre principale) : la fenêtre compacte les réenregistre. */
   "shortcuts-changed": Record<string, never>;
   /** Raccourcis enregistrés ou libérés par la fenêtre compacte, et refus du système. */

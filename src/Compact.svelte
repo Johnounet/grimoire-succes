@@ -132,15 +132,19 @@
     }
   }
 
+  /** État « raw » : on remplace la carte pour que l'affichage suive. */
+  function setFreeDone(id: number, done: boolean) {
+    freeCards = freeCards.map((f) => (f.id === id ? { ...f, done } : f));
+  }
+
   async function toggleFree(card: FreeCard) {
     const done = !card.done;
-    // État « raw » : on remplace la carte pour que l'affichage suive
-    const set = (d: boolean) => (freeCards = freeCards.map((f) => (f.id === card.id ? { ...f, done: d } : f)));
+    const set = (d: boolean) => setFreeDone(card.id, d);
     set(done);
     if (done) chime();
     try {
       await api.freeCardSetDone(card.id, done);
-      send("data-changed", { appid });
+      send("free-card-changed", { id: card.id, done });
     } catch (e) {
       set(!done);
       error = String(e);
@@ -255,6 +259,7 @@
         if (a) a.unlocked = unlocked;
         if (g.appid === appid) game = g;
       }),
+      on("free-card-changed", ({ id, done }) => setFreeDone(id, done)),
       on("shortcuts-changed", registerShortcuts),
       // Succès débloqué en jeu (actualisation automatique)
       on("steam-progress", async ({ game: g, unlocked }) => {
