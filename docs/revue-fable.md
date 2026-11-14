@@ -180,7 +180,7 @@ Revue en lecture seule de la version 0.2.0 (commit `8f8acd4`). Aucun fichier du 
 
 ### 10. Autres risques, plus faibles
 
-- **Sauvegarde abîmée** : [backup.rs:212-221](../src-tauri/src/backup.rs#L212). Avant de restaurer, seule la version de la base est lue. Une sauvegarde partiellement abîmée pourrait remplacer des données saines (l'état d'avant est heureusement gardé en « avant-restauration »). Un `PRAGMA quick_check` avant la restauration fermerait la porte. Probable.
+- **Sauvegarde abîmée (corrigé)** : [backup.rs:212-221](../src-tauri/src/backup.rs#L212). Avant de restaurer, seule la version de la base est lue. Une sauvegarde partiellement abîmée pourrait remplacer des données saines (l'état d'avant est heureusement gardé en « avant-restauration »). Un `PRAGMA quick_check` avant la restauration fermerait la porte. Probable.
 - **Sauvegardes sur le même disque que les données** : `backups/` est dans `%APPDATA%\Grimoire`. Disque mort ou profil Windows perdu = tout perdu. Certain (voir idée 3).
 - **Dossiers temporaires de sauvegarde** : [backup.rs:134-135](../src-tauri/src/backup.rs#L134). Un `.…tmp` laissé par un plantage n'est jamais nettoyé (son nom contient l'heure, il ne sera jamais réutilisé). Très probable, peu grave.
 - **Position de carte sans limite haute** : [db.rs:797](../src-tauri/src/db.rs#L797) borne `x`, `w`, `h` mais pas `y`. Test : un guide avec `y = 9 000 000 000 000 000` est enregistré tel quel. Effet sur le tableau non observé (hauteur de page démesurée probable).

@@ -232,18 +232,28 @@ pub fn auto_if_due(conn: &Connection, data_dir: &Path, images_dir: &Path) -> Res
     Ok(Some(info))
 }
 
+/// Base d'une sauvegarde utilisable : lisible, pas d'une version plus récente du logiciel (on ne
+/// saurait pas la lire), et saine (`quick_check` : une sauvegarde à moitié abîmée ne doit pas
+/// remplacer des données).
+fn check_usable(src: &Path) -> Result<(), String> {
+    let unreadable = |e: rusqlite::Error| format!("sauvegarde illisible : {e}");
+    let conn = Connection::open_with_flags(src, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(unreadable)?;
+    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).map_err(unreadable)?;
+    if version as usize > db::schema_version() {
+        return Err("cette sauvegarde vient d'une version plus récente de Grimoire".into());
+    }
+    match db::quick_check(&conn).map_err(unreadable)? {
+        Some(problem) => Err(format!("sauvegarde abîmée : {}", problem.lines().next().unwrap_or_default())),
+        None => Ok(()),
+    }
+}
+
 /// Remet les données d'une sauvegarde à la place des données actuelles, après avoir sauvegardé
 /// celles-ci (sorte `avant-restauration`).
 pub fn restore(conn: &mut Connection, data_dir: &Path, images_dir: &Path, id: &str) -> Result<(), String> {
     let dir = backup_path(data_dir, id)?;
     let src = dir.join(DB_FILE);
-    // Base d'une version plus récente du logiciel : on ne saurait pas la lire
-    let version: i64 = Connection::open_with_flags(&src, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .and_then(|c| c.pragma_query_value(None, "user_version", |r| r.get(0)))
-        .map_err(|e| format!("sauvegarde illisible : {e}"))?;
-    if version as usize > db::schema_version() {
-        return Err("cette sauvegarde vient d'une version plus récente de Grimoire".into());
-    }
+    check_usable(&src)?;
 
     create(conn, data_dir, images_dir, Kind::AvantRestauration)?;
     conn.restore(MAIN_DB, &src, None::<fn(Progress)>).map_err(err)?;
@@ -264,20 +274,15 @@ fn copy_missing_images(conn: &Connection, dir: &Path, images_dir: &Path) -> Resu
 }
 
 /// Base abîmée, déjà mise de côté (`recovery.rs`) : remet la plus récente des sauvegardes
-/// utilisables à sa place et l'ouvre. Une sauvegarde illisible ou d'une version plus récente du
-/// logiciel est passée au profit de la suivante.
+/// utilisables à sa place et l'ouvre. Une sauvegarde illisible, abîmée ou d'une version plus
+/// récente du logiciel est passée au profit de la suivante.
 pub fn restore_latest_offline(data_dir: &Path, images_dir: &Path) -> Result<Connection, String> {
     let target = data_dir.join(DB_FILE);
     let mut last_error = "aucune sauvegarde".to_string();
     for info in list(data_dir) {
         let dir = backups_dir(data_dir).join(&info.id);
         let attempt = (|| -> Result<Connection, String> {
-            let version: i64 = Connection::open_with_flags(dir.join(DB_FILE), OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .and_then(|c| c.pragma_query_value(None, "user_version", |r| r.get(0)))
-                .map_err(err)?;
-            if version as usize > db::schema_version() {
-                return Err("sauvegarde d'une version plus récente".into());
-            }
+            check_usable(&dir.join(DB_FILE))?;
             std::fs::copy(dir.join(DB_FILE), &target).map_err(err)?;
             let conn = db::open(&target).map_err(err)?;
             copy_missing_images(&conn, &dir, images_dir)?;

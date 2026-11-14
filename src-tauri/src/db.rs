@@ -246,6 +246,20 @@ pub fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
     Ok(current > 0 && (current as usize) < MIGRATIONS.len())
 }
 
+/// Contrôle rapide de SQLite (`PRAGMA quick_check`) : `None` si la base est saine, sinon la première
+/// anomalie trouvée. Repère une base qui s'ouvre mais dont des pages sont abîmées.
+pub fn quick_check(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    let result: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
+    Ok((result != "ok").then_some(result))
+}
+
+/// Base neuve : version 0 et aucune table (fichier absent, vide, ou jamais rempli).
+pub fn is_blank(conn: &Connection) -> rusqlite::Result<bool> {
+    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    let objects: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master", [], |r| r.get(0))?;
+    Ok(version == 0 && objects == 0)
+}
+
 /// Base de test arrêtée à la version `version` du schéma (simule une ancienne version du logiciel).
 #[cfg(test)]
 pub fn open_at_version(path: &Path, version: usize) -> rusqlite::Result<Connection> {
