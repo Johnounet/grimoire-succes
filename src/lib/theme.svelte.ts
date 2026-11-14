@@ -1,12 +1,13 @@
-// Thèmes : 4 sombres et 4 clairs. Le joueur choisit son thème préféré dans chaque famille, et
-// l'apparence : selon Windows (sombre ou clair suivant le réglage du système), toujours sombre, toujours claire.
+// Thèmes : un sombre (Nuit) et un clair (Papier). Le joueur choisit l'apparence : selon Windows (sombre ou
+// clair suivant le réglage du système), toujours sombre, toujours claire. Les réglages `theme_dark` et
+// `theme_light` restent lus : un ancien thème retiré (Charbon, Sable…) retombe sur Nuit ou Papier.
 //
 // Un thème est un jeu de valeurs pour les couleurs de l'interface (`--color-*` de app.css), posées sur <html>.
 // Toutes les couleurs de l'interface passent par ces variables : ne jamais écrire une couleur en dur.
 // Le dernier thème appliqué est gardé dans le navigateur (`localStorage`) pour être posé avant le premier
 // affichage (`applyCachedTheme`, appelé par main.ts) : pas d'éclair de thème sombre au démarrage.
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api } from "./library";
+import { api, type SectionColor } from "./library";
 import { send } from "./sync";
 
 export interface Palette {
@@ -34,7 +35,7 @@ export interface Palette {
   danger: string;
 }
 
-export type ThemeId = "nuit" | "charbon" | "crepuscule" | "braise" | "papier" | "sable" | "menthe" | "lavande";
+export type ThemeId = "nuit" | "papier";
 
 export interface Theme {
   id: ThemeId;
@@ -42,6 +43,9 @@ export interface Theme {
   hint: string;
   dark: boolean;
   colors: Palette;
+  /** Couleurs des sections de l'espace de travail (`--section-<nom>`), choisies pour aller ensemble
+   *  et rester lisibles sur le fond du thème. */
+  sections: Record<SectionColor, string>;
 }
 
 export const themes: Theme[] = [
@@ -64,65 +68,15 @@ export const themes: Theme[] = [
       ok: "#4cc38a",
       danger: "#ef5b5b",
     },
-  },
-  {
-    id: "charbon",
-    name: "Charbon",
-    hint: "Noir profond, accent turquoise",
-    dark: true,
-    colors: {
-      bg: "#000000",
-      panel: "#0b0b0b",
-      raised: "#171717",
-      line: "#2a2a2a",
-      fg: "#f2f2f2",
-      muted: "#8f8f8f",
-      accent: "#2dd4bf",
-      "on-accent": "#04231e",
-      gold: "#f5c84c",
-      rare: "#c08bff",
-      ok: "#4ade80",
-      danger: "#f87171",
-    },
-  },
-  {
-    id: "crepuscule",
-    name: "Crépuscule",
-    hint: "Violet profond, accent rose",
-    dark: true,
-    colors: {
-      bg: "#15101f",
-      panel: "#1d1629",
-      raised: "#281e38",
-      line: "#3a2d50",
-      fg: "#ece6f7",
-      muted: "#a193bd",
-      accent: "#e05aa8",
-      "on-accent": "#ffffff",
-      gold: "#f4c55a",
-      rare: "#9fb4ff",
-      ok: "#5fd39a",
-      danger: "#ff6b7a",
-    },
-  },
-  {
-    id: "braise",
-    name: "Braise",
-    hint: "Brun chaud, accent orange",
-    dark: true,
-    colors: {
-      bg: "#17120e",
-      panel: "#211a14",
-      raised: "#2c231b",
-      line: "#3f3328",
-      fg: "#f2e9df",
-      muted: "#ab998c",
-      accent: "#f08a3c",
-      "on-accent": "#2a1405",
-      gold: "#f6cf5a",
-      rare: "#c49bff",
-      ok: "#8fcf6a",
-      danger: "#ef6a5b",
+    sections: {
+      violet: "#9b8cff",
+      bleu: "#5b9dff",
+      turquoise: "#3cc8b4",
+      vert: "#6cc56b",
+      ambre: "#e5a93d",
+      corail: "#ec7a5c",
+      rose: "#e86fae",
+      gris: "#9aa3b5",
     },
   },
   {
@@ -144,71 +98,18 @@ export const themes: Theme[] = [
       ok: "#1d8a55",
       danger: "#c93434",
     },
-  },
-  {
-    id: "sable",
-    name: "Sable",
-    hint: "Beige chaud, accent terracotta",
-    dark: false,
-    colors: {
-      bg: "#f3ecdf",
-      panel: "#fbf7f0",
-      raised: "#ebe1cf",
-      line: "#d8c9b1",
-      fg: "#2e261c",
-      muted: "#6d5f4e",
-      accent: "#b84d28",
-      "on-accent": "#ffffff",
-      gold: "#9a6a05",
-      rare: "#7442c4",
-      ok: "#457a24",
-      danger: "#b8322a",
-    },
-  },
-  {
-    id: "menthe",
-    name: "Menthe",
-    hint: "Vert pâle, accent vert sapin",
-    dark: false,
-    colors: {
-      bg: "#ebf5ef",
-      panel: "#f8fcf9",
-      raised: "#dcece3",
-      line: "#c0d9ca",
-      fg: "#16281e",
-      muted: "#527062",
-      accent: "#1a7a50",
-      "on-accent": "#ffffff",
-      gold: "#9a6a05",
-      rare: "#7442c4",
-      ok: "#1a7a50",
-      danger: "#c03636",
-    },
-  },
-  {
-    id: "lavande",
-    name: "Lavande",
-    hint: "Lilas, accent violet",
-    dark: false,
-    colors: {
-      bg: "#f1edf9",
-      panel: "#fbf9fe",
-      raised: "#e6dff5",
-      line: "#d1c6e8",
-      fg: "#241d36",
-      muted: "#645a80",
-      accent: "#6d43cc",
-      "on-accent": "#ffffff",
-      gold: "#9a6a05",
-      rare: "#b0306f",
-      ok: "#2a8a57",
-      danger: "#c2334a",
+    sections: {
+      violet: "#6a52d9",
+      bleu: "#2a6fd6",
+      turquoise: "#0f8a7a",
+      vert: "#3f8a2e",
+      ambre: "#a86f06",
+      corail: "#c4502f",
+      rose: "#b8327a",
+      gris: "#6b7385",
     },
   },
 ];
-
-export const darkThemes = themes.filter((t) => t.dark);
-export const lightThemes = themes.filter((t) => !t.dark);
 
 export type AppearanceMode = "system" | "dark" | "light";
 
@@ -257,17 +158,12 @@ export async function setAppearance(patch: Partial<Pick<typeof appearance, "mode
   ]);
 }
 
-/** Variables CSS d'une palette, pour un attribut `style` (aperçus des Réglages). */
-export const paletteStyle = (p: Palette) =>
-  Object.entries(p)
-    .map(([k, v]) => `--color-${k}: ${v}`)
-    .join("; ");
-
 const CACHE_KEY = "theme";
 
 function paint(theme: Theme) {
   const root = document.documentElement;
   for (const [k, v] of Object.entries(theme.colors)) root.style.setProperty(`--color-${k}`, v);
+  for (const [k, v] of Object.entries(theme.sections)) root.style.setProperty(`--section-${k}`, v);
   root.style.colorScheme = theme.dark ? "dark" : "light";
   root.dataset.theme = theme.id;
 }

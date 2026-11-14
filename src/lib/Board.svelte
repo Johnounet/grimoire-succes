@@ -9,6 +9,10 @@
   // (`watchGrowth`), et quand elle arrive dans l'espace avec des blocs (`fresh`).
   // La grille reste libre (`float`) : rien ne remonte tout seul, sauf les cartes situées sous une carte
   // que le joueur retire (`willRemove`), et toutes d'un coup avec « Tout remonter » (`packAll`).
+  //
+  // Sections : un tableau par section (Workspace.svelte). Une carte glissée d'un tableau à l'autre est
+  // déplacée par gridstack dans le DOM ; on la rend aussitôt à son tableau d'origine (que Svelte la
+  // retire lui-même) et on signale le déplacement (`onmovein`) : Svelte recrée la carte dans la section.
   import { GridStack, type GridItemHTMLElement, type GridStackNode } from "gridstack";
   import "gridstack/dist/gridstack.min.css";
   import { tick, untrack, type Snippet } from "svelte";
@@ -16,21 +20,42 @@
   import { arrive, reduced } from "./motion.svelte";
   import { ui } from "./settings.svelte";
 
+  const DEFAULT = { w: 4, h: 8 };
   let {
     items,
     card,
     onlayout,
     ondropids,
+    onmovein,
+    ondragcard,
+    framed = false,
+    minRow = 8,
+    spare = DEFAULT.h + 2,
+    hint = "",
   }: {
     items: WorkspaceItem[];
     card: Snippet<[WorkspaceItem]>;
+    /** Carte venue d'un autre tableau (autre section), déposée à cette place. */
+    onmovein: (key: CardKey, pos: GridPos) => void;
+    /** Une carte de ce tableau commence (true) ou finit (false) d'être déplacée. */
+    ondragcard?: (dragging: boolean) => void;
+    /** Tableau dans un cadre (section) : c'est le cadre qui s'éclaire à l'arrivée d'une carte. */
+    framed?: boolean;
+    /** Hauteur minimale de la grille, en rangées. */
+    minRow?: number;
+    /** Rangées libres gardées sous les cartes, pour en déposer de nouvelles. */
+    spare?: number;
+    /** Texte affiché quand le tableau est vide. */
+    hint?: string;
     /** Nouvelles positions après un déplacement ou un redimensionnement, par `cardKey`. */
     onlayout: (positions: Map<CardKey, GridPos>) => void;
     /** Succès glissés depuis le panneau et déposés sur la case (x, y). */
     ondropids: (ids: number[], at: { x: number; y: number }) => void;
   } = $props();
 
-  const DEFAULT = { w: 4, h: 8 };
+  type Origin = { parent: Node; next: Node | null };
+  /** Place d'origine dans le DOM d'une carte en cours de déplacement (pour l'y rendre si elle change de tableau). */
+  const ORIGIN = Symbol("origin");
   let grid: GridStack | null = null;
   let hover = $state(false);
 
@@ -98,7 +123,8 @@
         margin: 6,
         float: true,
         animate: untrack(() => !reduced()), // sans dépendance : la grille ne doit pas être recréée
-        minRow: 8,
+        minRow: untrack(() => minRow),
+        acceptWidgets: true,
         handle: ".card-drag",
         resizable: { handles: "e, se, s, sw, w" },
       },
@@ -115,6 +141,31 @@
     // Une seule notification par geste : fin de déplacement / redimensionnement, ajout
     g.on("change", emitLayout);
     g.on("added", emitLayout);
+    g.on("dragstart", (_e: Event, target: HTMLElement) => {
+      // `target` peut être la poignée : on note la place de la carte elle-même
+      const el = target.closest<HTMLElement & { [ORIGIN]?: Origin }>(".grid-stack-item");
+      if (el?.parentNode) el[ORIGIN] = { parent: el.parentNode, next: el.nextSibling };
+      // Fin du geste : au relâchement (gridstack ne prévient pas la grille de départ si la carte en change)
+      if (ondragcard) {
+        ondragcard(true);
+        document.addEventListener("mouseup", () => setTimeout(() => ondragcard(false)), { once: true, capture: true });
+      }
+    });
+    g.on("dropped", (_e: Event, prev: GridStackNode | undefined, node: GridStackNode) => {
+      const el = node.el as (GridItemHTMLElement & { [ORIGIN]?: Origin }) | undefined;
+      if (!el || !prev) return;
+      const origin = el[ORIGIN] ?? (prev.grid?.el ? { parent: prev.grid.el, next: null } : undefined);
+      delete el[ORIGIN];
+      if (!origin) return;
+      const key = Number(el.dataset.id);
+      const pos = { x: node.x ?? 0, y: node.y ?? 0, w: node.w ?? DEFAULT.w, h: node.h ?? DEFAULT.h };
+      // La carte appartient à Svelte : retirée de cette grille et rendue à sa place d'origine,
+      // cachée jusqu'à ce que Svelte la supprime et la recrée ici
+      g.removeWidget(el, false, false);
+      el.style.display = "none";
+      origin.parent.insertBefore(el, origin.next && origin.next.parentNode === origin.parent ? origin.next : null);
+      if (Number.isFinite(key)) onmovein(key, pos);
+    });
     const onFit = (e: Event) => {
       const item = (e.target as HTMLElement).closest(".grid-stack-item");
       if (item) fitCard(item as GridItemHTMLElement);
@@ -284,7 +335,7 @@
   // Un aperçu montre où la carte arrivera : la place libre la plus proche du curseur.
   // On ne dépose jamais sur une carte existante (rien n'est poussé) ; le tableau garde
   // toujours de l'espace libre sous les cartes (`DROP_ROWS`) pour en ajouter en bas.
-  const DROP_ROWS = DEFAULT.h + 2;
+  const DROP_ROWS = $derived(spare);
   /** Taille de la carte qui arrive : sa dernière taille connue, sinon la taille par défaut. */
   const dropSize = () => cardSizes.get(ui.draggingIds[0]) ?? DEFAULT;
   let gridEl: HTMLElement | undefined = $state();
@@ -365,11 +416,15 @@
   ondragover={dragOver}
   ondragleave={dragLeave}
   ondrop={drop}
-  class="board relative flex-1 rounded-xl transition
-    {ui.draggingFromPanel ? 'dragging-in outline-2 outline-offset-4 outline-dashed' : ''}
-    {hover ? 'outline-accent bg-accent/5' : 'outline-line'}"
+  class="board relative flex-1 transition
+    {ui.draggingFromPanel ? 'dragging-in' : ''}
+    {ui.draggingFromPanel && !framed ? 'rounded-xl outline-2 outline-offset-4 outline-dashed' : ''}
+    {framed ? '' : hover ? 'outline-accent bg-accent/5' : 'outline-line'}"
   style:padding-bottom="{DROP_ROWS * 40}px"
 >
+  {#if hint && items.length === 0 && !ghost}
+    <p class="pointer-events-none absolute inset-x-0 top-4 text-center text-sm text-muted">{hint}</p>
+  {/if}
   <div class="grid-stack" bind:this={gridEl} {@attach setupGrid}>
     {#each items as item (cardKey(item))}
       <div class="grid-stack-item" data-id={cardKey(item)} {@attach (el) => setupItem(el, () => item)}>
@@ -404,9 +459,9 @@
     content: "";
     display: block;
     height: 100%;
-    border: 2px dashed var(--color-accent);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+    border: 2px dashed var(--zone-color, var(--color-accent));
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--zone-color, var(--color-accent)) 12%, transparent);
   }
   /* Contenu de la case : la carte la remplit entièrement */
   .board :global(.grid-stack-item-content) {
@@ -415,9 +470,9 @@
   }
   /* Emplacement d'arrivée pendant un déplacement */
   .board :global(.grid-stack-placeholder > .placeholder-content) {
-    border: 2px dashed var(--color-accent);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+    border: 2px dashed var(--zone-color, var(--color-accent));
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--zone-color, var(--color-accent)) 12%, transparent);
   }
   /* Poignées de redimensionnement discrètes, visibles au survol */
   .board :global(.ui-resizable-handle) {

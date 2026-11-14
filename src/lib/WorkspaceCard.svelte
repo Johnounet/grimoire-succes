@@ -33,6 +33,7 @@
     oncolumn,
     onpin,
     onrename,
+    moves = [],
   }: {
     a?: AchievementRow | null;
     free?: FreeCard | null;
@@ -55,12 +56,22 @@
     onpin: () => void;
     /** Nouveau titre d'une carte libre. */
     onrename?: (title: string) => void;
+    /** Entrées « Déplacer vers… » du menu (sections de l'espace de travail). */
+    moves?: { label: string; onclick: () => void }[];
   } = $props();
 
   const key: CardKey = $derived(a ? a.id : -(free?.id ?? 0));
   const icon = $derived(a ? (a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)) : null);
   const label = $derived(a ? (spoiler ? "succès caché" : a.name) : free?.title || "Carte sans titre");
   const blockCount = $derived(blocksOf(key).length);
+  /** État affiché par le liseré gauche : obtenu (succès coché, ou carte « Fait »), en cours, à faire (discret). */
+  const status = $derived(
+    a?.unlocked || column === "done"
+      ? { label: a?.unlocked ? "Obtenu" : "Fait", color: "var(--color-ok)" }
+      : column === "doing"
+        ? { label: "En cours", color: "var(--color-accent)" }
+        : { label: "À faire", color: "var(--color-line)" },
+  );
   /** Carte libre avec des blocs : la suppression demande confirmation (rien ne les garde ailleurs). */
   let confirming = $state(false);
 
@@ -93,13 +104,13 @@
 </script>
 
 <article
-  class="rounded-xl border bg-panel transition-colors
-    {board ? 'flex h-full flex-col overflow-hidden' : ''}
-    {a?.unlocked ? 'border-ok/30' : 'border-line'}"
+  class="group rounded-[4px] border border-l-[3px] border-line bg-panel transition-colors
+    {board ? 'flex h-full flex-col overflow-hidden' : ''}"
+  style:border-left-color={status.color}
   aria-label={label}
   onpaste={paste}
 >
-  <header class="flex shrink-0 items-center gap-2 p-2.5">
+  <header class="relative flex shrink-0 items-center gap-2 p-2">
     {#if board}
       <span
         class="card-drag grid h-8 w-5 shrink-0 cursor-grab place-items-center rounded text-muted hover:bg-raised hover:text-fg active:cursor-grabbing"
@@ -122,7 +133,7 @@
       aria-pressed={a.unlocked}
       aria-label={a.unlocked ? `Marquer « ${label} » comme non obtenu` : `Marquer « ${label} » comme obtenu`}
       title={a.unlocked ? "Marquer comme non obtenu" : "Marquer comme obtenu"}
-      class="grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 transition
+      class="grid h-6 w-6 shrink-0 place-items-center rounded-[4px] border-2 transition
         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent
         {a.unlocked ? 'border-ok bg-ok text-bg' : 'border-line hover:border-muted'}"
     >
@@ -135,7 +146,7 @@
     </button>
 
     <div
-      class="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-raised
+      class="h-9 w-9 shrink-0 overflow-hidden rounded-[3px] bg-raised
         {a.unlocked ? 'shadow-[0_0_14px_-3px] shadow-accent/60' : ''}
         {animate && a.unlocked ? 'light-up' : ''}"
     >
@@ -178,8 +189,9 @@
           {a.name}
         </div>
       {/if}
-      <div class="flex items-center gap-2 text-xs">
-        {#if a.rarity != null}<span class="font-semibold {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
+      <div class="flex items-center gap-1.5 text-xs whitespace-nowrap">
+        <span class="font-medium" style:color={status.label === "À faire" ? "var(--color-muted)" : status.color}>{status.label}</span>
+        {#if a.rarity != null}<span class="text-muted">·</span><span class="font-semibold {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
         {#if collapsed && !board && blockCount > 0}<span class="text-muted">· {blockCount} bloc{blockCount > 1 ? "s" : ""}</span>{/if}
       </div>
     </div>
@@ -199,25 +211,6 @@
         </svg>
       </button>
     {/if}
-    <MoreMenu
-      class="shrink-0"
-      items={[
-        {
-          label: pinned ? "Retirer du mode compact" : "Épingler au mode compact",
-          hint: "Cartes suivies dans la petite fenêtre au premier plan",
-          onclick: onpin,
-        },
-        ...(a
-          ? [
-              {
-                label: "Reverrouiller dans Steam…",
-                hint: "Prépare la commande console achievement_clear",
-                onclick: () => openRelock(a),
-              },
-            ]
-          : []),
-      ]}
-    />
     {#if !board}
       <button
         onclick={oncollapse}
@@ -229,14 +222,40 @@
         <span class="transition-transform {collapsed ? '-rotate-90' : ''}">▾</span>
       </button>
     {/if}
-    <button
-      onclick={askRemove}
-      aria-label={free ? "Supprimer la carte" : "Retirer de l'espace de travail"}
-      title={free ? "Supprimer la carte et ses blocs" : "Retirer de l'espace de travail (ses blocs sont conservés)"}
-      class="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-raised hover:text-danger"
+    <!-- Actions rares : visibles au survol (ou au clavier), pour laisser toute la place au nom -->
+    <div
+      class="absolute top-1.5 {board ? 'right-1.5' : 'right-10'} flex items-center gap-0.5 rounded border border-line bg-panel opacity-0 transition-opacity
+        group-hover:opacity-100 focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100"
     >
-      ✕
-    </button>
+      <MoreMenu
+        class="shrink-0"
+        items={[
+          {
+            label: pinned ? "Retirer du mode compact" : "Épingler au mode compact",
+            hint: "Cartes suivies dans la petite fenêtre au premier plan",
+            onclick: onpin,
+          },
+          ...(a
+            ? [
+                {
+                  label: "Reverrouiller dans Steam…",
+                  hint: "Prépare la commande console achievement_clear",
+                  onclick: () => openRelock(a),
+                },
+              ]
+            : []),
+          ...moves,
+        ]}
+      />
+      <button
+        onclick={askRemove}
+        aria-label={free ? "Supprimer la carte" : "Retirer de l'espace de travail"}
+        title={free ? "Supprimer la carte et ses blocs" : "Retirer de l'espace de travail (ses blocs sont conservés)"}
+        class="grid h-7 w-7 shrink-0 place-items-center rounded text-muted transition hover:bg-raised hover:text-danger"
+      >
+        ✕
+      </button>
+    </div>
   </header>
 
   {#if confirming}

@@ -274,6 +274,29 @@ pub fn workspace_save(state: State<'_, AppState>, appid: u32, items: Vec<db::Wor
 }
 
 #[tauri::command]
+pub fn sections_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<db::Section>, String> {
+    db::list_sections(&state.conn(), appid).map_err(err)
+}
+
+/// Nouvelle section du jeu, à la fin.
+#[tauri::command]
+pub fn section_create(state: State<'_, AppState>, appid: u32, title: String, color: String) -> Result<db::Section, String> {
+    db::create_section(&state.conn(), appid, &title, &color).map_err(err)
+}
+
+/// Titre, état replié, couleur et ordre des sections du jeu.
+#[tauri::command]
+pub fn sections_save(state: State<'_, AppState>, appid: u32, sections: Vec<db::Section>) -> Result<(), String> {
+    db::save_sections(&mut state.conn(), appid, &sections).map_err(err)
+}
+
+/// Supprime une section ; ses cartes encore dans l'espace passent hors section.
+#[tauri::command]
+pub fn section_delete(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    db::delete_section(&state.conn(), id).map_err(err)
+}
+
+#[tauri::command]
 pub fn free_cards_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<db::FreeCard>, String> {
     db::list_free_cards(&state.conn(), appid).map_err(err)
 }

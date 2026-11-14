@@ -10,6 +10,8 @@
     type CardKey,
     type FreeCard,
     type GameSummary,
+    type Section,
+    SECTION_COLORS,
   } from "./library";
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
@@ -57,6 +59,9 @@
   const freeById = $derived(new Map(freeCards.map((f) => [f.id, f])));
   /** Carte libre qui vient d'être créée : son titre prend le focus. */
   let focusKey = $state<CardKey | null>(null);
+  let sections = $state.raw<Section[]>([]);
+  /** Section qui vient d'être créée : son titre prend le focus. */
+  let focusSection = $state<number | null>(null);
   /** Succès cachés révélés (liste et cartes), oubliés en changeant de jeu. */
   const revealed = new SvelteSet<number>();
 
@@ -95,7 +100,9 @@
     arrivals.clear();
     workspace = [];
     freeCards = [];
+    sections = [];
     focusKey = null;
+    focusSection = null;
     untrack(() => (ui.relock.open = false));
     loadBlocks(appid);
     loadGameTags(appid);
@@ -107,9 +114,16 @@
     api.freeCards(appid).then((f) => {
       if (appid === game.appid) freeCards = f;
     });
-    api.workspaceList(appid).then((w) => {
-      if (appid === game.appid) workspace = w;
-    });
+    // Sections avant les cartes : une carte n'est rangée dans sa section que si celle-ci est connue
+    api.sections(appid)
+      .then((s) => {
+        if (appid === game.appid) sections = s;
+      })
+      .finally(() =>
+        api.workspaceList(appid).then((w) => {
+          if (appid === game.appid) workspace = w;
+        }),
+      );
   });
 
   // Coche faite dans la fenêtre compacte
@@ -132,8 +146,9 @@
       .catch((e) => (error = `Enregistrement de l'espace de travail impossible : ${e}`));
   }
 
-  /** Ajoute des succès à l'espace. `at` : case du tableau où le premier a été déposé. */
-  function addToWorkspace(ids: number[], at?: { x: number; y: number }) {
+  /** Ajoute des succès à l'espace. `at` : case du tableau où le premier a été déposé ; `section` : section
+   *  d'arrivée (aucune : zone du haut). */
+  function addToWorkspace(ids: number[], at?: { x: number; y: number }, section: number | null = null) {
     const present = new Set(workspace.map((it) => it.achievement_id));
     const fresh = ids.filter((id) => byId.has(id) && !present.has(id));
     if (fresh.length === 0) return;
@@ -151,10 +166,69 @@
         collapsed: false,
         grid: place(id, i),
         pinned: false,
+        section,
         size: size(id),
         fresh: true,
       })),
     ]);
+  }
+
+  // ----- Sections -----
+
+  /** Enregistre titre, état replié et ordre des sections (dans l'ordre des enregistrements de l'espace). */
+  function saveSections(next: Section[]) {
+    const appid = game.appid;
+    sections = next;
+    // L'espace est rangé zone du haut puis sections dans l'ordre : le suivre (mode compact, ordre personnel)
+    const rank = new Map(next.map((s, i) => [s.id, i + 1]));
+    const r = (section: number | null | undefined) => (section != null ? (rank.get(section) ?? 0) : 0);
+    const sorted = workspace.map((it, i) => ({ it, i })).sort((a, b) => r(a.it.section) - r(b.it.section) || a.i - b.i);
+    if (sorted.some((x, i) => x.i !== i)) saveWorkspace(sorted.map((x) => x.it));
+    saving = saving
+      .then(() => api.sectionsSave(appid, next))
+      .catch((e) => (error = `Enregistrement des sections impossible : ${e}`));
+  }
+
+  async function addSection() {
+    const appid = game.appid;
+    try {
+      // Couleur suivante de la palette, la première pas encore prise de préférence
+      const used = new Set(sections.map((x) => x.color));
+      const color = SECTION_COLORS.find((c) => !used.has(c)) ?? SECTION_COLORS[sections.length % SECTION_COLORS.length];
+      const s = await api.sectionCreate(appid, "", color);
+      if (appid !== game.appid) return;
+      sections = [...sections, s];
+      focusSection = s.id;
+      setTimeout(() => {
+        if (focusSection === s.id) focusSection = null;
+      }, 1000);
+    } catch (e) {
+      error = `Création de la section impossible : ${e}`;
+    }
+  }
+
+  /**
+   * Supprime une section. `removeCards` : ses cartes quittent l'espace (les cartes libres sont supprimées
+   * avec leurs blocs, les succès gardent les leurs) ; sinon elles passent dans la zone du haut, sous ses cartes.
+   */
+  function deleteSection(id: number, removeCards: boolean) {
+    const appid = game.appid;
+    const inside = workspace.filter((it) => it.section === id);
+    if (removeCards) {
+      saveWorkspace(workspace.filter((it) => it.section !== id));
+      for (const it of inside) if (it.card_id != null) deleteFreeCard(it.card_id);
+    } else if (inside.length) {
+      const known = new Set(sections.map((s) => s.id));
+      const top = workspace.filter((it) => it.section == null || !known.has(it.section));
+      const bottom = Math.max(0, ...top.map((it) => (it.grid ? it.grid.y + it.grid.h : 0)));
+      const moved = inside.map((it) => ({ ...it, section: null, grid: it.grid ? { ...it.grid, y: it.grid.y + bottom } : null }));
+      saveWorkspace([...top, ...moved, ...workspace.filter((it) => it.section !== id && !top.includes(it))]);
+    }
+    sections = sections.filter((s) => s.id !== id);
+    saving = saving
+      .then(() => api.sectionDelete(id))
+      .then(() => send("data-changed", { appid }))
+      .catch((e) => (error = `Suppression de la section impossible : ${e}`));
   }
 
   // ----- Cartes libres -----
@@ -380,6 +454,11 @@
     <div class="min-w-0 flex-1 overflow-y-auto">
       <Workspace
         items={workspace}
+        {sections}
+        {focusSection}
+        onaddsection={addSection}
+        onsections={saveSections}
+        ondeletesection={deleteSection}
         {byId}
         {freeById}
         {focusKey}

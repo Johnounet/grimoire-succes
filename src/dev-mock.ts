@@ -30,7 +30,9 @@ const achievements = [
 }));
 
 const cardSizes = new Map<number, { w: number; h: number }>();
-type MockItem = { achievement_id: number | null; card_id: number | null; grid: { w: number; h: number } | null };
+type MockItem = { achievement_id: number | null; card_id: number | null; grid: { w: number; h: number } | null; section?: number | null };
+let sections: { id: number; title: string; collapsed: boolean; color: string }[] = [];
+let nextSectionId = 1;
 let workspace: MockItem[] = [];
 let freeCards: { id: number; title: string }[] = [];
 let nextFreeId = 1;
@@ -220,10 +222,30 @@ export function installMock(label = "main") {
         workspace = workspace.filter((it) => it.card_id !== args.id);
         blocks = blocks.filter((b) => b.card_id !== args.id);
         return null;
+      case "sections_list":
+        return sections.map((x) => ({ ...x }));
+      case "section_create": {
+        const x = { id: nextSectionId++, title: String(args.title).trim(), collapsed: false, color: String(args.color) };
+        sections.push(x);
+        return { ...x };
+      }
+      case "sections_save": {
+        const sent = args.sections as typeof sections;
+        // Comme Rust : seules les sections connues sont mises à jour, aucune n'est supprimée
+        const known = sent.filter((x) => sections.some((y) => y.id === x.id)).map((x) => ({ ...x, title: x.title.trim() }));
+        sections = [...known, ...sections.filter((y) => !known.some((x) => x.id === y.id))];
+        return null;
+      }
+      case "section_delete":
+        sections = sections.filter((x) => x.id !== args.id);
+        for (const it of workspace) if (it.section === args.id) it.section = null;
+        return null;
       case "workspace_card_sizes":
         return [...cardSizes].map(([achievement_id, size]) => ({ achievement_id, ...size }));
       case "workspace_save":
-        workspace = (args.items as MockItem[]).filter((it) => it.card_id == null || freeCards.some((f) => f.id === it.card_id));
+        workspace = (args.items as MockItem[])
+          .filter((it) => it.card_id == null || freeCards.some((f) => f.id === it.card_id))
+          .map((it) => ({ ...it, section: sections.some((x) => x.id === it.section) ? it.section : null }));
         for (const it of workspace) if (it.grid && it.achievement_id != null) cardSizes.set(it.achievement_id, { w: it.grid.w, h: it.grid.h });
         console.info("[mock] workspace_save", JSON.stringify(workspace));
         return null;

@@ -6,12 +6,8 @@
   import {
     appearance,
     currentTheme,
-    darkThemes,
-    lightThemes,
-    paletteStyle,
     setAppearance,
     type AppearanceMode,
-    type Theme,
   } from "./theme.svelte";
   import { setCompactOpacity, settings } from "./settings.svelte";
   import { setAutoUpdate, update } from "./update.svelte";
@@ -93,45 +89,6 @@
   }
 </script>
 
-{#snippet themeRow(label: string, list: Theme[], family: "dark" | "light")}
-  <h4 class="mt-4 text-sm">{label}</h4>
-  <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label={label}>
-    {#each list as t (t.id)}
-      {@const chosen = appearance[family] === t.id}
-      <button
-        role="radio"
-        aria-checked={chosen}
-        onclick={() => setAppearance(family === "dark" ? { dark: t.id } : { light: t.id })}
-        title={t.hint}
-        class="rounded-xl p-1 text-left transition {chosen ? 'ring-2 ring-accent' : 'ring-1 ring-line hover:ring-muted'}"
-      >
-        <!-- Aperçu dans les couleurs du thème -->
-        <div style={paletteStyle(t.colors)} class="overflow-hidden rounded-lg border border-line bg-bg p-1.5" aria-hidden="true">
-          <div class="flex gap-1.5">
-            <div class="w-3 space-y-1">
-              <div class="h-3 rounded-sm bg-accent"></div>
-              <div class="h-3 rounded-sm bg-raised"></div>
-            </div>
-            <div class="min-w-0 flex-1 space-y-1 rounded-md border border-line bg-panel p-1">
-              <div class="flex items-center gap-1">
-                <span class="h-2 w-2 shrink-0 rounded-full bg-ok"></span>
-                <span class="h-1.5 flex-1 rounded-full bg-fg/80"></span>
-              </div>
-              <div class="h-1.5 w-2/3 rounded-full bg-muted/70"></div>
-              <div class="flex justify-end gap-1">
-                <span class="h-2 w-3 rounded-sm bg-gold"></span>
-                <span class="h-2 w-4 rounded-sm bg-accent"></span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="mt-1 px-1 text-xs font-medium">{t.name}</div>
-        <div class="px-1 text-[11px] leading-tight text-muted">{t.hint}</div>
-      </button>
-    {/each}
-  </div>
-{/snippet}
-
 <div
   class="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
   role="presentation"
@@ -177,8 +134,6 @@
             Thème « {currentTheme().name} », quel que soit le réglage de Windows.
           {/if}
         </p>
-        {@render themeRow("Thème sombre", darkThemes, "dark")}
-        {@render themeRow("Thème clair", lightThemes, "light")}
       </section>
 
       <!-- Interface -->

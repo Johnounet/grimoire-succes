@@ -197,6 +197,23 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE achievements ADD COLUMN progress_min REAL;
     ALTER TABLE achievements ADD COLUMN progress_max REAL;
     "#,
+    // v10 : sections de l'espace de travail (groupes de cartes nommés, repliables, ordonnés). Une carte
+    // sans section est dans la zone du haut ; supprimer une section y renvoie ses cartes.
+    r#"
+    CREATE TABLE sections (
+        id        INTEGER PRIMARY KEY,
+        appid     INTEGER NOT NULL REFERENCES games(appid) ON DELETE CASCADE,
+        title     TEXT    NOT NULL DEFAULT '',
+        position  INTEGER NOT NULL,
+        collapsed INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX sections_by_game ON sections (appid, position);
+    ALTER TABLE workspace_items ADD COLUMN section_id INTEGER REFERENCES sections(id) ON DELETE SET NULL;
+    "#,
+    // v11 : couleur des sections, un nom de la palette de l'interface (`SECTION_COLORS`)
+    r#"
+    ALTER TABLE sections ADD COLUMN color TEXT NOT NULL DEFAULT 'violet';
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -678,6 +695,9 @@ pub struct WorkspaceItem {
     /// Affichée dans le mode compact
     #[serde(default)]
     pub pinned: bool,
+    /// Section de la carte (`None` : zone du haut). Sa place `grid` est relative à la section.
+    #[serde(default)]
+    pub section: Option<i64>,
 }
 
 /// Cartes de l'espace de travail d'un jeu, dans l'ordre.
@@ -686,7 +706,7 @@ pub struct WorkspaceItem {
 /// interrompu), elle est remise à la fin plutôt que perdue avec ses blocs.
 pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<WorkspaceItem>> {
     let mut stmt = conn.prepare(
-        "SELECT achievement_id, card_id, column_name, collapsed, grid_x, grid_y, grid_w, grid_h, pinned
+        "SELECT achievement_id, card_id, column_name, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id
          FROM workspace_items WHERE appid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map([appid], |r| {
@@ -702,6 +722,7 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
                 _ => None,
             },
             pinned: r.get(8)?,
+            section: r.get(9)?,
         })
     })?;
     let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -719,6 +740,7 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
             collapsed: false,
             grid: None,
             pinned: false,
+            section: None,
         });
     }
     Ok(items)
@@ -747,13 +769,17 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
     {
         let mut insert = tx.prepare(
             "INSERT OR IGNORE INTO workspace_items
-                 (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned)
-             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 FROM achievements WHERE id = ?1 AND appid = ?2",
+                 (achievement_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id)
+             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                    (SELECT s.id FROM sections s WHERE s.id = ?11 AND s.appid = ?2)
+             FROM achievements WHERE id = ?1 AND appid = ?2",
         )?;
         let mut insert_free = tx.prepare(
             "INSERT OR IGNORE INTO workspace_items
-                 (card_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned)
-             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 FROM free_cards WHERE id = ?1 AND appid = ?2",
+                 (card_id, appid, column_name, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id)
+             SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                    (SELECT s.id FROM sections s WHERE s.id = ?11 AND s.appid = ?2)
+             FROM free_cards WHERE id = ?1 AND appid = ?2",
         )?;
         let mut remember = tx.prepare(
             "INSERT INTO card_sizes (achievement_id, appid, w, h)
@@ -786,6 +812,7 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
                 g.map(|g| g.w),
                 g.map(|g| g.h),
                 it.pinned,
+                it.section,
             ])?;
             // Taille mémorisée : cartes de succès seulement (une carte libre retirée est supprimée)
             if let (Some(g), Some(id)) = (g, it.achievement_id) {
@@ -794,6 +821,72 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
         }
     }
     tx.commit()
+}
+
+// ---------- Sections de l'espace de travail ----------
+
+/// Groupe de cartes nommé de l'espace de travail, repliable et coloré. L'ordre est celui de la liste.
+#[derive(Debug, Clone, Serialize, serde::Deserialize, PartialEq)]
+pub struct Section {
+    pub id: i64,
+    pub title: String,
+    pub collapsed: bool,
+    /// Nom d'une couleur de la palette des sections (`SECTION_COLORS`)
+    #[serde(default)]
+    pub color: String,
+}
+
+/// Couleurs possibles d'une section : des noms, dont la teinte dépend du thème de l'interface.
+pub const SECTION_COLORS: &[&str] = &["violet", "bleu", "turquoise", "vert", "ambre", "corail", "rose", "gris"];
+
+fn clean_color(color: &str) -> &str {
+    if SECTION_COLORS.contains(&color) {
+        color
+    } else {
+        SECTION_COLORS[0]
+    }
+}
+
+fn section_row(r: &rusqlite::Row) -> rusqlite::Result<Section> {
+    Ok(Section { id: r.get(0)?, title: r.get(1)?, collapsed: r.get(2)?, color: r.get(3)? })
+}
+
+pub fn list_sections(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Section>> {
+    let mut stmt =
+        conn.prepare("SELECT id, title, collapsed, color FROM sections WHERE appid = ?1 ORDER BY position, id")?;
+    let rows = stmt.query_map([appid], section_row)?;
+    rows.collect()
+}
+
+/// Nouvelle section, à la fin, dépliée.
+pub fn create_section(conn: &Connection, appid: u32, title: &str, color: &str) -> rusqlite::Result<Section> {
+    conn.query_row(
+        "INSERT INTO sections (appid, title, color, position)
+         VALUES (?1, ?2, ?3, (SELECT COALESCE(MAX(position) + 1, 0) FROM sections WHERE appid = ?1))
+         RETURNING id, title, collapsed, color",
+        params![appid, clean_title(title), clean_color(color)],
+        section_row,
+    )
+}
+
+/// Enregistre titre, état replié, couleur et ordre (celui de `sections`) des sections de ce jeu.
+/// Les sections inconnues ou d'un autre jeu sont ignorées ; aucune n'est créée ni supprimée.
+pub fn save_sections(conn: &mut Connection, appid: u32, sections: &[Section]) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut update =
+            tx.prepare("UPDATE sections SET title = ?3, collapsed = ?4, position = ?5, color = ?6 WHERE id = ?1 AND appid = ?2")?;
+        for (pos, s) in sections.iter().enumerate() {
+            update.execute(params![s.id, appid, clean_title(&s.title), s.collapsed, pos as i64, clean_color(&s.color)])?;
+        }
+    }
+    tx.commit()
+}
+
+/// Supprime une section ; ses cartes restent dans l'espace, dans la zone du haut.
+pub fn delete_section(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM sections WHERE id = ?1", [id])?;
+    Ok(())
 }
 
 // ---------- Cartes libres ----------
@@ -1209,6 +1302,7 @@ mod tests {
             collapsed: false,
             grid: None,
             pinned: false,
+            section: None,
         };
 
         let mut wanted = vec![item(ids[2], "doing"), item(ids[0], "todo")];
@@ -1427,6 +1521,7 @@ mod tests {
             collapsed: false,
             grid: Some(GridPos { x: 0, y: 0, w: 6, h: 6 }),
             pinned: true,
+            section: None,
         };
         let ach_item = WorkspaceItem { achievement_id: Some(id_a), card_id: None, pinned: false, ..free.clone() };
         let bad = WorkspaceItem { achievement_id: Some(id_a), ..free.clone() };
@@ -1491,12 +1586,59 @@ mod tests {
                 collapsed: true,
                 grid: Some(GridPos { x: 2, y: 3, w: 4, h: 5 }),
                 pinned: true,
+                section: None,
             }]
         );
         let b = get_block(&conn, 42).unwrap().unwrap();
         assert_eq!((b.block.achievement_id, b.block.data["value"].as_i64(), b.card_title.as_str()), (Some(5), Some(7), "a"));
         let fk: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();
         assert_eq!(fk, 0);
+    }
+
+    #[test]
+    fn sections() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None), ach("B", None)]), "P", None).unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+
+        let s1 = create_section(&conn, 620, "  Phase 1 ", "corail").unwrap();
+        let s2 = create_section(&conn, 620, "Collectibles", "pas une couleur").unwrap();
+        assert_eq!((s1.title.as_str(), s1.color.as_str(), s2.color.as_str()), ("Phase 1", "corail", "violet"));
+        assert_eq!(list_sections(&conn, 620).unwrap(), vec![s1.clone(), s2.clone()]);
+
+        // Ordre, titre et état replié ; une section inconnue est ignorée
+        let mut moved = vec![
+            Section { collapsed: true, color: "vert".into(), ..s2.clone() },
+            Section { title: "Histoire".into(), ..s1.clone() },
+        ];
+        let unknown = Section { id: 999, title: "x".into(), collapsed: false, color: "gris".into() };
+        save_sections(&mut conn, 620, &[moved[0].clone(), moved[1].clone(), unknown])
+            .unwrap();
+        assert_eq!(list_sections(&conn, 620).unwrap(), moved);
+        moved.truncate(2);
+
+        // Cartes dans une section ; une section inconnue devient « hors section »
+        let item = |id, section| WorkspaceItem {
+            achievement_id: Some(id),
+            card_id: None,
+            column: "todo".into(),
+            collapsed: false,
+            grid: None,
+            pinned: false,
+            section,
+        };
+        save_workspace(&mut conn, 620, &[item(ids[0], Some(s1.id)), item(ids[1], Some(999))]).unwrap();
+        assert_eq!(list_workspace(&conn, 620).unwrap(), vec![item(ids[0], Some(s1.id)), item(ids[1], None)]);
+
+        // Supprimer la section garde ses cartes, hors section
+        delete_section(&conn, s1.id).unwrap();
+        assert_eq!(list_workspace(&conn, 620).unwrap(), vec![item(ids[0], None), item(ids[1], None)]);
+        assert_eq!(list_sections(&conn, 620).unwrap(), vec![moved[0].clone()]);
+
+        // Supprimer le jeu emporte ses sections
+        delete_game(&conn, 620).unwrap();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM sections", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
     }
 
     #[test]

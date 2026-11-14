@@ -107,6 +107,13 @@ export const api = {
   guideExport: (appid: number, keepState: boolean) => invoke<string | null>("guide_export", { appid, keepState }),
   /** Importe un guide (fenêtre « Ouvrir » de Windows). Bilan, ou null si annulé. */
   guideImport: () => invoke<ImportReport | null>("guide_import"),
+  sections: (appid: number) => invoke<Section[]>("sections_list", { appid }),
+  sectionCreate: (appid: number, title: string, color: SectionColor) =>
+    invoke<Section>("section_create", { appid, title, color }),
+  /** Titre, état replié, couleur et ordre (celui de la liste) des sections du jeu. */
+  sectionsSave: (appid: number, sections: Section[]) => invoke<void>("sections_save", { appid, sections }),
+  /** Supprime la section ; ses cartes encore dans l'espace passent hors section. */
+  sectionDelete: (id: number) => invoke<void>("section_delete", { id }),
   freeCards: (appid: number) => invoke<FreeCard[]>("free_cards_list", { appid }),
   freeCardCreate: (appid: number, title: string) => invoke<FreeCard>("free_card_create", { appid, title }),
   freeCardRename: (id: number, title: string) => invoke<void>("free_card_rename", { id, title }),
@@ -195,6 +202,31 @@ export interface FreeCard {
   title: string;
 }
 
+/** Couleurs possibles d'une section (même liste que `SECTION_COLORS` côté Rust). La teinte dépend du thème :
+ *  variable CSS `--section-<nom>` posée par theme.svelte.ts. */
+export const SECTION_COLORS = ["violet", "bleu", "turquoise", "vert", "ambre", "corail", "rose", "gris"] as const;
+export type SectionColor = (typeof SECTION_COLORS)[number];
+export const sectionColorLabel: Record<SectionColor, string> = {
+  violet: "Violet",
+  bleu: "Bleu",
+  turquoise: "Turquoise",
+  vert: "Vert",
+  ambre: "Ambre",
+  corail: "Corail",
+  rose: "Rose",
+  gris: "Gris",
+};
+/** Valeur CSS de la couleur d'une section. */
+export const sectionColor = (c: string) => `var(--section-${SECTION_COLORS.includes(c as SectionColor) ? c : "violet"})`;
+
+/** Section de l'espace de travail : groupe de cartes nommé, repliable, coloré, déplaçable. */
+export interface Section {
+  id: number;
+  title: string;
+  collapsed: boolean;
+  color: SectionColor;
+}
+
 /** Ce qui porte une carte de l'espace de travail ou un bloc : un succès ou une carte libre (l'un des deux). */
 export interface CardOwner {
   achievement_id: number | null;
@@ -222,6 +254,8 @@ export interface WorkspaceItem extends CardOwner {
   grid: GridPos | null;
   /** Affichée dans le mode compact. */
   pinned: boolean;
+  /** Section de la carte ; absente ou null : zone du haut, hors section. `grid` est relatif à la section. */
+  section?: number | null;
   /** Interface seulement : taille voulue quand `grid` est null (taille mémorisée d'une carte remise). */
   size?: { w: number; h: number };
   /** Interface seulement : carte qui vient d'être ajoutée (le tableau l'agrandit à son contenu). */

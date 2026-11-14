@@ -45,6 +45,9 @@ pub struct GuideFile {
     /// Étiquettes utilisées par le guide
     #[serde(default)]
     pub tags: Vec<GuideTag>,
+    /// Sections de l'espace de travail, dans l'ordre (les cartes y renvoient par leur rang)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<GuideSection>,
     #[serde(default)]
     pub cards: Vec<GuideCard>,
     /// Images des blocs : nom repris dans `data.file` → contenu en base64
@@ -87,12 +90,24 @@ pub struct GuideAchievement {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GuideSection {
+    pub title: String,
+    #[serde(default)]
+    pub collapsed: bool,
+    #[serde(default)]
+    pub color: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuidePlace {
     pub column: String,
     pub collapsed: bool,
     pub grid: Option<GridPos>,
     pub pinned: bool,
+    /// Rang de la section dans `GuideFile::sections` ; absent : hors section
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -152,6 +167,8 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
 
     // Cartes de l'espace de travail, puis succès hors de l'espace qui ont pourtant des blocs ou des étiquettes
     let workspace = db::list_workspace(conn, appid).map_err(err)?;
+    let sections = db::list_sections(conn, appid).map_err(err)?;
+    let section_rank: HashMap<i64, usize> = sections.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
     let placed: HashSet<i64> = workspace.iter().filter_map(|it| it.achievement_id).collect();
     let extras: Vec<i64> = achievements
         .iter()
@@ -213,6 +230,7 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
             collapsed: it.collapsed,
             grid: it.grid,
             pinned: keep_state && it.pinned,
+            section: it.section.and_then(|id| section_rank.get(&id).copied()),
         };
         cards.push(card(it.achievement_id, it.card_id, Some(place)));
     }
@@ -233,6 +251,7 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
         game: GuideGame { appid, name: game.name },
         keeps_state: keep_state,
         tags,
+        sections: sections.into_iter().map(|s| GuideSection { title: s.title, collapsed: s.collapsed, color: s.color }).collect(),
         cards,
         images,
     })
@@ -326,6 +345,22 @@ pub fn import(conn: &mut Connection, images_dir: &Path, guide: &GuideFile) -> Re
         unmatched: Vec::new(),
     };
 
+    // Sections du guide : reprises par leur nom si le jeu en a déjà une pareille, créées sinon
+    let mut local_sections = db::list_sections(conn, appid).map_err(err)?;
+    let mut section_ids: Vec<i64> = Vec::new();
+    for gs in &guide.sections {
+        let id = match local_sections.iter().find(|s| s.title == gs.title.trim()) {
+            Some(s) => s.id,
+            None => {
+                let s = db::create_section(conn, appid, &gs.title, &gs.color).map_err(err)?;
+                local_sections.push(db::Section { collapsed: gs.collapsed, ..s.clone() });
+                s.id
+            }
+        };
+        section_ids.push(id);
+    }
+    db::save_sections(conn, appid, &local_sections).map_err(err)?;
+
     let place = |p: &GuidePlace, achievement_id: Option<i64>, card_id: Option<i64>| WorkspaceItem {
         achievement_id,
         card_id,
@@ -333,8 +368,9 @@ pub fn import(conn: &mut Connection, images_dir: &Path, guide: &GuideFile) -> Re
         collapsed: p.collapsed,
         grid: if keep_grid { p.grid } else { None },
         pinned: p.pinned,
+        section: p.section.and_then(|i| section_ids.get(i).copied()),
     };
-    let default_place = GuidePlace { column: "todo".into(), collapsed: false, grid: None, pinned: false };
+    let default_place = GuidePlace { column: "todo".into(), collapsed: false, grid: None, pinned: false, section: None };
 
     for c in &guide.cards {
         let matched = c.achievement.as_ref().and_then(|a| {
@@ -557,8 +593,11 @@ mod tests {
             collapsed: false,
             grid: Some(GridPos { x: 0, y: 0, w: 4, h: 8 }),
             pinned: true,
+            section: None,
         };
-        db::save_workspace(&mut conn, 620, &[item(Some(ids[0]), None), item(None, Some(free.id))]).unwrap();
+        let phase = db::create_section(&conn, 620, "Phase 1", "ambre").unwrap();
+        let in_phase = WorkspaceItem { section: Some(phase.id), ..item(Some(ids[0]), None) };
+        db::save_workspace(&mut conn, 620, &[in_phase, item(None, Some(free.id))]).unwrap();
 
         // Guide vierge : ni progression ni état, mais tout le contenu
         let guide = export(&conn, &dir, 620, false).unwrap();
@@ -572,6 +611,9 @@ mod tests {
         assert!(guide.cards[2].workspace.is_none() && guide.cards[2].blocks[0].data["items"][0]["checked"] == false);
         assert_eq!(guide.tags, vec![GuideTag { name: "grind".into(), color: grind.color.clone() }]);
         assert!(guide.images.contains_key("blocks/x.png"));
+        assert_eq!(guide.sections, vec![GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into() }]);
+        assert_eq!(guide.cards[0].workspace.as_ref().unwrap().section, Some(0));
+        assert_eq!(guide.cards[1].workspace.as_ref().unwrap().section, None);
         // Sauvegarde : l'état est gardé
         let backup = export(&conn, &dir, 620, true).unwrap();
         assert_eq!(backup.cards[0].blocks[0].data["value"], 7);
@@ -599,11 +641,15 @@ mod tests {
         assert_eq!(std::fs::read(dir2.join(&file)).unwrap(), PNG);
         let ach_a = db::list_achievements(&other, 620).unwrap().into_iter().find(|a| a.api_name.as_deref() == Some("A")).unwrap();
         assert!(ach_a.unlocked, "la progression locale n'est pas touchée");
+        let sections = db::list_sections(&other, 620).unwrap();
+        assert_eq!(sections.iter().map(|s| (s.title.as_str(), s.color.as_str())).collect::<Vec<_>>(), vec![("Phase 1", "ambre")]);
+        assert_eq!(ws[0].section, Some(sections[0].id), "A retrouve sa section");
 
         // Réimporter le même fichier ne double rien
         let again = import(&mut other, &dir2, &g).unwrap();
         assert_eq!((again.blocks, again.free_cards, again.placed), (0, 0, 0));
         assert_eq!(db::list_blocks(&other, 620).unwrap().len(), 5);
+        assert_eq!(db::list_sections(&other, 620).unwrap().len(), 1, "section reprise, pas recréée");
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&dir2);
@@ -619,6 +665,7 @@ mod tests {
             game: GuideGame { appid: 620, name: "P".into() },
             keeps_state: false,
             tags: vec![],
+            sections: vec![],
             cards: vec![],
             images: BTreeMap::new(),
         };
