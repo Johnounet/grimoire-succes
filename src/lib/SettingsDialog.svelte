@@ -313,7 +313,7 @@
       <section aria-labelledby="s-compact">
         <h3 id="s-compact" class="text-sm font-semibold tracking-wide text-muted uppercase">Mode compact</h3>
         <p class="mt-1 text-xs text-muted">
-          Petite fenêtre toujours au premier plan : cartes épinglées (icône punaise), avec leurs compteurs, chronos, vidéos et listes.
+          Petite fenêtre toujours au premier plan : cartes épinglées (menu ⋯ d'une carte) ou blocs épinglés seuls (punaise dans l'en-tête d'un bloc) : compteurs, chronos, vidéos et listes.
         </p>
         <label class="mt-3 flex items-center gap-3 text-sm">
           Opacité du fond

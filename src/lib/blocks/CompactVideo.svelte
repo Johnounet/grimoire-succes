@@ -1,7 +1,7 @@
 <script lang="ts">
   // Vidéo d'une carte épinglée, dans la fenêtre compacte : une ligne, et le lecteur une fois lancée
-  // (lecture dès l'ouverture). Un seul lecteur ouvert à la fois : c'est la fenêtre compacte qui décide
-  // (`open`). Actions des raccourcis : `right` (lancer, lecture / pause) et `left` (recul de 10 s).
+  // (lecture dès l'ouverture). Plusieurs lecteurs peuvent être ouverts ; la fenêtre compacte décide (`open`)
+  // et, prévenue au démarrage d'une lecture (`onplaying`), met les autres en pause (`pause`). Actions des raccourcis : `right` (lancer, lecture / pause) et `left` (recul de 10 s).
   // Titre YouTube toujours affiché (pour distinguer plusieurs vidéos repliées) ; un lecteur rouvert
   // reprend à la dernière position connue.
   import { untrack } from "svelte";
@@ -14,11 +14,13 @@
     open,
     onopen,
     onclose,
+    onplaying,
   }: {
     block: Block<"video">;
     open: boolean;
     onopen: () => void;
     onclose: () => void;
+    onplaying?: () => void;
   } = $props();
 
   const BACK_SECONDS = 10;
@@ -44,6 +46,14 @@
   $effect(() => {
     if (!open) player.playing = false;
   });
+  $effect(() => {
+    if (open && player.playing) untrack(() => onplaying?.());
+  });
+
+  /** Met la vidéo en pause (une autre vient de démarrer). */
+  export function pause() {
+    if (open && player.playing) player.pause();
+  }
 
   /** Action Droite : ouvre et lance la vidéo, ou lecture / pause. Renvoie le texte du retour visuel. */
   export function right(): { ok: boolean; text: string } {

@@ -10,12 +10,12 @@
   import CounterBlock from "./CounterBlock.svelte";
   import ImageBlock from "./ImageBlock.svelte";
   import ListBlock from "./ListBlock.svelte";
-  import { blocksOf, createBlock, deleteBlock, reorderBlocks, saveBlock } from "./store.svelte";
+  import { blocksOf, createBlock, deleteBlock, reorderBlocks, saveBlock, setBlockPinned } from "./store.svelte";
   import TextBlock from "./TextBlock.svelte";
   import TimerBlock from "./TimerBlock.svelte";
   import type { CardKey } from "../library";
   import { plainText } from "../markdown";
-  import { blockKinds, formatDuration, kindInfo, type Block, type BlockKind } from "./types";
+  import { blockKinds, COMPACT_KINDS, formatDuration, kindInfo, type Block, type BlockKind } from "./types";
   import VideoBlock from "./VideoBlock.svelte";
   import MoreMenu from "../MoreMenu.svelte";
 
@@ -238,6 +238,22 @@
             {#if b.data.collapsed}
               {@const s = summary(b)}
               {#if s}<span class="min-w-0 truncate normal-case">· {s}</span>{/if}
+            {/if}
+            {#if COMPACT_KINDS.includes(b.kind)}
+              <!-- Épingle du bloc seul au mode compact : toujours visible une fois épinglé -->
+              <button
+                onclick={() => setBlockPinned(b, !b.pinned)}
+                aria-pressed={b.pinned}
+                aria-label={b.pinned ? `Retirer le bloc ${info.label} du mode compact` : `Épingler le bloc ${info.label} au mode compact`}
+                title={b.pinned ? "Épinglé seul au mode compact (cliquer pour retirer)" : "Épingler ce bloc seul au mode compact"}
+                class="order-last grid h-5 w-5 shrink-0 place-items-center rounded transition hover:bg-raised
+                  {b.pinned ? 'text-accent' : 'opacity-0 group-hover/block:opacity-100 group-focus-within/block:opacity-100 hover:text-fg'}"
+              >
+                <svg viewBox="0 0 16 16" class="h-3 w-3" aria-hidden="true">
+                  <path d="M6 1.5h4l-.6 4.2L12 8.5H4l2.6-2.8z M8 8.5V14.5" fill={b.pinned ? "currentColor" : "none"} stroke="currentColor"
+                    stroke-width="1.3" stroke-linejoin="round" />
+                </svg>
+              </button>
             {/if}
             <span class="ml-auto flex shrink-0 gap-0.5 opacity-0 transition group-hover/block:opacity-100 group-focus-within/block:opacity-100">
               <button

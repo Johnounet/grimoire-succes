@@ -255,6 +255,11 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE free_cards ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0;
     CREATE UNIQUE INDEX free_cards_one_intro ON free_cards (appid) WHERE intro = 1;
     "#,
+    // v18 : un bloc seul épinglé au mode compact (sans toute sa carte) : la fenêtre compacte montre alors
+    // la carte avec ce bloc seulement.
+    r#"
+    ALTER TABLE blocks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 /// Nombre de colonnes possible pour une section ou la zone « Autres succès ».
@@ -1126,9 +1131,11 @@ pub struct Block {
     pub kind: String,
     pub position: i64,
     pub data: serde_json::Value,
+    /// Épinglé seul au mode compact (sa carte n'est pas forcément épinglée)
+    pub pinned: bool,
 }
 
-const BLOCK_COLUMNS: &str = "b.id, b.achievement_id, b.card_id, b.kind, b.position, b.data";
+const BLOCK_COLUMNS: &str = "b.id, b.achievement_id, b.card_id, b.kind, b.position, b.data, b.pinned";
 
 fn block_row(r: &rusqlite::Row) -> rusqlite::Result<Block> {
     let raw: String = r.get(5)?;
@@ -1139,6 +1146,7 @@ fn block_row(r: &rusqlite::Row) -> rusqlite::Result<Block> {
         kind: r.get(3)?,
         position: r.get(4)?,
         data: serde_json::from_str(&raw).unwrap_or(serde_json::Value::Object(Default::default())),
+        pinned: r.get(6)?,
     })
 }
 
@@ -1232,6 +1240,12 @@ pub fn update_block(conn: &Connection, id: i64, data: &serde_json::Value) -> rus
         "UPDATE blocks SET data = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, data.to_string(), now()],
     )?;
+    Ok(())
+}
+
+/// Épingle (ou retire) un bloc seul au mode compact.
+pub fn set_block_pinned(conn: &Connection, id: i64, pinned: bool) -> rusqlite::Result<()> {
+    conn.execute("UPDATE blocks SET pinned = ?2 WHERE id = ?1", params![id, pinned])?;
     Ok(())
 }
 

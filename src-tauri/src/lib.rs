@@ -137,6 +137,7 @@ pub fn run() {
             blocks::blocks_list,
             blocks::block_create,
             blocks::block_update,
+            blocks::block_set_pinned,
             blocks::block_delete,
             blocks::blocks_reorder,
             blocks::image_save,

@@ -115,6 +115,18 @@ export function saveBlock(block: Block) {
   });
 }
 
+/** Épingle (ou retire) un bloc seul au mode compact : la fenêtre compacte se recharge. */
+export async function setBlockPinned(block: Block, pinned: boolean) {
+  block.pinned = pinned;
+  try {
+    await invoke("block_set_pinned", { id: block.id, pinned });
+    structureChanged();
+  } catch (e) {
+    block.pinned = !pinned;
+    fail(e);
+  }
+}
+
 /** Envoie tout de suite les modifications en attente (changement de jeu, fermeture). */
 export async function flushBlocks() {
   const all = [...pending.values()];

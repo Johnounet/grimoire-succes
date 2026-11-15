@@ -8,9 +8,12 @@
   // - Gauche / Droite : compteur −1 / +1 ; chrono remis à zéro (à l'arrêt seulement) / lancé ou arrêté ;
   //   vidéo −10 s / lancée, lecture ou pause ; liste : décoche le dernier coché / coche le suivant.
   // Les coches de succès ne sont pas des éléments : pas de succès marqué obtenu d'une fausse touche.
-  // Un seul lecteur vidéo ouvert à la fois, pour garder la fenêtre lisible.
+  // Une carte épinglée montre tous ses éléments ; un bloc épinglé seul montre sa carte avec ce bloc seulement.
+  // Cartes en colonnes (fenêtre large sur un 2ᵉ écran) ; plusieurs vidéos peuvent être ouvertes côte à côte,
+  // une seule joue à la fois (lancer l'une met les autres en pause).
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, tick } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import CompactVideo from "./lib/blocks/CompactVideo.svelte";
   import {
     counterAdd,
@@ -22,7 +25,7 @@
     timerToggle,
   } from "./lib/blocks/ops";
   import { blocks, blocksOf, flushBlocks, listenBlockChanges, loadBlocks, saveBlock } from "./lib/blocks/store.svelte";
-  import { formatDuration, kindInfo, type Block, type CounterData, type ListData, type TimerData } from "./lib/blocks/types";
+  import { COMPACT_KINDS, formatDuration, kindInfo, type Block, type CounterData, type ListData, type TimerData } from "./lib/blocks/types";
   import { rarityText } from "./lib/filters";
   import { api, cardKey, nesting, type AchievementRow, type CardKey, type FreeCard, type GameSummary, type WorkspaceItem } from "./lib/library";
   import { clampOpacity, loadSettings, setCompactOpacity, settings } from "./lib/settings.svelte";
@@ -50,37 +53,55 @@
   let error = $state("");
   /** Élément sélectionné (id du bloc) ; à défaut, le premier. */
   let selectedId = $state<number | null>(null);
-  /** Vidéo dont le lecteur est ouvert. */
-  let openVideo = $state<number | null>(null);
+  /** Vidéos dont le lecteur est ouvert. */
+  const openVideos = new SvelteSet<number>();
   /** Lecteurs des vidéos affichées (pour les actions des raccourcis). */
   const videos: Record<number, ReturnType<typeof CompactVideo>> = {};
 
   const byId = $derived(new Map(achievements.map((a) => [a.id, a])));
   const freeById = $derived(new Map(freeCards.map((f) => [f.id, f])));
-  /** Cartes épinglées : succès ou cartes libres. Les succès rattachés à un succès épinglé le suivent
-   *  (`nested`), comme dans sa carte ; un succès rattaché ne s'épingle pas seul. */
-  const pinned = $derived.by(() => {
+  const isElement = (b: Block) => COMPACT_KINDS.includes(b.kind);
+  const elementsOf = (key: CardKey) => blocksOf(key).filter(isElement);
+  type Entry = { key: CardKey; a?: AchievementRow; free?: FreeCard; blocks: Block[] };
+  /** Cartes affichées, chacune avec les succès rattachés qui la suivent (`kids`) :
+   *  - carte épinglée : tous ses éléments, et ses rattachés avec tous les leurs ;
+   *  - sinon, carte dont des blocs sont épinglés seuls : ces blocs-là seulement. Un rattaché dont un bloc
+   *    est épinglé seul s'affiche ainsi comme une carte à part (sauf si son parent est épinglé : il y est déjà). */
+  const cards = $derived.by(() => {
     const nest = nesting(workspace);
-    const entry = (it: WorkspaceItem, nested: boolean) => {
+    const entry = (it: WorkspaceItem, all: boolean): Entry | null => {
+      const key = cardKey(it);
       const a = it.achievement_id != null ? byId.get(it.achievement_id) : undefined;
       const free = it.card_id != null ? freeById.get(it.card_id) : undefined;
-      return a || free ? [{ key: cardKey(it), a, free, nested }] : [];
+      const blocks = elementsOf(key).filter((b) => all || b.pinned);
+      return a || free ? { key, a, free, blocks } : null;
     };
+    const pinnedParent = new Set(workspace.filter((it) => it.pinned && it.card_id == null).map((it) => it.achievement_id));
     return workspace.flatMap((it) => {
-      if (!it.pinned || (it.card_id == null && nest.has(it.achievement_id ?? 0))) return [];
-      const kids = it.card_id == null ? workspace.filter((k) => k.card_id == null && nest.get(k.achievement_id ?? 0) === it.achievement_id) : [];
-      return [...entry(it, false), ...kids.flatMap((k) => entry(k, true))];
+      const parent = it.card_id == null ? nest.get(it.achievement_id ?? 0) : undefined;
+      if (it.pinned && parent == null) {
+        const main = entry(it, true);
+        if (!main) return [];
+        const kids =
+          it.card_id == null
+            ? workspace
+                .filter((k) => k.card_id == null && nest.get(k.achievement_id ?? 0) === it.achievement_id)
+                .flatMap((k) => entry(k, true) ?? [])
+            : [];
+        return [{ main, kids }];
+      }
+      if (parent != null && pinnedParent.has(parent)) return [];
+      const main = entry(it, false);
+      return main?.blocks.length ? [{ main, kids: [] as Entry[] }] : [];
     });
   });
-  const isElement = (b: Block) => b.kind === "counter" || b.kind === "timer" || b.kind === "video" || b.kind === "list";
-  const elementsOf = (key: CardKey) => blocksOf(key).filter(isElement);
   /** Éléments dans l'ordre d'affichage : c'est l'ordre de Haut / Bas. */
-  const elements = $derived(pinned.flatMap((p) => elementsOf(p.key)));
+  const elements = $derived(cards.flatMap((c) => [c.main, ...c.kids].flatMap((e) => e.blocks)));
   const selected = $derived(elements.find((b) => b.id === selectedId) ?? elements[0] ?? null);
 
   async function load(id: number) {
     if (!id) return;
-    if (id !== appid) openVideo = null;
+    if (id !== appid) openVideos.clear();
     appid = id;
     error = "";
     try {
@@ -155,6 +176,11 @@
       set(!done);
       error = String(e);
     }
+  }
+
+  /** Une vidéo démarre : les autres se mettent en pause (une seule bande-son à la fois). */
+  function pauseOthers(id: number) {
+    for (const [other, v] of Object.entries(videos)) if (Number(other) !== id) v?.pause();
   }
 
   // ----- Raccourcis globaux -----
@@ -352,7 +378,7 @@
         <div class="min-w-0 flex-1">
           <div class="truncate text-[11px] text-muted"># {d.label || "Compteur"}</div>
           <div class="font-mono text-lg leading-tight font-bold tabular-nums {reached ? 'text-ok' : ''}">
-            {d.value}{#if d.goal != null}<span class="text-sm font-normal text-muted"> / {d.goal}</span>{/if}
+            {d.value}{#if d.goal != null}<span class="text-sm font-normal text-muted">{` / ${d.goal}`}</span>{/if}
           </div>
         </div>
         <button onclick={() => counter(b, -1)} disabled={d.value <= 0} class="h-8 w-8 rounded-md border border-line font-semibold hover:bg-raised disabled:opacity-40" aria-label="Retirer">−</button>
@@ -385,7 +411,7 @@
         <div class="min-w-0 flex-1">
           <div class="truncate text-[11px] text-muted">☑ Liste</div>
           <div class="font-mono text-lg leading-tight font-bold tabular-nums {d.items.length && done === d.items.length ? 'text-ok' : ''}">
-            {done}<span class="text-sm font-normal text-muted"> / {d.items.length}</span>
+            {done}<span class="text-sm font-normal text-muted">{` / ${d.items.length}`}</span>
           </div>
         </div>
       </div>
@@ -405,15 +431,60 @@
       <CompactVideo
         bind:this={videos[b.id]}
         block={b as Block<"video">}
-        open={openVideo === b.id}
+        open={openVideos.has(b.id)}
         onopen={() => {
-          openVideo = b.id;
+          openVideos.add(b.id);
           selectedId = b.id;
         }}
-        onclose={() => (openVideo = null)}
+        onclose={() => openVideos.delete(b.id)}
+        onplaying={() => pauseOthers(b.id)}
       />
     {/if}
   </div>
+{/snippet}
+
+{#snippet card({ a, free, blocks: list }: Entry)}
+  {#if free}
+    <div class="flex items-center gap-2">
+      <button
+        onclick={() => toggleFree(free)}
+        aria-pressed={free.done}
+        aria-label={free.done ? "Marquer comme à faire" : "Marquer comme faite"}
+        class="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 text-[10px] transition
+          {free.done ? 'border-ok bg-ok text-bg' : 'border-line hover:border-muted'}"
+      >
+        {#if free.done}✓{/if}
+      </button>
+      <div class="min-w-0 flex-1 truncate text-sm font-semibold {free.title ? '' : 'text-muted'}">
+        {free.title || "Carte sans titre"}
+      </div>
+    </div>
+  {:else if a}
+    {@const icon = a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)}
+    <div class="flex items-center gap-2">
+      <button
+        onclick={() => toggle(a)}
+        aria-pressed={a.unlocked}
+        aria-label={a.unlocked ? "Marquer comme non obtenu" : "Marquer comme obtenu"}
+        class="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 text-[10px] transition
+          {a.unlocked ? 'border-ok bg-ok text-bg' : 'border-line hover:border-muted'}"
+      >
+        {#if a.unlocked}✓{/if}
+      </button>
+      {#if icon}<img src={icon} alt="" class="h-7 w-7 shrink-0 rounded {a.unlocked ? '' : 'opacity-70 grayscale'}" />{/if}
+      <div class="min-w-0 flex-1">
+        <div class="truncate text-sm font-semibold {spoiler(a) ? 'blur-[5px]' : ''}">{a.name}</div>
+        {#if a.progress && !a.unlocked && !spoiler(a)}
+          <SteamProgress progress={a.progress} small />
+        {:else if a.rarity != null}
+          <div class="text-[10px] {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+  {#each list as b (b.id)}
+    {@render element(b)}
+  {/each}
 {/snippet}
 
 <!-- L'opacité réglable ne touche que les fonds : texte, icônes et vidéo restent nets par-dessus un jeu -->
@@ -455,58 +526,23 @@
     {#if error}<p class="text-xs text-danger">{error}</p>{/if}
     {#if blocks.error}<p class="text-xs text-danger">{blocks.error}</p>{/if}
 
-    <!-- Cartes épinglées -->
-    {#each pinned as { key, a, free, nested } (key)}
-      <section class="space-y-1.5 {nested ? 'ml-3 border-l-2 border-line pl-2' : ''}">
-        {#if free}
-          <div class="flex items-center gap-2">
-            <button
-              onclick={() => toggleFree(free)}
-              aria-pressed={free.done}
-              aria-label={free.done ? "Marquer comme à faire" : "Marquer comme faite"}
-              class="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 text-[10px] transition
-                {free.done ? 'border-ok bg-ok text-bg' : 'border-line hover:border-muted'}"
-            >
-              {#if free.done}✓{/if}
-            </button>
-            <div class="min-w-0 flex-1 truncate text-sm font-medium {free.title ? '' : 'text-muted'}">
-              {free.title || "Carte sans titre"}
-            </div>
-          </div>
-        {:else if a}
-          {@const icon = a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)}
-          <div class="flex items-center gap-2">
-            <button
-              onclick={() => toggle(a)}
-              aria-pressed={a.unlocked}
-              aria-label={a.unlocked ? "Marquer comme non obtenu" : "Marquer comme obtenu"}
-              class="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 text-[10px] transition
-                {a.unlocked ? 'border-ok bg-ok text-bg' : 'border-line hover:border-muted'}"
-            >
-              {#if a.unlocked}✓{/if}
-            </button>
-            {#if icon}<img src={icon} alt="" class="h-7 w-7 shrink-0 rounded {a.unlocked ? '' : 'opacity-70 grayscale'}" />{/if}
-            <div class="min-w-0 flex-1">
-              <div class="truncate text-sm font-medium {spoiler(a) ? 'blur-[5px]' : ''}">{a.name}</div>
-              {#if a.progress && !a.unlocked && !spoiler(a)}
-                <SteamProgress progress={a.progress} small />
-              {:else if a.rarity != null}
-                <div class="text-[10px] {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</div>
-              {/if}
-            </div>
-          </div>
-        {/if}
-        {#each elementsOf(key) as b (b.id)}
-          {@render element(b)}
+    <!-- Cartes épinglées, en colonnes d'au moins 300 px (une seule dans une fenêtre étroite) -->
+    {#if cards.length}
+      <div class="grid items-start gap-2.5" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr))">
+        {#each cards as { main, kids } (main.key)}
+          <section class="space-y-1.5 rounded-lg border border-line p-2" style:background-color={seeThrough("--color-panel", 0.9)}>
+            {@render card(main)}
+            {#each kids as kid (kid.key)}
+              <div class="ml-2 space-y-1.5 border-l-2 border-line pl-2">{@render card(kid)}</div>
+            {/each}
+          </section>
         {/each}
-      </section>
-    {:else}
-      {#if appid}
-        <p class="px-2 py-6 text-center text-xs text-muted">
-          Épinglez des cartes (icône punaise) dans l'espace de travail pour les suivre ici.
-        </p>
-      {/if}
-    {/each}
+      </div>
+    {:else if appid}
+      <p class="px-2 py-6 text-center text-xs text-muted">
+        Épinglez une carte (menu ⋯ de la carte) ou un seul bloc (punaise dans l'en-tête du bloc) pour le suivre ici.
+      </p>
+    {/if}
   </div>
 
   {#if elements.length}

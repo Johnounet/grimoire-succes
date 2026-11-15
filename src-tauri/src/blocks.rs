@@ -34,6 +34,12 @@ pub fn block_update(state: State<'_, AppState>, id: i64, data: serde_json::Value
     db::update_block(&state.conn(), id, &data).map_err(err)
 }
 
+/// Épingle (ou retire) un bloc seul au mode compact.
+#[tauri::command]
+pub fn block_set_pinned(state: State<'_, AppState>, id: i64, pinned: bool) -> Result<(), String> {
+    db::set_block_pinned(&state.conn(), id, pinned).map_err(err)
+}
+
 /// Supprime un bloc. Son image éventuelle est gardée jusqu'au prochain démarrage,
 /// pour que « Annuler » puisse le recréer à l'identique.
 #[tauri::command]

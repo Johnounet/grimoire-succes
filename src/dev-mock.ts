@@ -48,7 +48,7 @@ let tags = [
 let nextTagId = tags.length + 1;
 let achievementTags: { achievement_id: number; tag_id: number }[] = [];
 const settings = new Map<string, string>();
-type MockBlock = { id: number; achievement_id: number | null; card_id: number | null; kind: string; position: number; data: unknown };
+type MockBlock = { id: number; achievement_id: number | null; card_id: number | null; kind: string; position: number; data: unknown; pinned: boolean };
 let blocks: MockBlock[] = [];
 let nextBlockId = 1;
 /** Comme `cardKey` de l'interface : succès positif, carte libre négative. */
@@ -151,8 +151,8 @@ backups.push({ id: "fermeture", created_at: Math.floor(Date.now() / 1000) - 1800
 function seedCompact() {
   freeCards = [{ id: nextFreeId++, title: "Route générale", done: false, intro: false, collapsed: false }];
   const free = freeCards[0].id;
-  const add = (owner: { achievement_id: number | null; card_id: number | null }, kind: string, data: unknown) =>
-    blocks.push({ id: nextBlockId++, ...owner, kind, position: blocks.filter((b) => ownerKey(b) === ownerKey(owner)).length, data });
+  const add = (owner: { achievement_id: number | null; card_id: number | null }, kind: string, data: unknown, pinned = false) =>
+    blocks.push({ id: nextBlockId++, ...owner, kind, position: blocks.filter((b) => ownerKey(b) === ownerKey(owner)).length, data, pinned });
   const card = { achievement_id: null, card_id: free };
   add(card, "counter", { label: "Cubes de stockage", value: 3, goal: 12, step: 1 });
   add(card, "timer", { label: "Chambre 9", target_ms: 70000, best_ms: 82000, elapsed_ms: 0, running_since: null });
@@ -160,6 +160,11 @@ function seedCompact() {
   add(card, "video", { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", markers: [{ time: 5, label: "Les éléphants" }] });
   const ach = { achievement_id: 4, card_id: null };
   add(ach, "counter", { label: "", value: 0, goal: null, step: 1 });
+  // Blocs épinglés seuls (carte non épinglée) : la carte n'apparaît qu'avec ce bloc
+  const solo = { achievement_id: 3, card_id: null };
+  add(solo, "text", { markdown: "Non épinglé : absent du mode compact" });
+  add(solo, "video", { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", markers: [] }, true);
+  add({ achievement_id: 6, card_id: null }, "video", { url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", markers: [] }, true);
   workspace = [
     { ...card, grid: null, collapsed: false, pinned: true } as MockItem,
     { ...ach, grid: null, collapsed: false, pinned: true } as MockItem,
@@ -378,6 +383,7 @@ export function installMock(label = "main") {
           kind: args.kind as string,
           position: pos,
           data: args.data,
+          pinned: false,
         };
         blocks.push(b);
         console.info("[mock] block_create", b.kind, b.id);
@@ -387,6 +393,11 @@ export function installMock(label = "main") {
         const b = blocks.find((x) => x.id === args.id);
         if (b) b.data = args.data;
         console.info("[mock] block_update", args.id, JSON.stringify(args.data));
+        return null;
+      }
+      case "block_set_pinned": {
+        const b = blocks.find((x) => x.id === args.id);
+        if (b) b.pinned = args.pinned as boolean;
         return null;
       }
       case "block_delete": {

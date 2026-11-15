@@ -54,7 +54,12 @@ export interface Block<K extends BlockKind = BlockKind> extends CardOwner {
   position: number;
   /** `collapsed` : bloc replié dans sa carte (fenêtre principale seulement), commun à tous les types. */
   data: DataByKind[K] & { collapsed?: boolean };
+  /** Épinglé seul au mode compact (sans toute sa carte). */
+  pinned: boolean;
 }
+
+/** Blocs que le mode compact sait afficher et piloter au clavier (les « éléments »). */
+export const COMPACT_KINDS: readonly BlockKind[] = ["counter", "timer", "video", "list"];
 
 export const blockKinds: { kind: BlockKind; label: string; icon: string; hint: string }[] = [
   { kind: "video", label: "Vidéo YouTube", icon: "▶", hint: "Lecteur intégré et repères de temps" },

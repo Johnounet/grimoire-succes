@@ -135,6 +135,9 @@ pub struct GuidePlace {
 pub struct GuideBlock {
     pub kind: String,
     pub data: Value,
+    /// Bloc épinglé seul au mode compact : seulement avec l'état (`keep_state`, sauvegarde)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
 }
 
 fn now() -> i64 {
@@ -218,7 +221,7 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
                         }
                     }
                 }
-                GuideBlock { kind: b.kind, data }
+                GuideBlock { kind: b.kind, data, pinned: keep_state && b.pinned }
             })
             .collect();
         let tags = achievement_id
@@ -524,7 +527,10 @@ fn import_all(
                 let file = data.get("file").and_then(Value::as_str).and_then(&mut image);
                 data["file"] = file.map(Value::from).unwrap_or(Value::Null);
             }
-            db::create_block(conn, owner, &b.kind, &data, None).map_err(err)?;
+            let created = db::create_block(conn, owner, &b.kind, &data, None).map_err(err)?;
+            if b.pinned {
+                db::set_block_pinned(conn, created.id, true).map_err(err)?;
+            }
             report.blocks += 1;
         }
 
@@ -713,7 +719,8 @@ mod tests {
         // Espace : A (en cours, épinglé), une carte libre ; C a un bloc sans être dans l'espace
         db::create_block(&mut conn, Owner::Achievement(ids[0]), "counter", &json!({"label": "cubes", "value": 7, "goal": 12, "step": 1}), None).unwrap();
         db::create_block(&mut conn, Owner::Achievement(ids[0]), "image", &json!({"file": "blocks/x.png", "caption": "carte"}), None).unwrap();
-        db::create_block(&mut conn, Owner::Achievement(ids[2]), "list", &json!({"items": [{"text": "radio", "checked": true}]}), None).unwrap();
+        let radio = db::create_block(&mut conn, Owner::Achievement(ids[2]), "list", &json!({"items": [{"text": "radio", "checked": true}]}), None).unwrap();
+        db::set_block_pinned(&conn, radio.id, true).unwrap();
         let free = db::create_free_card(&conn, 620, "Route").unwrap();
         db::create_block(&mut conn, Owner::Card(free.id), "timer", &json!({"label": "", "target_ms": null, "best_ms": 900, "elapsed_ms": 50, "running_since": null}), None).unwrap();
         let grind = db::list_tags(&conn).unwrap().into_iter().find(|t| t.name == "grind").unwrap();
@@ -752,6 +759,7 @@ mod tests {
         let backup = export(&conn, &dir, 620, true).unwrap();
         assert_eq!(backup.cards[0].blocks[0].data["value"], 7);
         assert!(backup.cards[0].workspace.as_ref().unwrap().pinned);
+        assert!(backup.cards[2].blocks[0].pinned && !guide.cards[2].blocks[0].pinned, "bloc épinglé seul : état");
         assert!(backup.cards[1].done, "carte libre cochée");
         let mut fresh = setup(&["A"]);
         let dir3 = temp_dir("c");
@@ -766,7 +774,7 @@ mod tests {
         let mut g = guide.clone();
         g.cards.push(GuideCard {
             achievement: Some(GuideAchievement { api_name: Some("B".into()), name: "b".into() }),
-            blocks: vec![GuideBlock { kind: "text".into(), data: json!({"markdown": "note"}) }],
+            blocks: vec![GuideBlock { kind: "text".into(), data: json!({"markdown": "note"}), pinned: false }],
             ..Default::default()
         });
         let r = import(&mut other, &dir2, &g).unwrap();
@@ -872,9 +880,9 @@ mod tests {
         let mut conn = setup(&["A"]);
         let mut g = guide_vide();
         g.images.insert("blocks/x.png".into(), STANDARD.encode(PNG));
-        let image = GuideBlock { kind: "image".into(), data: json!({"file": "blocks/x.png", "caption": ""}) };
-        let counter = GuideBlock { kind: "counter".into(), data: json!({"label": "cubes", "value": 0, "goal": 3, "step": 1}) };
-        let list = GuideBlock { kind: "list".into(), data: json!({"items": []}) };
+        let image = GuideBlock { kind: "image".into(), data: json!({"file": "blocks/x.png", "caption": ""}), pinned: false };
+        let counter = GuideBlock { kind: "counter".into(), data: json!({"label": "cubes", "value": 0, "goal": 3, "step": 1}), pinned: false };
+        let list = GuideBlock { kind: "list".into(), data: json!({"items": []}), pinned: false };
         let blocks = vec![image.clone(), image.clone(), counter.clone(), counter, list.clone(), list];
         g.cards.push(GuideCard {
             achievement: Some(GuideAchievement { api_name: Some("A".into()), name: "a".into() }),
@@ -961,8 +969,8 @@ mod tests {
         g.cards.push(GuideCard {
             title: Some("Route".into()),
             blocks: vec![
-                GuideBlock { kind: "image".into(), data: json!({"file": "blocks/x.png", "caption": ""}) },
-                GuideBlock { kind: "bidon".into(), data: json!({}) },
+                GuideBlock { kind: "image".into(), data: json!({"file": "blocks/x.png", "caption": ""}), pinned: false },
+                GuideBlock { kind: "bidon".into(), data: json!({}), pinned: false },
             ],
             ..Default::default()
         });
