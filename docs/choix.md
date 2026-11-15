@@ -120,6 +120,13 @@ Blocs sans succès, choisis plutôt que des blocs isolés dans l'espace.
 - **Coche** (demande de l'utilisateur, 2026-11-14, en remplacement du statut retiré) : colonne `free_cards.done` (migration v13), même case que pour un succès, liseré vert une fois cochée, carillon ; aussi dans le mode compact (rond à gauche du titre). Synchronisée dans les deux sens par l'événement `free-card-changed` (`sync.ts`), sur le modèle d'`achievement-changed` : la fenêtre principale n'écoute pas `data-changed`.
 - Titre modifiable directement dans l'en-tête (focus à la création) ; pas de description, étiquettes ni re-lock ; épingle au mode compact et tous les types de blocs conservés. Bouton « + Carte libre » dans la barre de l'espace de travail.
 
+## Préambule du jeu
+
+(demande de l'utilisateur, 2026-11-15) Texte tout en haut du guide : prérequis, choses à ne pas rater, conseils. `IntroPanel.svelte` : cadre pleine largeur au-dessus de la première section, titre modifiable (« Préambule » par défaut), repliable (`free_cards.collapsed`), fait des mêmes blocs que les cartes. Bouton « + Préambule » de la barre (absent une fois créé), suppression par son menu ⋯ (confirmation s'il a des blocs).
+
+- **C'est une carte libre marquée `intro`** (migration v17, index unique : un seul par jeu ; commandes `intro_create`, qui rend celui qui existe, et `free_card_set_collapsed`). Elle n'entre **jamais** dans l'espace de travail : `list_workspace` ne la remet pas, `save_workspace` la refuse. Donc ni colonne, ni filtres, ni tri, ni bilans des sections, ni mode compact (l'utilisateur ne veut pas d'épinglage).
+- **Guides** : exporté en tête (`intro: true`, sans place). À l'import, ses blocs rejoignent le préambule existant (créé s'il manque) avec la même règle anti-doublons que les autres cartes.
+
 ## Animations et son
 
 - Module `src/lib/motion.svelte.ts` : réglage `animations` (`system` = selon Windows, par défaut / `on` / `off`), section « Interface » des Réglages, synchronisé avec la fenêtre compacte (`motion-changed`). Animations réduites → attribut `data-reduced-motion` sur `<html>` (coupe tout le CSS, `app.css`) **et** `dur()` qui renvoie 0 pour ce qui est lancé en JS (transitions Svelte, `flip`, svelte-dnd-action). Toute nouvelle animation JS doit passer par `dur()` / `reduced()`, jamais `matchMedia` directement.

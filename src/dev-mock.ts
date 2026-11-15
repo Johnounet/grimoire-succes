@@ -35,7 +35,7 @@ let sections: { id: number; title: string; collapsed: boolean; color: string; co
 let restColumns = 4;
 let nextSectionId = 1;
 let workspace: MockItem[] = [];
-let freeCards: { id: number; title: string; done: boolean }[] = [];
+let freeCards: { id: number; title: string; done: boolean; intro: boolean; collapsed: boolean }[] = [];
 let nextFreeId = 1;
 let tags = [
   ["ratable", "#ef5b5b"],
@@ -149,7 +149,7 @@ backups.push({ id: "fermeture", created_at: Math.floor(Date.now() / 1000) - 1800
 /** Fenêtre compacte simulée (onglet « ?compact », données propres à l'onglet) : une carte épinglée
  *  de démonstration avec un élément de chaque sorte, et « Le pont le vit » épinglé avec un compteur (il a une progression Steam). */
 function seedCompact() {
-  freeCards = [{ id: nextFreeId++, title: "Route générale", done: false }];
+  freeCards = [{ id: nextFreeId++, title: "Route générale", done: false, intro: false, collapsed: false }];
   const free = freeCards[0].id;
   const add = (owner: { achievement_id: number | null; card_id: number | null }, kind: string, data: unknown) =>
     blocks.push({ id: nextBlockId++, ...owner, kind, position: blocks.filter((b) => ownerKey(b) === ownerKey(owner)).length, data });
@@ -270,9 +270,19 @@ export function installMock(label = "main") {
       case "free_cards_list":
         return freeCards.map((f) => ({ ...f }));
       case "free_card_create": {
-        const f = { id: nextFreeId++, title: String(args.title).trim(), done: false };
+        const f = { id: nextFreeId++, title: String(args.title).trim(), done: false, intro: false, collapsed: false };
         freeCards.push(f);
         return { ...f };
+      }
+      case "intro_create": {
+        let f = freeCards.find((x) => x.intro);
+        if (!f) freeCards.push((f = { id: nextFreeId++, title: "", done: false, intro: true, collapsed: false }));
+        return { ...f };
+      }
+      case "free_card_set_collapsed": {
+        const f = freeCards.find((x) => x.id === args.id);
+        if (f) f.collapsed = Boolean(args.collapsed);
+        return null;
       }
       case "free_card_rename": {
         const f = freeCards.find((x) => x.id === args.id);

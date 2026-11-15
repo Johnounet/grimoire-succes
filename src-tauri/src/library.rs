@@ -338,6 +338,17 @@ pub fn free_card_create(state: State<'_, AppState>, appid: u32, title: String) -
     db::create_free_card(&state.conn(), appid, &title).map_err(err)
 }
 
+/// Préambule du jeu : celui qui existe, sinon un nouveau.
+#[tauri::command]
+pub fn intro_create(state: State<'_, AppState>, appid: u32) -> Result<db::FreeCard, String> {
+    db::get_or_create_intro(&state.conn(), appid, "").map_err(err)
+}
+
+#[tauri::command]
+pub fn free_card_set_collapsed(state: State<'_, AppState>, id: i64, collapsed: bool) -> Result<(), String> {
+    db::set_free_card_collapsed(&state.conn(), id, collapsed).map_err(err)
+}
+
 #[tauri::command]
 pub fn free_card_rename(state: State<'_, AppState>, id: i64, title: String) -> Result<(), String> {
     db::rename_free_card(&state.conn(), id, &title).map_err(err)

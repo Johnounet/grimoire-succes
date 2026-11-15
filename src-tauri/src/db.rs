@@ -248,6 +248,13 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE sections ADD COLUMN columns INTEGER NOT NULL DEFAULT 4;
     ALTER TABLE games ADD COLUMN rest_columns INTEGER NOT NULL DEFAULT 4;
     "#,
+    // v17 : préambule du jeu (prérequis, conseils…) : une carte libre marquée `intro`, affichée en pleine
+    // largeur tout en haut, hors de l'espace de travail ; un seul par jeu. `collapsed` : préambule replié.
+    r#"
+    ALTER TABLE free_cards ADD COLUMN intro INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE free_cards ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0;
+    CREATE UNIQUE INDEX free_cards_one_intro ON free_cards (appid) WHERE intro = 1;
+    "#,
 ];
 
 /// Nombre de colonnes possible pour une section ou la zone « Autres succès ».
@@ -813,7 +820,7 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
     let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
 
     let mut stray = conn.prepare(
-        "SELECT id FROM free_cards f WHERE appid = ?1
+        "SELECT id FROM free_cards f WHERE appid = ?1 AND intro = 0
            AND NOT EXISTS (SELECT 1 FROM workspace_items w WHERE w.card_id = f.id)
          ORDER BY id",
     )?;
@@ -898,7 +905,7 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
                     (SELECT s.id FROM sections s WHERE s.id = ?10 AND s.appid = ?2),
                     ?11, -- toujours NULL : une carte libre n'est jamais rattachée (`parent_of`)
                     ?12
-             FROM free_cards WHERE id = ?1 AND appid = ?2",
+             FROM free_cards WHERE id = ?1 AND appid = ?2 AND intro = 0",
         )?;
         let mut remember = tx.prepare(
             "INSERT INTO card_sizes (achievement_id, appid, w, h)
@@ -1031,6 +1038,14 @@ pub struct FreeCard {
     pub title: String,
     /// Cochée par le joueur (faite)
     pub done: bool,
+    /// Préambule du jeu (pleine largeur en haut, hors de l'espace de travail)
+    pub intro: bool,
+    /// Préambule replié
+    pub collapsed: bool,
+}
+
+fn free_card_row(r: &rusqlite::Row) -> rusqlite::Result<FreeCard> {
+    Ok(FreeCard { id: r.get(0)?, title: r.get(1)?, done: r.get(2)?, intro: r.get(3)?, collapsed: r.get(4)? })
 }
 
 const MAX_TITLE_CHARS: usize = 200;
@@ -1040,8 +1055,8 @@ fn clean_title(title: &str) -> String {
 }
 
 pub fn list_free_cards(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<FreeCard>> {
-    let mut stmt = conn.prepare("SELECT id, title, done FROM free_cards WHERE appid = ?1 ORDER BY id")?;
-    let rows = stmt.query_map([appid], |r| Ok(FreeCard { id: r.get(0)?, title: r.get(1)?, done: r.get(2)? }))?;
+    let mut stmt = conn.prepare("SELECT id, title, done, intro, collapsed FROM free_cards WHERE appid = ?1 ORDER BY id")?;
+    let rows = stmt.query_map([appid], free_card_row)?;
     rows.collect()
 }
 
@@ -1049,10 +1064,36 @@ pub fn list_free_cards(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Fr
 /// l'y remet).
 pub fn create_free_card(conn: &Connection, appid: u32, title: &str) -> rusqlite::Result<FreeCard> {
     conn.query_row(
-        "INSERT INTO free_cards (appid, title, created_at) VALUES (?1, ?2, ?3) RETURNING id, title, done",
+        "INSERT INTO free_cards (appid, title, created_at) VALUES (?1, ?2, ?3) RETURNING id, title, done, intro, collapsed",
         params![appid, clean_title(title), now()],
-        |r| Ok(FreeCard { id: r.get(0)?, title: r.get(1)?, done: r.get(2)? }),
+        free_card_row,
     )
+}
+
+/// Préambule du jeu : celui qui existe, sinon un nouveau (un seul par jeu). Il n'entre pas dans l'espace
+/// de travail (ni `list_workspace`, ni `save_workspace`).
+pub fn get_or_create_intro(conn: &Connection, appid: u32, title: &str) -> rusqlite::Result<FreeCard> {
+    let found = conn
+        .query_row(
+            "SELECT id, title, done, intro, collapsed FROM free_cards WHERE appid = ?1 AND intro = 1",
+            [appid],
+            free_card_row,
+        )
+        .optional()?;
+    match found {
+        Some(f) => Ok(f),
+        None => conn.query_row(
+            "INSERT INTO free_cards (appid, title, created_at, intro) VALUES (?1, ?2, ?3, 1)
+             RETURNING id, title, done, intro, collapsed",
+            params![appid, clean_title(title), now()],
+            free_card_row,
+        ),
+    }
+}
+
+pub fn set_free_card_collapsed(conn: &Connection, id: i64, collapsed: bool) -> rusqlite::Result<()> {
+    conn.execute("UPDATE free_cards SET collapsed = ?2 WHERE id = ?1", params![id, collapsed])?;
+    Ok(())
 }
 
 pub fn set_free_card_done(conn: &Connection, id: i64, done: bool) -> rusqlite::Result<()> {
@@ -1440,6 +1481,24 @@ mod tests {
     }
 
     #[test]
+    fn preambule_un_par_jeu_hors_espace() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None)]), "P", None).unwrap();
+        let p = get_or_create_intro(&conn, 620, "Préambule").unwrap();
+        assert!(p.intro && !p.collapsed);
+        assert_eq!(get_or_create_intro(&conn, 620, "autre").unwrap().id, p.id, "un seul par jeu");
+        // Jamais dans l'espace de travail, même envoyé par l'interface
+        let it = WorkspaceItem { achievement_id: None, card_id: Some(p.id), collapsed: false, grid: None, pinned: false, section: None, parent: None, col: None };
+        save_workspace(&mut conn, 620, &[it]).unwrap();
+        assert!(list_workspace(&conn, 620).unwrap().iter().all(|it| it.card_id != Some(p.id)));
+        set_free_card_collapsed(&conn, p.id, true).unwrap();
+        assert!(list_free_cards(&conn, 620).unwrap().iter().any(|f| f.id == p.id && f.collapsed));
+        create_block(&mut conn, Owner::Card(p.id), "text", &serde_json::json!({"markdown": "x"}), None).unwrap();
+        delete_free_card(&conn, p.id).unwrap();
+        assert!(list_blocks(&conn, 620).unwrap().is_empty(), "blocs supprimés avec lui");
+    }
+
+    #[test]
     fn colonnes_choisies() {
         let mut conn = open_in_memory().unwrap();
         save_game(&mut conn, &game(vec![ach("A", None), ach("B", None)]), "P", None).unwrap();
@@ -1743,7 +1802,7 @@ mod tests {
         set_free_card_done(&conn, f.id, true).unwrap();
         assert_eq!(
             list_free_cards(&conn, 620).unwrap(),
-            vec![FreeCard { id: f.id, title: "Objets à ne pas rater".into(), done: true }]
+            vec![FreeCard { id: f.id, title: "Objets à ne pas rater".into(), done: true, intro: false, collapsed: false }]
         );
         set_free_card_done(&conn, f.id, false).unwrap();
 

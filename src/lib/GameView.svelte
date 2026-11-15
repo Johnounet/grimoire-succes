@@ -59,6 +59,8 @@
   let workspace = $state.raw<WorkspaceItem[]>([]);
   let freeCards = $state<FreeCard[]>([]);
   const freeById = $derived(new Map(freeCards.map((f) => [f.id, f])));
+  /** Préambule du jeu (carte libre `intro`), s'il existe. */
+  const intro = $derived(freeCards.find((f) => f.intro) ?? null);
   /** Carte libre qui vient d'être créée : son titre prend le focus. */
   let focusKey = $state<CardKey | null>(null);
   let sections = $state.raw<Section[]>([]);
@@ -226,6 +228,35 @@
       saveWorkspace(next);
     } catch (e) {
       error = `Création de la carte impossible : ${e}`;
+    }
+  }
+
+  // ----- Préambule -----
+
+  async function addIntro() {
+    const appid = game.appid;
+    try {
+      const card = await api.introCreate(appid);
+      if (appid !== game.appid) return;
+      if (!freeCards.some((f) => f.id === card.id)) freeCards.push(card);
+      focusKey = -card.id;
+      setTimeout(() => {
+        if (focusKey === -card.id) focusKey = null;
+      }, 1000);
+    } catch (e) {
+      error = `Création du préambule impossible : ${e}`;
+    }
+  }
+
+  async function collapseIntro(collapsed: boolean) {
+    const card = freeCards.find((f) => f.intro);
+    if (!card) return;
+    card.collapsed = collapsed;
+    try {
+      await api.freeCardSetCollapsed(card.id, collapsed);
+    } catch (e) {
+      card.collapsed = !collapsed;
+      error = `Enregistrement impossible : ${e}`;
     }
   }
 
@@ -440,6 +471,9 @@
         {focusSection}
         {restColumns}
         onrestcolumns={setRestColumns}
+        {intro}
+        onaddintro={addIntro}
+        onintrocollapse={collapseIntro}
         onaddsection={addSection}
         onsections={saveSections}
         ondeletesection={deleteSection}

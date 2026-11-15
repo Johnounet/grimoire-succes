@@ -119,6 +119,9 @@ export const api = {
   freeCardCreate: (appid: number, title: string) => invoke<FreeCard>("free_card_create", { appid, title }),
   freeCardRename: (id: number, title: string) => invoke<void>("free_card_rename", { id, title }),
   freeCardSetDone: (id: number, done: boolean) => invoke<void>("free_card_set_done", { id, done }),
+  /** Préambule du jeu : celui qui existe, sinon un nouveau. */
+  introCreate: (appid: number) => invoke<FreeCard>("intro_create", { appid }),
+  freeCardSetCollapsed: (id: number, collapsed: boolean) => invoke<void>("free_card_set_collapsed", { id, collapsed }),
   freeCardDelete: (id: number) => invoke<void>("free_card_delete", { id }),
   backups: () => invoke<BackupInfo[]>("backups_list"),
   backupCreate: () => invoke<BackupInfo>("backup_create"),
@@ -214,6 +217,10 @@ export interface FreeCard {
   title: string;
   /** Cochée par le joueur (faite). */
   done: boolean;
+  /** Préambule du jeu (pleine largeur en haut, hors de l'espace de travail ; un seul par jeu). */
+  intro: boolean;
+  /** Préambule replié. */
+  collapsed: boolean;
 }
 
 /** Couleurs possibles d'une section (même liste que `SECTION_COLORS` côté Rust). La teinte dépend du thème :

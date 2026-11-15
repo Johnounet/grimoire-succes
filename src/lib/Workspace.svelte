@@ -41,6 +41,7 @@
     type WorkspaceItem,
   } from "./library";
   import MoreMenu, { type MenuItem } from "./MoreMenu.svelte";
+  import IntroPanel from "./IntroPanel.svelte";
   import NestedAchievement from "./NestedAchievement.svelte";
   import { setAntiSpoiler, setStateFilter, settings } from "./settings.svelte";
   import { tags } from "./tags.svelte";
@@ -59,6 +60,9 @@
     focusSection,
     restColumns,
     onrestcolumns,
+    intro,
+    onaddintro,
+    onintrocollapse,
     revealed,
     imagesDir,
     ontoggle,
@@ -86,6 +90,10 @@
     /** Nombre de colonnes de la zone « Autres succès ». */
     restColumns: number;
     onrestcolumns: (n: number) => void;
+    /** Préambule du jeu (pleine largeur, tout en haut), s'il existe. */
+    intro: FreeCard | null;
+    onaddintro: () => void;
+    onintrocollapse: (collapsed: boolean) => void;
     revealed: SvelteSet<number>;
     imagesDir: string;
     ontoggle: (a: AchievementRow) => void;
@@ -834,6 +842,15 @@
       >
         + Carte libre
       </button>
+      {#if !intro}
+        <button
+          onclick={onaddintro}
+          class="rounded-md border border-line px-2 py-0.5 transition hover:bg-raised hover:text-fg"
+          title="Texte tout en haut du guide : prérequis, choses à ne pas rater, conseils…"
+        >
+          + Préambule
+        </button>
+      {/if}
       <button
         onclick={onaddsection}
         class="rounded-md border border-line px-2 py-0.5 transition hover:bg-raised hover:text-fg"
@@ -868,6 +885,16 @@
   </div>
 
   <div class="flex flex-1 flex-col gap-3 px-6 pt-3 pb-6">
+    {#if intro}
+      <IntroPanel
+        {intro}
+        {imagesDir}
+        focusTitle={focusKey === -intro.id}
+        onrename={(title) => onrename(intro.id, title)}
+        oncollapse={onintrocollapse}
+        ondelete={() => ondeletefree(intro.id)}
+      />
+    {/if}
     {#each shown as { g, list }, i (g.key)}
       {#if g.section}
         {@const s = g.section}

@@ -86,6 +86,10 @@ pub struct GuideCard {
     /// Carte libre cochée : gardé seulement avec l'état (sauvegarde), comme les coches des succès ne le sont jamais
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub done: bool,
+    /// Préambule du jeu (carte libre en pleine largeur tout en haut) ; à l'import, ses blocs rejoignent le
+    /// préambule existant s'il y en a un
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub intro: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -237,6 +241,7 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
                 .map(|a| GuideAchievement { api_name: a.api_name.clone(), name: a.name.clone() }),
             title: card_id.map(|id| free_cards.get(&id).map(|f| f.title.clone()).unwrap_or_default()),
             done: keep_state && card_id.and_then(|id| free_cards.get(&id)).is_some_and(|f| f.done),
+            intro: card_id.and_then(|id| free_cards.get(&id)).is_some_and(|f| f.intro),
             workspace: place,
             tags,
             blocks,
@@ -245,7 +250,12 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
 
     // Succès qui en contiennent d'autres : gardés dans le guide, pour que le rattachement s'y retrouve
     let parents: HashSet<i64> = workspace.iter().filter_map(|it| it.parent).collect();
+    // Préambule en tête du guide (il n'est pas dans l'espace de travail)
     let mut cards = Vec::new();
+    let intro_id = free_cards.values().find(|f| f.intro).map(|f| f.id);
+    if let Some(id) = intro_id {
+        cards.push(card(None, Some(id), None));
+    }
     for it in workspace {
         // Vue unique : tous les succès sont dans l'espace. Seuls ceux qui portent quelque chose de
         // personnel (blocs, étiquettes, section, épingle) vont dans le guide, pas les 200 succès du jeu.
@@ -457,6 +467,11 @@ fn import_all(
         });
 
         let owner = match (&c.achievement, matched) {
+            // Préambule : ses blocs rejoignent celui du jeu (créé s'il n'existe pas), sans place dans l'espace
+            (None, _) if c.intro => {
+                let f = db::get_or_create_intro(conn, appid, c.title.as_deref().unwrap_or_default()).map_err(err)?;
+                Owner::Card(f.id)
+            }
             (Some(_), Some(id)) => Owner::Achievement(id),
             (achievement, _) => {
                 // Carte libre, ou succès introuvable : carte libre à son nom
@@ -882,6 +897,27 @@ mod tests {
         g.cards[0].blocks.truncate(2);
         let r2 = import(&mut conn2, &dir, &g).unwrap();
         assert_eq!((r2.blocks, r2.duplicates), (1, 1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn preambule_suit_le_guide() {
+        let dir = temp_dir("p");
+        let mut conn = setup(&["A"]);
+        let p = db::get_or_create_intro(&conn, 620, "Avant de commencer").unwrap();
+        db::create_block(&mut conn, Owner::Card(p.id), "text", &json!({"markdown": "Difficulté sans effet"}), None).unwrap();
+        let guide = export(&conn, &dir, 620, false).unwrap();
+        assert!(guide.cards[0].intro && guide.cards[0].workspace.is_none(), "en tête, sans place dans l'espace");
+
+        let mut other = setup(&["A"]);
+        let r = import(&mut other, &dir, &guide).unwrap();
+        assert_eq!((r.blocks, r.free_cards), (1, 0));
+        let intro = db::list_free_cards(&other, 620).unwrap().into_iter().find(|f| f.intro).unwrap();
+        assert_eq!(intro.title, "Avant de commencer");
+        assert!(db::list_workspace(&other, 620).unwrap().iter().all(|it| it.card_id != Some(intro.id)));
+        // Réimporter ne double rien
+        assert_eq!(import(&mut other, &dir, &guide).unwrap().blocks, 0);
+        assert_eq!(db::list_free_cards(&other, 620).unwrap().len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
