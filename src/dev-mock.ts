@@ -31,7 +31,8 @@ const achievements = [
 
 const cardSizes = new Map<number, { w: number; h: number }>();
 type MockItem = { achievement_id: number | null; card_id: number | null; grid: { w: number; h: number } | null; section?: number | null };
-let sections: { id: number; title: string; collapsed: boolean; color: string }[] = [];
+let sections: { id: number; title: string; collapsed: boolean; color: string; columns: number }[] = [];
+let restColumns = 4;
 let nextSectionId = 1;
 let workspace: MockItem[] = [];
 let freeCards: { id: number; title: string; done: boolean }[] = [];
@@ -288,10 +289,15 @@ export function installMock(label = "main") {
         workspace = workspace.filter((it) => it.card_id !== args.id);
         blocks = blocks.filter((b) => b.card_id !== args.id);
         return null;
+      case "rest_columns_get":
+        return restColumns;
+      case "rest_columns_set":
+        restColumns = Math.max(1, Math.min(6, Number(args.columns)));
+        return null;
       case "sections_list":
         return sections.map((x) => ({ ...x }));
       case "section_create": {
-        const x = { id: nextSectionId++, title: String(args.title).trim(), collapsed: false, color: String(args.color) };
+        const x = { id: nextSectionId++, title: String(args.title).trim(), collapsed: false, color: String(args.color), columns: 4 };
         sections.push(x);
         return { ...x };
       }

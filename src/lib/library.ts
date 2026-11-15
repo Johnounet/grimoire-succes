@@ -110,6 +110,9 @@ export const api = {
     invoke<Section>("section_create", { appid, title, color }),
   /** Titre, état replié, couleur et ordre (celui de la liste) des sections du jeu. */
   sectionsSave: (appid: number, sections: Section[]) => invoke<void>("sections_save", { appid, sections }),
+  /** Nombre de colonnes de la zone « Autres succès » (cartes hors section) du jeu. */
+  restColumns: (appid: number) => invoke<number>("rest_columns_get", { appid }),
+  restColumnsSet: (appid: number, columns: number) => invoke<void>("rest_columns_set", { appid, columns }),
   /** Supprime la section ; ses cartes encore dans l'espace passent hors section. */
   sectionDelete: (id: number) => invoke<void>("section_delete", { id }),
   freeCards: (appid: number) => invoke<FreeCard[]>("free_cards_list", { appid }),
@@ -236,7 +239,12 @@ export interface Section {
   title: string;
   collapsed: boolean;
   color: SectionColor;
+  /** Nombre de colonnes (1 à MAX_COLUMNS). */
+  columns: number;
 }
+
+/** Nombre de colonnes possible d'une section ou de la zone « Autres succès » (même valeur côté Rust). */
+export const MAX_COLUMNS = 6;
 
 /** Ce qui porte une carte de l'espace de travail ou un bloc : un succès ou une carte libre (l'un des deux). */
 export interface CardOwner {
@@ -267,6 +275,9 @@ export interface WorkspaceItem extends CardOwner {
   /** Succès rattaché : id du succès dans la carte duquel il s'affiche (un seul niveau). Sa carte
    *  disparaît de la vue ; sa section suit celle du parent. */
   parent?: number | null;
+  /** Colonne choisie dans sa section (à partir de 0) ; absente : pas encore placée (la vue la range
+   *  dans la colonne qui a le moins de cartes). */
+  col?: number | null;
 }
 
 /**

@@ -62,6 +62,8 @@
   /** Carte libre qui vient d'être créée : son titre prend le focus. */
   let focusKey = $state<CardKey | null>(null);
   let sections = $state.raw<Section[]>([]);
+  /** Nombre de colonnes de la zone « Autres succès ». */
+  let restColumns = $state(4);
   /** Section qui vient d'être créée : son titre prend le focus. */
   let focusSection = $state<number | null>(null);
   /** Succès cachés révélés (liste et cartes), oubliés en changeant de jeu. */
@@ -107,11 +109,16 @@
     api.freeCards(appid).then((f) => {
       if (appid === game.appid) freeCards = f;
     });
-    // Sections avant les cartes : une carte n'est rangée dans sa section que si celle-ci est connue
-    api.sections(appid)
-      .then((s) => {
+    // Sections (et colonnes) avant les cartes : une carte n'est rangée dans sa section que si celle-ci
+    // est connue, et une carte pas encore placée va dans la colonne qui a le moins de cartes
+    Promise.all([
+      api.sections(appid).then((s) => {
         if (appid === game.appid) sections = s;
-      })
+      }),
+      api.restColumns(appid).then((n) => {
+        if (appid === game.appid) restColumns = n;
+      }),
+    ])
       .finally(() =>
         api.workspaceList(appid).then((w) => {
           if (appid === game.appid) workspace = w;
@@ -158,6 +165,14 @@
     saving = saving
       .then(() => api.sectionsSave(appid, next))
       .catch((e) => (error = `Enregistrement des sections impossible : ${e}`));
+  }
+
+  function setRestColumns(n: number) {
+    const appid = game.appid;
+    restColumns = n;
+    saving = saving
+      .then(() => api.restColumnsSet(appid, n))
+      .catch((e) => (error = `Enregistrement des colonnes impossible : ${e}`));
   }
 
   async function addSection() {
@@ -207,7 +222,7 @@
       const section = sections[0]?.id ?? null;
       const at = Math.max(0, workspace.findIndex((it) => (it.section ?? null) === section));
       const next = [...workspace];
-      next.splice(at, 0, { achievement_id: null, card_id: card.id, collapsed: false, grid: null, pinned: false, section });
+      next.splice(at, 0, { achievement_id: null, card_id: card.id, collapsed: false, grid: null, pinned: false, section, col: 0 });
       saveWorkspace(next);
     } catch (e) {
       error = `Création de la carte impossible : ${e}`;
@@ -423,6 +438,8 @@
         items={workspace}
         {sections}
         {focusSection}
+        {restColumns}
+        onrestcolumns={setRestColumns}
         onaddsection={addSection}
         onsections={saveSections}
         ondeletesection={deleteSection}

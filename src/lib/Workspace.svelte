@@ -4,13 +4,16 @@
   // en haut. Un succès sans guide est une ligne compacte, une carte complète dès son premier bloc.
   // Chaque carte est repérée par sa `cardKey` (succès positif, carte libre négative).
   //
-  // Ordre (« Mon ordre ») : celui de `items`, toujours rangé sections dans l'ordre puis hors section
-  // (mode compact, export). Déplacement par clics : ⇅ sur une carte, puis clic sur la carte devant
-  // laquelle la placer, ou « Mettre à la fin » sur l'en-tête d'une section.
+  // Colonnes choisies par le joueur (2026-11-15) : chaque section (et « Autres succès ») a son nombre de
+  // colonnes, chaque carte sa colonne (`col`). « Mon ordre » = celui de `items`, toujours rangé sections dans
+  // l'ordre puis hors section, et dans chaque groupe colonne par colonne (mode compact, export). Une carte
+  // pas encore placée (`col` absent : nouveau succès…) va dans la colonne qui a le moins de cartes.
+  // Déplacement par clics : ⇅ sur une carte, puis clic sur la moitié haute (au-dessus) ou basse (en
+  // dessous) d'une autre carte, ou sur « Mettre ici » en bas d'une colonne.
   //
   // Succès rattachés (`parent`) : un succès obtenu forcément en passant par un autre s'affiche dans la
   // carte de celui-ci, plus dans les colonnes. Un seul niveau (`nesting`) ; sa section suit celle du parent.
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import type { SvelteSet } from "svelte/reactivity";
   import { blocksOf } from "./blocks/store.svelte";
   import Columns from "./Columns.svelte";
@@ -32,6 +35,7 @@
     type FreeCard,
     sectionColor,
     sectionColorLabel,
+    MAX_COLUMNS,
     SECTION_COLORS,
     type Section,
     type WorkspaceItem,
@@ -53,6 +57,8 @@
     freeById,
     focusKey,
     focusSection,
+    restColumns,
+    onrestcolumns,
     revealed,
     imagesDir,
     ontoggle,
@@ -77,6 +83,9 @@
     focusKey: CardKey | null;
     /** Section qui vient d'être créée (son titre prend le focus). */
     focusSection: number | null;
+    /** Nombre de colonnes de la zone « Autres succès ». */
+    restColumns: number;
+    onrestcolumns: (n: number) => void;
     revealed: SvelteSet<number>;
     imagesDir: string;
     ontoggle: (a: AchievementRow) => void;
@@ -87,7 +96,7 @@
     /** Carte libre supprimée (avec ses blocs). */
     ondeletefree: (id: number) => void;
     onaddsection: () => void;
-    /** Sections modifiées (titre, état replié, couleur, ordre). */
+    /** Sections modifiées (titre, état replié, couleur, colonnes, ordre). */
     onsections: (sections: Section[]) => void;
     /** Supprime la section ; ses cartes passent dans « Autres succès ». */
     ondeletesection: (id: number) => void;
@@ -207,8 +216,53 @@
     return [...free, ...rows.map((a) => byAch.get(a.id)!)];
   }
   const shown = $derived(groups.map((g) => ({ g, list: shownOf(g) })));
-  /** Rang de chaque carte affichée dans son groupe (1, 2, 3…), montré pendant un déplacement. */
-  const rank = $derived(new Map(shown.flatMap(({ list }) => list.map((it, i) => [cardKey(it), i + 1] as const))));
+
+  // ----- Colonnes -----
+  /** Nombre de colonnes d'un groupe. */
+  const columnsOf = (g: Group) => Math.max(1, Math.min(MAX_COLUMNS, g.section ? (g.section.columns ?? 4) : restColumns));
+  /** Colonne enregistrée d'une carte, bornée au nombre de colonnes (pas encore placée : 0, en attendant). */
+  const colIn = (it: WorkspaceItem, cols: number) => Math.max(0, Math.min(cols - 1, it.col ?? 0));
+  /** Colonne affichée de chaque carte d'un groupe : la sienne en « Mon ordre » ; avec un autre tri, les cartes
+   *  sont réparties de gauche à droite (la colonne enregistrée n'est pas touchée). */
+  function colMap(list: WorkspaceItem[], cols: number): Map<CardKey, number> {
+    return new Map(list.map((it, i) => [cardKey(it), filters.sort === "personal" ? colIn(it, cols) : i % cols]));
+  }
+
+  /** Cartes pas encore placées (`col` absent) : chacune dans la colonne de son groupe qui a le moins de
+   *  cartes (la plus à gauche à égalité), dans l'ordre. Liste modifiée, ou null s'il n'y avait rien à placer. */
+  function placeUnplaced(list: WorkspaceItem[]): WorkspaceItem[] | null {
+    const top = (it: WorkspaceItem) => parentOf(it) == null;
+    if (!list.some((it) => top(it) && it.col == null)) return null;
+    const out = [...list];
+    for (const g of groups) {
+      const cols = columnsOf(g);
+      const count = Array<number>(cols).fill(0);
+      for (const it of g.items) if (top(it) && it.col != null) count[colIn(it, cols)]++;
+      for (const it of g.items) {
+        if (!top(it) || it.col != null) continue;
+        const c = count.indexOf(Math.min(...count));
+        count[c]++;
+        const i = out.indexOf(it);
+        if (i >= 0) out[i] = { ...it, col: c };
+      }
+    }
+    return out;
+  }
+  // Au premier affichage (cartes rangées avant les colonnes), puis pour chaque nouvelle carte
+  $effect(() => {
+    const next = placeUnplaced(items);
+    if (next) untrack(() => emit(next));
+  });
+
+  /** Change le nombre de colonnes d'un groupe. Les cartes des colonnes supprimées vont en bas de la dernière
+   *  colonne restante, dans leur ordre ; les nouvelles colonnes arrivent vides. */
+  function setColumns(g: Group, cols: number) {
+    cols = Math.max(1, Math.min(MAX_COLUMNS, cols));
+    if (g.section) patchSection(g.section.id, { columns: cols });
+    else onrestcolumns(cols);
+    const out = g.items.filter((it) => parentOf(it) == null && (it.col ?? 0) >= cols);
+    if (out.length) emit([...items.filter((it) => !out.includes(it)), ...out.map((it) => ({ ...it, col: cols - 1 }))]);
+  }
   const shownCount = $derived(shown.reduce((s, x) => s + x.list.length, 0));
 
   /** Bilan d'un groupe : succès obtenus / succès (hors retirés de Steam), et cartes libres. */
@@ -221,10 +275,12 @@
     return { total: achs.length, done, free: g.items.filter((it) => it.card_id != null).length };
   }
 
-  /** Range les cartes : sections dans l'ordre, puis hors section (ordre relatif conservé). */
+  /** Range les cartes : sections dans l'ordre, puis hors section ; dans chaque groupe, colonne par colonne
+   *  (ordre relatif conservé dans une colonne). */
   function ordered(list: WorkspaceItem[]): WorkspaceItem[] {
     const of = (it: WorkspaceItem) => (it.section != null && known.has(it.section) ? it.section : null);
-    return [...sections.flatMap((s) => list.filter((it) => of(it) === s.id)), ...list.filter((it) => of(it) == null)];
+    const byCol = (l: WorkspaceItem[]) => l.map((it, i) => ({ it, i })).sort((a, b) => (a.it.col ?? 0) - (b.it.col ?? 0) || a.i - b.i).map((x) => x.it);
+    return [...sections.flatMap((s) => byCol(list.filter((it) => of(it) === s.id))), ...byCol(list.filter((it) => of(it) == null))];
   }
   function emit(list: WorkspaceItem[]) {
     // Les succès rattachés prennent la section de leur parent (rangement, et place s'ils sont détachés)
@@ -326,24 +382,33 @@
     );
   }
 
-  /** Place la carte déplacée juste avant `target` (et dans sa section). */
-  function placeBefore(target: WorkspaceItem) {
+  /** Place la carte déplacée au-dessus (`after` faux) ou en dessous de `target`, dans sa section et sa colonne. */
+  function placeNear(target: WorkspaceItem, after: boolean) {
     const key = moving;
     if (key == null || key === cardKey(target)) return void (moving = null);
     const it = items.find((x) => cardKey(x) === key);
     if (!it) return;
     const rest = items.filter((x) => cardKey(x) !== key);
-    const at = rest.findIndex((x) => cardKey(x) === cardKey(target));
-    rest.splice(at, 0, { ...it, section: sectionOf(target) });
+    const at = rest.indexOf(target) + (after ? 1 : 0);
+    rest.splice(at, 0, { ...it, section: sectionOf(target), col: target.col ?? 0 });
     emit(rest);
     moved(key);
   }
 
-  /** Met la carte à la fin d'une section (null : hors section). */
+  /** Met la carte déplacée en bas d'une colonne d'une section (null : hors section). */
+  function toColumn(section: number | null, col: number) {
+    const key = moving;
+    const it = key != null ? items.find((x) => cardKey(x) === key) : undefined;
+    if (key == null || !it) return;
+    emit([...items.filter((x) => cardKey(x) !== key), { ...it, section, col }]);
+    moved(key);
+  }
+
+  /** Met la carte à la fin d'une section (null : hors section), dans la colonne qui a le moins de cartes. */
   function toEnd(key: CardKey, section: number | null) {
     const it = items.find((x) => cardKey(x) === key);
     if (!it) return;
-    emit([...items.filter((x) => cardKey(x) !== key), { ...it, section }]);
+    emit([...items.filter((x) => cardKey(x) !== key), { ...it, section, col: null }]);
     moved(key);
   }
 
@@ -410,7 +475,7 @@
     if (!it || p == null) return;
     const rest = items.filter((x) => x !== it);
     const at = rest.findIndex((x) => x.card_id == null && x.achievement_id === p);
-    rest.splice(at + 1, 0, { ...it, parent: null, section: sectionOf(it) });
+    rest.splice(at + 1, 0, { ...it, parent: null, section: sectionOf(it), col: itemOfAch.get(p)?.col ?? 0 });
     emit(rest);
     moved(id);
   }
@@ -514,36 +579,39 @@
         <span class="mt-1 rounded bg-accent px-2 py-0.5 text-xs font-semibold text-on-accent shadow">↳ Rattacher dans ce succès</span>
       </button>
     {/if}
-    {#if moving != null}
-      <!-- Rang de la carte dans sa section : l'ordre réel, visible avant de choisir où poser la carte -->
-      <span
-        class="pointer-events-none absolute -top-1.5 -left-1.5 z-20 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px]
-          font-bold tabular-nums shadow {moving === key ? 'bg-accent text-on-accent' : 'border border-line bg-raised text-fg'}"
-        aria-hidden="true">{rank.get(key)}</span
-      >
-    {/if}
     {#if moving != null && moving !== key}
-      <!-- Cible du déplacement : toute la carte -->
-      <button
-        onclick={() => placeBefore(it)}
-        aria-label="Placer ici, avant cette carte"
-        class="move-target absolute inset-0 z-10 flex items-start justify-center rounded-[4px] border-2 border-dashed border-transparent
-          transition hover:border-accent hover:bg-accent/10"
-      >
-        <span class="mt-1 rounded bg-accent px-2 py-0.5 text-xs font-semibold text-on-accent shadow">↑ Placer ici, avant</span>
-      </button>
+      <!-- Cibles du déplacement : moitié haute (au-dessus), moitié basse (en dessous) -->
+      <div class="absolute inset-0 z-10 flex flex-col">
+        <button onclick={() => placeNear(it, false)} aria-label="Placer au-dessus de cette carte" class="half half-top">
+          <span>↑ Placer au-dessus</span>
+        </button>
+        <button onclick={() => placeNear(it, true)} aria-label="Placer en dessous de cette carte" class="half half-bottom">
+          <span>↓ Placer en dessous</span>
+        </button>
+      </div>
     {/if}
   </div>
 {/snippet}
 
 {#snippet cards(list: WorkspaceItem[], g: Group)}
-  {#if list.length}
-    <Columns items={list} key={cardKey}>
+  {@const cols = columnsOf(g)}
+  {@const colOfKey = colMap(list, cols)}
+  {#if list.length || moving != null}
+    <Columns items={list} key={cardKey} columns={cols} colOf={(it) => colOfKey.get(cardKey(it)) ?? 0} footer={moving != null ? foot : undefined}>
       {#snippet children(it)}{@render card(it)}{/snippet}
     </Columns>
+    {#snippet foot(c: number)}
+      <button
+        onclick={() => toColumn(g.section?.id ?? null, c)}
+        class="grid h-full w-full place-items-center rounded-[4px] border-2 border-dashed border-ok/50 text-xs font-semibold text-ok
+          transition hover:border-ok hover:bg-ok/10"
+      >
+        Mettre ici
+      </button>
+    {/snippet}
   {:else if g.items.length === 0}
     <p class="px-1 py-2 text-sm text-muted">
-      Section vide : choisissez « Déplacer vers… » dans le menu ⋯ d'une carte, ou ⇅ puis « Mettre à la fin ».
+      Section vide : choisissez « Déplacer vers… » dans le menu ⋯ d'une carte, ou ⇅ puis « Mettre ici ».
     </p>
   {:else}
     <p class="px-1 py-2 text-sm text-muted">Rien à afficher avec ces filtres.</p>
@@ -559,6 +627,29 @@
       Mettre à la fin {section == null ? "des autres succès" : "de cette section"}
     </button>
   {/if}
+{/snippet}
+
+<!-- Nombre de colonnes d'un groupe -->
+{#snippet colsStepper(g: Group)}
+  {@const cols = columnsOf(g)}
+  <span class="flex shrink-0 items-center gap-0.5 text-xs text-muted" role="group" aria-label="Nombre de colonnes">
+    <span class="mr-0.5" title="Nombre de colonnes">Colonnes</span>
+    <button
+      onclick={() => setColumns(g, cols - 1)}
+      disabled={cols <= 1}
+      aria-label="Une colonne de moins"
+      title="Une colonne de moins (ses cartes vont en bas de la dernière colonne)"
+      class="grid h-6 w-6 place-items-center rounded transition hover:bg-raised hover:text-fg disabled:opacity-30">−</button
+    >
+    <span class="w-3 text-center font-semibold text-fg tabular-nums">{cols}</span>
+    <button
+      onclick={() => setColumns(g, cols + 1)}
+      disabled={cols >= MAX_COLUMNS}
+      aria-label="Une colonne de plus"
+      title="Une colonne de plus"
+      class="grid h-6 w-6 place-items-center rounded transition hover:bg-raised hover:text-fg disabled:opacity-30">+</button
+    >
+  </span>
 {/snippet}
 
 <!-- En-tête d'une section : poignée, repli, couleur, titre, bilan, menu -->
@@ -620,6 +711,7 @@
         placeholder:font-normal placeholder:text-muted hover:border-line focus:border-accent focus:bg-bg"
     />
     {@render endButton(s.id)}
+    {#if !s.collapsed}{@render colsStepper(g)}{/if}
     <span class="shrink-0 text-xs text-muted tabular-nums">
       {#if t.total > 0}
         <span class={t.done === t.total ? "font-semibold text-ok" : ""}>{t.done} / {t.total}</span>
@@ -758,8 +850,8 @@
     {#if moving != null}
       <div class="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-accent/60 bg-raised px-3 py-2 text-sm shadow-lg">
         <span class="min-w-0 flex-1">
-          Déplacement de <strong>« {movingLabel} »</strong> : cliquez sur la carte devant laquelle la placer, ou sur
-          « Mettre à la fin » dans l'en-tête d'une section.
+          Déplacement de <strong>« {movingLabel} »</strong> : cliquez en haut d'une carte pour la placer au-dessus, en
+          bas pour la placer en dessous, ou sur « Mettre ici » au bas d'une colonne.
         </span>
         <button onclick={() => (moving = null)} class="rounded-md border border-line px-2 py-0.5 hover:bg-panel">Annuler (Échap)</button>
       </div>
@@ -797,11 +889,14 @@
           <div class="section-head flex items-center gap-2 border-b px-3 py-1.5 text-sm">
             <span class="font-semibold">Autres succès</span>
             {@render endButton(null)}
+            <span class="ml-auto"></span>
+            {@render colsStepper(g)}
             <span class="text-xs text-muted tabular-nums">{t.done} / {t.total}</span>
           </div>
           <div class="p-2.5">{@render cards(list, g)}</div>
         </section>
       {:else}
+        <div class="mb-1 flex justify-end">{@render colsStepper(g)}</div>
         {@render cards(list, g)}
       {/if}
     {/each}
@@ -839,6 +934,62 @@
   /* Cible de déplacement : le libellé n'apparaît qu'au survol */
   .move-target:not(:hover):not(:focus-visible) span {
     visibility: hidden;
+  }
+  /* Moitiés d'une carte pendant un déplacement : trait vert au-dessus ou en dessous au survol */
+  .half {
+    position: relative;
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    border-radius: 4px;
+  }
+  .half-top {
+    align-items: flex-start;
+  }
+  .half-bottom {
+    align-items: flex-end;
+  }
+  .half span {
+    visibility: hidden;
+    margin: 2px 0;
+    border-radius: 4px;
+    background: var(--color-ok);
+    color: var(--color-bg);
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+    white-space: nowrap;
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+  }
+  .half:hover,
+  .half:focus-visible {
+    background: color-mix(in srgb, var(--color-ok) 10%, transparent);
+    outline: none;
+  }
+  .half:hover span,
+  .half:focus-visible span {
+    visibility: visible;
+  }
+  .half::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--color-ok);
+    opacity: 0;
+  }
+  .half-top::after {
+    top: -6px;
+  }
+  .half-bottom::after {
+    bottom: -6px;
+  }
+  .half:hover::after,
+  .half:focus-visible::after {
+    opacity: 1;
   }
   /* Carte qui vient d'être déplacée */
   .landed :global(.ws-card) {

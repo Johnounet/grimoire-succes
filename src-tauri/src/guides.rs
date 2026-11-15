@@ -102,6 +102,13 @@ pub struct GuideSection {
     pub collapsed: bool,
     #[serde(default)]
     pub color: String,
+    /// Nombre de colonnes (absent des guides d'avant Grimoire 0.3 : 4)
+    #[serde(default = "four")]
+    pub columns: i64,
+}
+
+fn four() -> i64 {
+    4
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,6 +122,9 @@ pub struct GuidePlace {
     /// Succès dans la carte duquel celui-ci est rattaché (un seul niveau)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<GuideAchievement>,
+    /// Colonne de la carte dans sa section (à partir de 0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub col: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -259,6 +269,7 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
                 .parent
                 .and_then(|id| by_id.get(&id))
                 .map(|a| GuideAchievement { api_name: a.api_name.clone(), name: a.name.clone() }),
+            col: it.col,
         };
         cards.push(card(it.achievement_id, it.card_id, Some(place)));
     }
@@ -279,7 +290,7 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
         game: GuideGame { appid, name: game.name },
         keeps_state: keep_state,
         tags,
-        sections: sections.into_iter().map(|s| GuideSection { title: s.title, collapsed: s.collapsed, color: s.color }).collect(),
+        sections: sections.into_iter().map(|s| GuideSection { title: s.title, collapsed: s.collapsed, color: s.color, columns: s.columns }).collect(),
         cards,
         images,
     })
@@ -411,7 +422,7 @@ fn import_all(
             Some(s) => s.id,
             None => {
                 let s = db::create_section(conn, appid, &gs.title, &gs.color).map_err(err)?;
-                local_sections.push(db::Section { collapsed: gs.collapsed, ..s.clone() });
+                local_sections.push(db::Section { collapsed: gs.collapsed, columns: gs.columns, ..s.clone() });
                 s.id
             }
         };
@@ -427,8 +438,9 @@ fn import_all(
         pinned: p.pinned,
         section: p.section.and_then(|i| section_ids.get(i).copied()),
         parent: None,
+        col: p.col,
     };
-    let default_place = GuidePlace { collapsed: false, grid: None, pinned: false, section: None, parent: None };
+    let default_place = GuidePlace { collapsed: false, grid: None, pinned: false, section: None, parent: None, col: None };
     let find = |a: &GuideAchievement| -> Option<i64> {
         a.api_name.as_deref().and_then(|n| by_api.get(n)).or_else(|| by_name.get(a.name.as_str())).copied()
     };
@@ -537,6 +549,7 @@ fn import_all(
                     if let Some(i) = workspace.iter().position(|it| it.achievement_id == Some(id) && it.section.is_none()) {
                         let mut it = workspace.remove(i);
                         it.section = Some(section);
+                        it.col = p.col;
                         workspace.push(it);
                         report.placed += 1;
                     }
@@ -698,6 +711,7 @@ mod tests {
             pinned: true,
             section: None,
             parent: None,
+            col: None,
         };
         let phase = db::create_section(&conn, 620, "Phase 1", "ambre").unwrap();
         let in_phase = WorkspaceItem { section: Some(phase.id), ..item(Some(ids[0]), None) };
@@ -716,7 +730,7 @@ mod tests {
         assert!(guide.cards[2].workspace.is_none() && guide.cards[2].blocks[0].data["items"][0]["checked"] == false);
         assert_eq!(guide.tags, vec![GuideTag { name: "grind".into(), color: grind.color.clone() }]);
         assert!(guide.images.contains_key("blocks/x.png"));
-        assert_eq!(guide.sections, vec![GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into() }]);
+        assert_eq!(guide.sections, vec![GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into(), columns: 4 }]);
         assert_eq!(guide.cards[0].workspace.as_ref().unwrap().section, Some(0));
         assert_eq!(guide.cards[1].workspace.as_ref().unwrap().section, None);
         // Sauvegarde : l'état est gardé
@@ -777,7 +791,7 @@ mod tests {
         db::create_block(&mut conn, Owner::Achievement(ids[1]), "text", &json!({"markdown": "note"}), None).unwrap();
         let mut ws: Vec<WorkspaceItem> = ids
             .iter()
-            .map(|&id| WorkspaceItem { achievement_id: Some(id), card_id: None, collapsed: false, grid: None, pinned: false, section: None, parent: None })
+            .map(|&id| WorkspaceItem { achievement_id: Some(id), card_id: None, collapsed: false, grid: None, pinned: false, section: None, parent: None, col: None })
             .collect();
         ws[1].section = Some(phase.id);
         db::save_workspace(&mut conn, 620, &ws).unwrap();
@@ -817,8 +831,8 @@ mod tests {
         let mut conn = setup(&["A"]);
         let before = db::list_tags(&conn).unwrap().len();
         let mut g = guide_vide();
-        g.sections.push(GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into() });
-        let place = GuidePlace { collapsed: false, grid: None, pinned: false, section: Some(0), parent: None };
+        g.sections.push(GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into(), columns: 4 });
+        let place = GuidePlace { collapsed: false, grid: None, pinned: false, section: Some(0), parent: None, col: None };
         g.cards.push(GuideCard {
             achievement: Some(GuideAchievement { api_name: Some("A".into()), name: "a".into() }),
             tags: vec!["Grind ".into(), "x".repeat(41), "  ".into()],
@@ -884,6 +898,7 @@ mod tests {
             pinned: false,
             section: None,
             parent,
+            col: None,
         };
         db::save_workspace(&mut conn, 620, &[item(ids[0], None), item(ids[1], Some(ids[0])), item(ids[2], None)]).unwrap();
         let guide = export(&conn, &dir, 620, false).unwrap();
@@ -905,7 +920,7 @@ mod tests {
         let dir = temp_dir("d");
         let mut conn = setup(&["A"]);
         let mut g = guide_vide();
-        g.sections.push(GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into() });
+        g.sections.push(GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into(), columns: 4 });
         g.images.insert("blocks/x.png".into(), STANDARD.encode(PNG));
         g.cards.push(GuideCard {
             title: Some("Route".into()),

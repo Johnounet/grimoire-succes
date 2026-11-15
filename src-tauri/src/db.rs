@@ -240,7 +240,21 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE workspace_items ADD COLUMN parent_id INTEGER REFERENCES achievements(id) ON DELETE SET NULL;
     "#,
+    // v16 : colonnes choisies par le joueur. Chaque carte a sa colonne (`col`, à partir de 0 ; NULL : pas
+    // encore placée, l'interface la range dans la colonne la moins remplie) ; chaque section a son nombre de
+    // colonnes, et le jeu celui de la zone « Autres succès ».
+    r#"
+    ALTER TABLE workspace_items ADD COLUMN col INTEGER;
+    ALTER TABLE sections ADD COLUMN columns INTEGER NOT NULL DEFAULT 4;
+    ALTER TABLE games ADD COLUMN rest_columns INTEGER NOT NULL DEFAULT 4;
+    "#,
 ];
+
+/// Nombre de colonnes possible pour une section ou la zone « Autres succès ».
+pub const MAX_COLUMNS: i64 = 6;
+fn clean_columns(n: i64) -> i64 {
+    n.clamp(1, MAX_COLUMNS)
+}
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     let mut conn = open_unmigrated(path)?;
@@ -765,6 +779,9 @@ pub struct WorkspaceItem {
     /// Succès rattaché : id du succès dans la carte duquel il s'affiche (un seul niveau).
     #[serde(default)]
     pub parent: Option<i64>,
+    /// Colonne choisie dans sa section (à partir de 0) ; `None` : pas encore placée.
+    #[serde(default)]
+    pub col: Option<i64>,
 }
 
 /// Cartes de l'espace de travail d'un jeu, dans l'ordre.
@@ -773,7 +790,7 @@ pub struct WorkspaceItem {
 /// interrompu), elle est remise à la fin plutôt que perdue avec ses blocs.
 pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<WorkspaceItem>> {
     let mut stmt = conn.prepare(
-        "SELECT achievement_id, card_id, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id, parent_id
+        "SELECT achievement_id, card_id, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id, parent_id, col
          FROM workspace_items WHERE appid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map([appid], |r| {
@@ -790,6 +807,7 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
             pinned: r.get(7)?,
             section: r.get(8)?,
             parent: r.get(9)?,
+            col: r.get(10)?,
         })
     })?;
     let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -808,6 +826,7 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
             pinned: false,
             section: None,
             parent: None,
+            col: None,
         });
     }
     Ok(items)
@@ -865,18 +884,20 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
     {
         let mut insert = tx.prepare(
             "INSERT OR IGNORE INTO workspace_items
-                 (achievement_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id, parent_id)
+                 (achievement_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id, parent_id, col)
              SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
                     (SELECT s.id FROM sections s WHERE s.id = ?10 AND s.appid = ?2),
-                    (SELECT p.id FROM achievements p WHERE p.id = ?11 AND p.appid = ?2)
+                    (SELECT p.id FROM achievements p WHERE p.id = ?11 AND p.appid = ?2),
+                    ?12
              FROM achievements WHERE id = ?1 AND appid = ?2",
         )?;
         let mut insert_free = tx.prepare(
             "INSERT OR IGNORE INTO workspace_items
-                 (card_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id, parent_id)
+                 (card_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id, parent_id, col)
              SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
                     (SELECT s.id FROM sections s WHERE s.id = ?10 AND s.appid = ?2),
-                    ?11 -- toujours NULL : une carte libre n'est jamais rattachée (`parent_of`)
+                    ?11, -- toujours NULL : une carte libre n'est jamais rattachée (`parent_of`)
+                    ?12
              FROM free_cards WHERE id = ?1 AND appid = ?2",
         )?;
         let mut remember = tx.prepare(
@@ -907,6 +928,7 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
                 it.pinned,
                 it.section,
                 parent_of(it),
+                it.col.map(|c| c.clamp(0, MAX_COLUMNS - 1)),
             ])?;
             // Taille mémorisée : cartes de succès seulement (une carte libre retirée est supprimée)
             if let (Some(g), Some(id)) = (g, it.achievement_id) {
@@ -928,6 +950,13 @@ pub struct Section {
     /// Nom d'une couleur de la palette des sections (`SECTION_COLORS`)
     #[serde(default)]
     pub color: String,
+    /// Nombre de colonnes de la section (1 à `MAX_COLUMNS`)
+    #[serde(default = "default_columns")]
+    pub columns: i64,
+}
+
+fn default_columns() -> i64 {
+    4
 }
 
 /// Couleurs possibles d'une section : des noms, dont la teinte dépend du thème de l'interface.
@@ -942,12 +971,12 @@ fn clean_color(color: &str) -> &str {
 }
 
 fn section_row(r: &rusqlite::Row) -> rusqlite::Result<Section> {
-    Ok(Section { id: r.get(0)?, title: r.get(1)?, collapsed: r.get(2)?, color: r.get(3)? })
+    Ok(Section { id: r.get(0)?, title: r.get(1)?, collapsed: r.get(2)?, color: r.get(3)?, columns: r.get(4)? })
 }
 
 pub fn list_sections(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Section>> {
     let mut stmt =
-        conn.prepare("SELECT id, title, collapsed, color FROM sections WHERE appid = ?1 ORDER BY position, id")?;
+        conn.prepare("SELECT id, title, collapsed, color, columns FROM sections WHERE appid = ?1 ORDER BY position, id")?;
     let rows = stmt.query_map([appid], section_row)?;
     rows.collect()
 }
@@ -957,24 +986,34 @@ pub fn create_section(conn: &Connection, appid: u32, title: &str, color: &str) -
     conn.query_row(
         "INSERT INTO sections (appid, title, color, position)
          VALUES (?1, ?2, ?3, (SELECT COALESCE(MAX(position) + 1, 0) FROM sections WHERE appid = ?1))
-         RETURNING id, title, collapsed, color",
+         RETURNING id, title, collapsed, color, columns",
         params![appid, clean_title(title), clean_color(color)],
         section_row,
     )
 }
 
-/// Enregistre titre, état replié, couleur et ordre (celui de `sections`) des sections de ce jeu.
+/// Enregistre titre, état replié, couleur, nombre de colonnes et ordre (celui de `sections`) des sections de ce jeu.
 /// Les sections inconnues ou d'un autre jeu sont ignorées ; aucune n'est créée ni supprimée.
 pub fn save_sections(conn: &mut Connection, appid: u32, sections: &[Section]) -> rusqlite::Result<()> {
     let tx = conn.savepoint()?;
     {
         let mut update =
-            tx.prepare("UPDATE sections SET title = ?3, collapsed = ?4, position = ?5, color = ?6 WHERE id = ?1 AND appid = ?2")?;
+            tx.prepare("UPDATE sections SET title = ?3, collapsed = ?4, position = ?5, color = ?6, columns = ?7 WHERE id = ?1 AND appid = ?2")?;
         for (pos, s) in sections.iter().enumerate() {
-            update.execute(params![s.id, appid, clean_title(&s.title), s.collapsed, pos as i64, clean_color(&s.color)])?;
+            update.execute(params![s.id, appid, clean_title(&s.title), s.collapsed, pos as i64, clean_color(&s.color), clean_columns(s.columns)])?;
         }
     }
     tx.commit()
+}
+
+/// Nombre de colonnes de la zone « Autres succès » (cartes hors section) d'un jeu.
+pub fn rest_columns(conn: &Connection, appid: u32) -> rusqlite::Result<i64> {
+    Ok(conn.query_row("SELECT rest_columns FROM games WHERE appid = ?1", [appid], |r| r.get(0)).optional()?.unwrap_or(4))
+}
+
+pub fn set_rest_columns(conn: &Connection, appid: u32, columns: i64) -> rusqlite::Result<()> {
+    conn.execute("UPDATE games SET rest_columns = ?2 WHERE appid = ?1", params![appid, clean_columns(columns)])?;
+    Ok(())
 }
 
 /// Supprime une section ; ses cartes restent dans l'espace, dans la zone du haut.
@@ -1384,6 +1423,7 @@ mod tests {
             pinned: true,
             section: None,
             parent: None,
+            col: None,
         };
         save_workspace(&mut conn, 620, &[c]).unwrap();
         fill_workspace(&conn, 620).unwrap();
@@ -1400,6 +1440,35 @@ mod tests {
     }
 
     #[test]
+    fn colonnes_choisies() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None), ach("B", None)]), "P", None).unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+        let item = |id: i64, col: Option<i64>| WorkspaceItem {
+            achievement_id: Some(id),
+            card_id: None,
+            collapsed: false,
+            grid: None,
+            pinned: false,
+            section: None,
+            parent: None,
+            col,
+        };
+        // Colonne gardée, bornée à 0..MAX_COLUMNS ; absente : pas encore placée
+        save_workspace(&mut conn, 620, &[item(ids[0], Some(2)), item(ids[1], Some(42))]).unwrap();
+        let cols: Vec<Option<i64>> = list_workspace(&conn, 620).unwrap().iter().map(|it| it.col).collect();
+        assert_eq!(cols, vec![Some(2), Some(MAX_COLUMNS - 1)]);
+        // Nombre de colonnes d'une section (défaut 4, borné) et de la zone « Autres succès »
+        let s = create_section(&conn, 620, "S", "vert").unwrap();
+        assert_eq!(s.columns, 4);
+        save_sections(&mut conn, 620, &[Section { columns: 99, ..s.clone() }]).unwrap();
+        assert_eq!(list_sections(&conn, 620).unwrap()[0].columns, MAX_COLUMNS);
+        assert_eq!(rest_columns(&conn, 620).unwrap(), 4);
+        set_rest_columns(&conn, 620, 0).unwrap();
+        assert_eq!(rest_columns(&conn, 620).unwrap(), 1);
+    }
+
+    #[test]
     fn succes_rattaches_un_seul_niveau() {
         let mut conn = open_in_memory().unwrap();
         save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None), ach("D", None)]), "P", None).unwrap();
@@ -1412,6 +1481,7 @@ mod tests {
             pinned: false,
             section: None,
             parent,
+            col: None,
         };
         let parents = |conn: &Connection| -> Vec<Option<i64>> { list_workspace(conn, 620).unwrap().iter().map(|it| it.parent).collect() };
         // B et C dans A : gardés
@@ -1471,6 +1541,7 @@ mod tests {
             pinned: false,
             section: None,
             parent: None,
+            col: None,
         };
 
         let mut wanted = vec![item(ids[2]), item(ids[0])];
@@ -1689,6 +1760,7 @@ mod tests {
             pinned: true,
             section: None,
             parent: None,
+            col: None,
         };
         let ach_item = WorkspaceItem { achievement_id: Some(id_a), card_id: None, pinned: false, ..free.clone() };
         let bad = WorkspaceItem { achievement_id: Some(id_a), ..free.clone() };
@@ -1753,6 +1825,7 @@ mod tests {
                 pinned: true,
                 section: None,
                 parent: None,
+                col: None,
             }]
         );
         let blocks = list_blocks(&conn, 620).unwrap();
@@ -1778,7 +1851,7 @@ mod tests {
             Section { collapsed: true, color: "vert".into(), ..s2.clone() },
             Section { title: "Histoire".into(), ..s1.clone() },
         ];
-        let unknown = Section { id: 999, title: "x".into(), collapsed: false, color: "gris".into() };
+        let unknown = Section { id: 999, title: "x".into(), collapsed: false, color: "gris".into(), columns: 4 };
         save_sections(&mut conn, 620, &[moved[0].clone(), moved[1].clone(), unknown])
             .unwrap();
         assert_eq!(list_sections(&conn, 620).unwrap(), moved);
@@ -1793,6 +1866,7 @@ mod tests {
             pinned: false,
             section,
             parent: None,
+            col: None,
         };
         save_workspace(&mut conn, 620, &[item(ids[0], Some(s1.id)), item(ids[1], Some(999))]).unwrap();
         assert_eq!(list_workspace(&conn, 620).unwrap(), vec![item(ids[0], Some(s1.id)), item(ids[1], None)]);

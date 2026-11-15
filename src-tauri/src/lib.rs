@@ -118,6 +118,8 @@ pub fn run() {
             library::game_mark_celebrated,
             library::workspace_list,
             library::workspace_save,
+            library::rest_columns_get,
+            library::rest_columns_set,
             library::workspace_card_sizes,
             library::sections_list,
             library::section_create,

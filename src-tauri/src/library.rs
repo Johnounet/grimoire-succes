@@ -293,6 +293,17 @@ pub fn workspace_save(state: State<'_, AppState>, appid: u32, items: Vec<db::Wor
     db::save_workspace(&mut state.conn(), appid, &items).map_err(err)
 }
 
+/// Nombre de colonnes de la zone « Autres succès » du jeu.
+#[tauri::command]
+pub fn rest_columns_get(state: State<'_, AppState>, appid: u32) -> Result<i64, String> {
+    db::rest_columns(&state.conn(), appid).map_err(err)
+}
+
+#[tauri::command]
+pub fn rest_columns_set(state: State<'_, AppState>, appid: u32, columns: i64) -> Result<(), String> {
+    db::set_rest_columns(&state.conn(), appid, columns).map_err(err)
+}
+
 #[tauri::command]
 pub fn sections_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<db::Section>, String> {
     db::list_sections(&state.conn(), appid).map_err(err)
