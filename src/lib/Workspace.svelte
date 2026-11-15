@@ -7,6 +7,9 @@
   // Ordre (« Mon ordre ») : celui de `items`, toujours rangé sections dans l'ordre puis hors section
   // (mode compact, export). Déplacement par clics : ⇅ sur une carte, puis clic sur la carte devant
   // laquelle la placer, ou « Mettre à la fin » sur l'en-tête d'une section.
+  //
+  // Succès rattachés (`parent`) : un succès obtenu forcément en passant par un autre s'affiche dans la
+  // carte de celui-ci, plus dans les colonnes. Un seul niveau (`nesting`) ; sa section suit celle du parent.
   import { tick } from "svelte";
   import type { SvelteSet } from "svelte/reactivity";
   import { blocksOf } from "./blocks/store.svelte";
@@ -23,6 +26,7 @@
   } from "./filters";
   import {
     cardKey,
+    nesting,
     type AchievementRow,
     type CardKey,
     type FreeCard,
@@ -33,6 +37,7 @@
     type WorkspaceItem,
   } from "./library";
   import MoreMenu from "./MoreMenu.svelte";
+  import NestedAchievement from "./NestedAchievement.svelte";
   import { setAntiSpoiler, setStateFilter, settings } from "./settings.svelte";
   import { tags } from "./tags.svelte";
   import WorkspaceCard from "./WorkspaceCard.svelte";
@@ -142,10 +147,38 @@
     return matches(a, filters, tags.byAch);
   }
 
+  // ----- Succès rattachés -----
+  /** Succès rattaché → succès parent (rattachements valides seulement). */
+  const nest = $derived(nesting(items));
+  const parentOf = (it: WorkspaceItem) => (it.card_id == null && it.achievement_id != null ? nest.get(it.achievement_id) : undefined);
+  const itemOfAch = $derived(new Map(items.filter((it) => it.card_id == null && it.achievement_id != null).map((it) => [it.achievement_id!, it])));
+  /** Succès rattachés à chaque parent, dans « Mon ordre ». */
+  const kidsOf = $derived.by(() => {
+    const m = new Map<number, WorkspaceItem[]>();
+    for (const it of items) {
+      const p = parentOf(it);
+      if (p != null) m.set(p, [...(m.get(p) ?? []), it]);
+    }
+    return m;
+  });
+  /** Lignes affichées dans la carte d'un parent : tous ses succès rattachés, quels que soient les filtres
+   *  (sauf un succès retiré de Steam sans guide, comme pour les cartes). */
+  function kidRows(id: number) {
+    return (kidsOf.get(id) ?? []).flatMap((it) => {
+      const a = byId.get(it.achievement_id!);
+      return a && !(a.removed && blocksOf(a.id).length === 0) ? [{ it, a }] : [];
+    });
+  }
+
   // ----- Sections et groupes -----
   const known = $derived(new Set(sections.map((s) => s.id)));
-  /** Section d'une carte (null : hors section, y compris si sa section n'existe plus). */
-  const sectionOf = (it: WorkspaceItem) => (it.section != null && known.has(it.section) ? it.section : null);
+  /** Section d'une carte (null : hors section, y compris si sa section n'existe plus). Un succès
+   *  rattaché est dans la section de son parent. */
+  function sectionOf(it: WorkspaceItem): number | null {
+    const p = parentOf(it);
+    const s = p != null ? itemOfAch.get(p)?.section : it.section;
+    return s != null && known.has(s) ? s : null;
+  }
   const groups: Group[] = $derived([
     ...sections.map((s) => ({ key: String(s.id), section: s, items: items.filter((it) => sectionOf(it) === s.id) })),
     { key: "rest", section: null, items: items.filter((it) => sectionOf(it) == null) },
@@ -154,7 +187,10 @@
 
   /** Cartes affichées d'un groupe, dans l'ordre du tri choisi. */
   function shownOf(g: Group): WorkspaceItem[] {
-    const list = g.items.filter(visible);
+    // Un parent passe les filtres si lui ou l'un de ses succès rattachés les passe
+    const list = g.items.filter(
+      (it) => parentOf(it) == null && (visible(it) || (kidsOf.get(it.achievement_id ?? 0) ?? []).some(visible)),
+    );
     if (filters.sort === "personal") return list;
     // Autres tris : les cartes libres en tête, puis les succès triés (ordre Steam d'origine à égalité)
     const free = list.filter((it) => it.card_id != null);
@@ -185,7 +221,14 @@
     return [...sections.flatMap((s) => list.filter((it) => of(it) === s.id)), ...list.filter((it) => of(it) == null)];
   }
   function emit(list: WorkspaceItem[]) {
-    onchange(ordered(list));
+    // Les succès rattachés prennent la section de leur parent (rangement, et place s'ils sont détachés)
+    const n = nesting(list);
+    const sec = new Map(list.filter((it) => it.card_id == null).map((it) => [it.achievement_id, it.section ?? null]));
+    const synced = list.map((it) => {
+      const p = it.card_id == null && it.achievement_id != null ? n.get(it.achievement_id) : undefined;
+      return p != null ? { ...it, section: sec.get(p) ?? null } : it;
+    });
+    onchange(ordered(synced));
   }
   function update(key: CardKey, patch: Partial<WorkspaceItem>) {
     emit(items.map((it) => (cardKey(it) === key ? { ...it, ...patch } : it)));
@@ -298,15 +341,66 @@
     moved(key);
   }
 
-  /** Entrées « Déplacer vers… » du menu d'une carte (à la fin de la section choisie). */
+  /** Entrées du menu d'une carte : rattacher (succès), « Déplacer vers… » (à la fin de la section choisie). */
   function movesFor(it: WorkspaceItem) {
-    if (!hasSections) return [];
+    const out: { label: string; onclick: () => void; hint?: string }[] = [];
+    if (it.achievement_id != null && it.card_id == null) {
+      const id = it.achievement_id;
+      out.push({
+        label: "Rattacher à un autre succès…",
+        hint: "Obtenu en passant par un autre : il s'affichera dans sa carte",
+        onclick: () => {
+          moving = null;
+          attaching = id;
+        },
+      });
+    }
+    if (!hasSections) return out;
     const here = sectionOf(it);
-    const out = sections
+    out.push(...sections
       .filter((s) => s.id !== here)
-      .map((s) => ({ label: `Déplacer vers « ${s.title || "Section sans titre"} »`, onclick: () => toEnd(cardKey(it), s.id) }));
+      .map((s) => ({ label: `Déplacer vers « ${s.title || "Section sans titre"} »`, onclick: () => toEnd(cardKey(it), s.id) })));
     if (here != null) out.push({ label: "Sortir de la section", onclick: () => toEnd(cardKey(it), null) });
     return out;
+  }
+
+  // ----- Rattachement par clics -----
+  /** Succès en cours de rattachement : on clique ensuite sur le succès qui le contiendra. */
+  let attaching = $state<number | null>(null);
+  const attachingLabel = $derived.by(() => {
+    const a = attaching != null ? byId.get(attaching) : undefined;
+    return a ? (spoiler(a) ? "succès caché" : a.name) : "";
+  });
+
+  /** Rattache le succès choisi (et ceux qu'il contenait déjà : un seul niveau) au succès `target`. */
+  function attachTo(target: WorkspaceItem) {
+    const id = attaching;
+    attaching = null;
+    const tid = target.achievement_id;
+    if (id == null || tid == null || target.card_id != null || tid === id) return;
+    const goes = (x: WorkspaceItem) => x.card_id == null && (x.achievement_id === id || parentOf(x) === id);
+    const going = items.filter(goes).map((x) => ({ ...x, parent: tid }));
+    const rest = items.filter((x) => !goes(x));
+    // Après le parent et ses succès déjà rattachés
+    let at = rest.indexOf(target);
+    rest.forEach((x, i) => {
+      if (parentOf(x) === tid) at = Math.max(at, i);
+    });
+    rest.splice(at + 1, 0, ...going);
+    emit(rest);
+    moved(cardKey(target));
+  }
+
+  /** Rend sa propre carte à un succès rattaché, juste après son parent. */
+  function detach(id: number) {
+    const it = itemOfAch.get(id);
+    const p = nest.get(id);
+    if (!it || p == null) return;
+    const rest = items.filter((x) => x !== it);
+    const at = rest.findIndex((x) => x.card_id == null && x.achievement_id === p);
+    rest.splice(at + 1, 0, { ...it, parent: null, section: sectionOf(it) });
+    emit(rest);
+    moved(id);
   }
 
   /** Carte (clé) qui vient d'être cochée ou décochée : sa coche s'anime. */
@@ -317,6 +411,7 @@
 <svelte:window
   onkeydown={(e) => {
     if (e.key === "Escape" && moving != null) moving = null;
+    if (e.key === "Escape" && attaching != null) attaching = null;
   }}
 />
 
@@ -324,7 +419,11 @@
   {@const key = cardKey(it)}
   {@const a = it.achievement_id != null ? byId.get(it.achievement_id) : undefined}
   {@const free = it.card_id != null ? freeById.get(it.card_id) : undefined}
-  <div class="relative {landed === key ? 'landed' : ''}" data-card={key}>
+  {@const kids = a ? kidRows(a.id) : []}
+  <div
+    class="relative {landed === key ? 'landed' : ''} {attaching != null && (free || key === attaching) ? 'opacity-50' : ''}"
+    data-card={key}
+  >
     {#if free}
       <WorkspaceCard
         {free}
@@ -343,7 +442,10 @@
         onreveal={() => {}}
         onremove={() => ondeletefree(free.id)}
         onpin={() => update(key, { pinned: !it.pinned })}
-        onmove={() => (moving = moving === key ? null : key)}
+        onmove={() => {
+          attaching = null;
+          moving = moving === key ? null : key;
+        }}
         onrename={(title) => onrename(free.id, title)}
       />
     {:else if a}
@@ -363,8 +465,42 @@
         onreveal={() => revealed.add(a.id)}
         onremove={() => {}}
         onpin={() => update(key, { pinned: !it.pinned })}
-        onmove={() => (moving = moving === key ? null : key)}
-      />
+        onmove={() => {
+          attaching = null;
+          moving = moving === key ? null : key;
+        }}
+        nestedCount={kids.length}
+      >
+        {#snippet nested()}
+          {#each kids as { it: k, a: ka } (ka.id)}
+            <NestedAchievement
+              a={ka}
+              spoiler={spoiler(ka)}
+              animate={justToggled === ka.id}
+              folded={k.collapsed}
+              {imagesDir}
+              ontoggle={() => {
+                justToggled = ka.id;
+                ontoggle(ka);
+              }}
+              onreveal={() => revealed.add(ka.id)}
+              ondetach={() => detach(ka.id)}
+              onfold={() => update(ka.id, { collapsed: !k.collapsed })}
+            />
+          {/each}
+        {/snippet}
+      </WorkspaceCard>
+    {/if}
+    {#if attaching != null && a && a.id !== attaching}
+      <!-- Cible du rattachement : toute la carte d'un autre succès -->
+      <button
+        onclick={() => attachTo(it)}
+        aria-label="Rattacher dans ce succès"
+        class="move-target absolute inset-0 z-10 flex items-start justify-center rounded-[4px] border-2 border-dashed border-transparent
+          transition hover:border-accent hover:bg-accent/10"
+      >
+        <span class="mt-1 rounded bg-accent px-2 py-0.5 text-xs font-semibold text-on-accent shadow">↳ Rattacher dans ce succès</span>
+      </button>
     {/if}
     {#if moving != null && moving !== key}
       <!-- Cible du déplacement : toute la carte -->
@@ -606,6 +742,15 @@
           « Mettre à la fin » dans l'en-tête d'une section.
         </span>
         <button onclick={() => (moving = null)} class="rounded-md border border-line px-2 py-0.5 hover:bg-panel">Annuler (Échap)</button>
+      </div>
+    {/if}
+    {#if attaching != null}
+      <div class="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-accent/60 bg-raised px-3 py-2 text-sm shadow-lg">
+        <span class="min-w-0 flex-1">
+          Rattachement de <strong>« {attachingLabel} »</strong> : cliquez sur le succès dans lequel le ranger (celui qui
+          vous le fera obtenir en passant). La recherche aide à le trouver.
+        </span>
+        <button onclick={() => (attaching = null)} class="rounded-md border border-line px-2 py-0.5 hover:bg-panel">Annuler (Échap)</button>
       </div>
     {/if}
   </div>

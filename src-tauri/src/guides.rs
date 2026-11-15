@@ -112,6 +112,9 @@ pub struct GuidePlace {
     /// Rang de la section dans `GuideFile::sections` ; absent : hors section
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub section: Option<usize>,
+    /// Succès dans la carte duquel celui-ci est rattaché (un seul niveau)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<GuideAchievement>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -230,6 +233,8 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
         }
     };
 
+    // Succès qui en contiennent d'autres : gardés dans le guide, pour que le rattachement s'y retrouve
+    let parents: HashSet<i64> = workspace.iter().filter_map(|it| it.parent).collect();
     let mut cards = Vec::new();
     for it in workspace {
         // Vue unique : tous les succès sont dans l'espace. Seuls ceux qui portent quelque chose de
@@ -238,6 +243,8 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
             let personal = with_blocks.contains(&id)
                 || tags_of.contains_key(&id)
                 || it.section.is_some()
+                || it.parent.is_some()
+                || parents.contains(&id)
                 || (keep_state && it.pinned);
             if !personal {
                 continue;
@@ -248,6 +255,10 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
             grid: it.grid,
             pinned: keep_state && it.pinned,
             section: it.section.and_then(|id| section_rank.get(&id).copied()),
+            parent: it
+                .parent
+                .and_then(|id| by_id.get(&id))
+                .map(|a| GuideAchievement { api_name: a.api_name.clone(), name: a.name.clone() }),
         };
         cards.push(card(it.achievement_id, it.card_id, Some(place)));
     }
@@ -415,8 +426,14 @@ fn import_all(
         grid: if keep_grid { p.grid } else { None },
         pinned: p.pinned,
         section: p.section.and_then(|i| section_ids.get(i).copied()),
+        parent: None,
     };
-    let default_place = GuidePlace { collapsed: false, grid: None, pinned: false, section: None };
+    let default_place = GuidePlace { collapsed: false, grid: None, pinned: false, section: None, parent: None };
+    let find = |a: &GuideAchievement| -> Option<i64> {
+        a.api_name.as_deref().and_then(|n| by_api.get(n)).or_else(|| by_name.get(a.name.as_str())).copied()
+    };
+    // Rattachements du guide (succès, succès parent), appliqués une fois toutes les cartes placées
+    let mut links: Vec<(i64, i64)> = Vec::new();
 
     for c in &guide.cards {
         let matched = c.achievement.as_ref().and_then(|a| {
@@ -508,6 +525,9 @@ fn import_all(
                 };
                 db::set_achievement_tag(conn, id, tag, true).map_err(err)?;
             }
+            if let Some(parent) = c.workspace.as_ref().and_then(|p| p.parent.as_ref()).and_then(find) {
+                links.push((id, parent));
+            }
             if let Some(p) = &c.workspace {
                 if present.insert(id) {
                     workspace.push(place(p, Some(id), None));
@@ -522,6 +542,19 @@ fn import_all(
                     }
                 }
             }
+        }
+    }
+
+    // Rattachements : seulement pour un succès encore libre ici (ni rattaché, ni parent d'autres succès),
+    // vers un parent présent et lui-même libre. `save_workspace` vérifie encore le « un seul niveau ».
+    for (child, parent) in links {
+        let has_children = |id: i64| workspace.iter().any(|it| it.parent == Some(id));
+        let free_here = |id: i64| workspace.iter().any(|it| it.achievement_id == Some(id) && it.parent.is_none());
+        if child == parent || has_children(child) || !free_here(child) || !free_here(parent) {
+            continue;
+        }
+        if let Some(it) = workspace.iter_mut().find(|it| it.achievement_id == Some(child)) {
+            it.parent = Some(parent);
         }
     }
 
@@ -664,6 +697,7 @@ mod tests {
             grid: Some(GridPos { x: 0, y: 0, w: 4, h: 8 }),
             pinned: true,
             section: None,
+            parent: None,
         };
         let phase = db::create_section(&conn, 620, "Phase 1", "ambre").unwrap();
         let in_phase = WorkspaceItem { section: Some(phase.id), ..item(Some(ids[0]), None) };
@@ -743,7 +777,7 @@ mod tests {
         db::create_block(&mut conn, Owner::Achievement(ids[1]), "text", &json!({"markdown": "note"}), None).unwrap();
         let mut ws: Vec<WorkspaceItem> = ids
             .iter()
-            .map(|&id| WorkspaceItem { achievement_id: Some(id), card_id: None, collapsed: false, grid: None, pinned: false, section: None })
+            .map(|&id| WorkspaceItem { achievement_id: Some(id), card_id: None, collapsed: false, grid: None, pinned: false, section: None, parent: None })
             .collect();
         ws[1].section = Some(phase.id);
         db::save_workspace(&mut conn, 620, &ws).unwrap();
@@ -784,7 +818,7 @@ mod tests {
         let before = db::list_tags(&conn).unwrap().len();
         let mut g = guide_vide();
         g.sections.push(GuideSection { title: "Phase 1".into(), collapsed: false, color: "ambre".into() });
-        let place = GuidePlace { collapsed: false, grid: None, pinned: false, section: Some(0) };
+        let place = GuidePlace { collapsed: false, grid: None, pinned: false, section: Some(0), parent: None };
         g.cards.push(GuideCard {
             achievement: Some(GuideAchievement { api_name: Some("A".into()), name: "a".into() }),
             tags: vec!["Grind ".into(), "x".repeat(41), "  ".into()],
@@ -834,6 +868,35 @@ mod tests {
         g.cards[0].blocks.truncate(2);
         let r2 = import(&mut conn2, &dir, &g).unwrap();
         assert_eq!((r2.blocks, r2.duplicates), (1, 1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rattachement_suit_le_guide() {
+        let dir = temp_dir("r");
+        let mut conn = setup(&["A", "B", "C"]);
+        let ids: Vec<i64> = db::list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+        let item = |id: i64, parent: Option<i64>| WorkspaceItem {
+            achievement_id: Some(id),
+            card_id: None,
+            collapsed: false,
+            grid: None,
+            pinned: false,
+            section: None,
+            parent,
+        };
+        db::save_workspace(&mut conn, 620, &[item(ids[0], None), item(ids[1], Some(ids[0])), item(ids[2], None)]).unwrap();
+        let guide = export(&conn, &dir, 620, false).unwrap();
+        // A (parent) et B (rattaché) sont dans le guide, même sans bloc ; C non
+        assert_eq!(guide.cards.len(), 2);
+        assert_eq!(guide.cards[1].workspace.as_ref().unwrap().parent.as_ref().unwrap().api_name.as_deref(), Some("A"));
+
+        let mut other = setup(&["A", "B", "C"]);
+        db::fill_workspace(&other, 620).unwrap();
+        import(&mut other, &dir, &guide).unwrap();
+        let ws = db::list_workspace(&other, 620).unwrap();
+        let b = ws.iter().find(|it| it.achievement_id == Some(ids[1])).unwrap();
+        assert_eq!(b.parent, Some(ids[0]), "B retrouve sa place dans A");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

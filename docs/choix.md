@@ -66,6 +66,17 @@ Refonte (2026-11-13) :
 - Nouvelle carte libre : en tête de la première section (ou de tout, sans section). Supprimer une section : ses cartes passent dans « Autres succès », à la fin.
 - **Guides** : l'export ne prend que les succès qui portent quelque chose de personnel (blocs, étiquettes, section, épingle avec l'état) ; à l'import, un succès déjà présent hors section rejoint la section du guide (à la fin).
 
+## Succès rattachés
+
+(demande de l'utilisateur, 2026-11-15) Un succès B obtenu forcément en faisant A est **rattaché** à A : B n'a plus sa carte dans les colonnes, il s'affiche en ligne dans la carte de A (`NestedAchievement.svelte`). Choix de l'utilisateur : vraiment imbriquer (pas un simple lien), **un seul niveau**, cases cochables séparément (Steam les débloque à part).
+
+- **Données** : colonne `workspace_items.parent_id` (migration v15, id du succès parent, `ON DELETE SET NULL`), champ `parent` de `WorkspaceItem`. `save_workspace` ne garde le lien que si le parent est un autre succès de la liste, du même jeu, **lui-même non rattaché** (deux succès rattachés l'un à l'autre perdent tous deux le lien). Même règle côté interface : `nesting()` (library.ts), utilisé par la vue et le mode compact.
+- **Vue** (`Workspace.svelte`) : menu ⋯ d'un succès → « Rattacher à un autre succès… », puis clic sur la carte du succès qui le contiendra (Échap annule ; cartes libres et carte de départ grisées). Ses propres succès rattachés suivent (un seul niveau). Ligne rattachée : coche, icône, nom, loupe, rareté, description ; menu ⋯ « Détacher » (la carte revient juste après celle du parent), re-lock, ID. Ses blocs restent affichés, repliables par un chevron (champ `collapsed` de son `WorkspaceItem`, inutilisé avant). Pas d'ajout de bloc sur une ligne rattachée : le guide va dans la carte du parent.
+- Un parent avec des succès rattachés est toujours une carte complète (jamais la ligne compacte). Sa section vaut pour ses rattachés (`sectionOf`, et `emit` recopie la section du parent). Bilans des sections et compteurs À obtenir / Obtenus : inchangés, les rattachés comptent.
+- **Filtres** : une carte passe si le parent **ou l'un de ses rattachés** passe (recherche, état, rareté, étiquette, « Avec guide ») ; dans la carte, tous les rattachés sont montrés (sauf retiré de Steam sans guide).
+- **Mode compact** : les rattachés d'un succès épinglé le suivent, en retrait ; un rattaché ne s'épingle pas seul.
+- **Guides** : `workspace.parent` (api_name + nom) ; le parent et le rattaché sont exportés même sans bloc. À l'import, le lien n'est posé que si les deux succès sont libres ici (ni rattachés, ni parents d'autres).
+
 ## Sections de l'espace de travail
 
 **Mis à jour par la vue unique (2026-11-15)** : la « zone du haut » est devenue « Autres succès », en bas ; plus de tableau par zone ni de glisser de carte entre zones (déplacement par clics), plus de « Retirer aussi les cartes ». Le reste (table, couleurs, réordonner par la poignée) tient toujours.

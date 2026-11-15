@@ -24,7 +24,7 @@
   import { blocks, blocksOf, flushBlocks, listenBlockChanges, loadBlocks, saveBlock } from "./lib/blocks/store.svelte";
   import { formatDuration, kindInfo, type Block, type CounterData, type ListData, type TimerData } from "./lib/blocks/types";
   import { rarityText } from "./lib/filters";
-  import { api, cardKey, type AchievementRow, type CardKey, type FreeCard, type GameSummary, type WorkspaceItem } from "./lib/library";
+  import { api, cardKey, nesting, type AchievementRow, type CardKey, type FreeCard, type GameSummary, type WorkspaceItem } from "./lib/library";
   import { clampOpacity, loadSettings, setCompactOpacity, settings } from "./lib/settings.svelte";
   import {
     applyShortcuts,
@@ -57,15 +57,21 @@
 
   const byId = $derived(new Map(achievements.map((a) => [a.id, a])));
   const freeById = $derived(new Map(freeCards.map((f) => [f.id, f])));
-  /** Cartes épinglées : succès ou cartes libres. */
-  const pinned = $derived(
-    workspace.flatMap((it) => {
-      if (!it.pinned) return [];
+  /** Cartes épinglées : succès ou cartes libres. Les succès rattachés à un succès épinglé le suivent
+   *  (`nested`), comme dans sa carte ; un succès rattaché ne s'épingle pas seul. */
+  const pinned = $derived.by(() => {
+    const nest = nesting(workspace);
+    const entry = (it: WorkspaceItem, nested: boolean) => {
       const a = it.achievement_id != null ? byId.get(it.achievement_id) : undefined;
       const free = it.card_id != null ? freeById.get(it.card_id) : undefined;
-      return a || free ? [{ key: cardKey(it), a, free }] : [];
-    }),
-  );
+      return a || free ? [{ key: cardKey(it), a, free, nested }] : [];
+    };
+    return workspace.flatMap((it) => {
+      if (!it.pinned || (it.card_id == null && nest.has(it.achievement_id ?? 0))) return [];
+      const kids = it.card_id == null ? workspace.filter((k) => k.card_id == null && nest.get(k.achievement_id ?? 0) === it.achievement_id) : [];
+      return [...entry(it, false), ...kids.flatMap((k) => entry(k, true))];
+    });
+  });
   const isElement = (b: Block) => b.kind === "counter" || b.kind === "timer" || b.kind === "video" || b.kind === "list";
   const elementsOf = (key: CardKey) => blocksOf(key).filter(isElement);
   /** Éléments dans l'ordre d'affichage : c'est l'ordre de Haut / Bas. */
@@ -450,8 +456,8 @@
     {#if blocks.error}<p class="text-xs text-danger">{blocks.error}</p>{/if}
 
     <!-- Cartes épinglées -->
-    {#each pinned as { key, a, free } (key)}
-      <section class="space-y-1.5">
+    {#each pinned as { key, a, free, nested } (key)}
+      <section class="space-y-1.5 {nested ? 'ml-3 border-l-2 border-line pl-2' : ''}">
         {#if free}
           <div class="flex items-center gap-2">
             <button

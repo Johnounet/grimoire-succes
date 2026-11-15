@@ -5,6 +5,8 @@
   //   apparaissent au survol, et la ligne devient une carte complète dès le premier bloc.
   // - Succès avec des blocs, carte libre : carte complète.
   // Déplacement par clics (⇅) : géré par la vue (Workspace.svelte), qui pose une cible sur chaque carte.
+  // Succès rattachés (`nested`) : lignes affichées sous la description ; la carte est alors complète.
+  import type { Snippet } from "svelte";
   import BlockList from "./blocks/BlockList.svelte";
   import { blocksOf, createBlock, imageFrom, saveBlock, uploadImage } from "./blocks/store.svelte";
   import HelpSearch from "./HelpSearch.svelte";
@@ -32,6 +34,8 @@
     onmove,
     onrename,
     moves = [],
+    nestedCount = 0,
+    nested,
   }: {
     a?: AchievementRow | null;
     free?: FreeCard | null;
@@ -56,15 +60,18 @@
     /** Nouveau titre d'une carte libre. */
     onrename?: (title: string) => void;
     /** Entrées « Déplacer vers… » du menu (sections). */
-    moves?: { label: string; onclick: () => void }[];
+    moves?: { label: string; onclick: () => void; hint?: string }[];
+    /** Nombre de succès rattachés à celui-ci ; `nested` les affiche (lignes NestedAchievement). */
+    nestedCount?: number;
+    nested?: Snippet;
   } = $props();
 
   const key: CardKey = $derived(a ? a.id : -(free?.id ?? 0));
   const icon = $derived(a ? (a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)) : null);
   const label = $derived(a ? (spoiler ? "succès caché" : a.name) : free?.title || "Carte sans titre");
   const blockCount = $derived(blocksOf(key).length);
-  /** Succès sans guide : ligne compacte. */
-  const compact = $derived(!!a && blockCount === 0);
+  /** Succès sans guide ni succès rattaché : ligne compacte. */
+  const compact = $derived(!!a && blockCount === 0 && nestedCount === 0);
   /** Succès obtenu ou carte libre cochée : coche pleine et liseré gauche vert. */
   const checked = $derived(a ? a.unlocked : !!free?.done);
   /** Carte libre avec des blocs : la suppression demande confirmation (rien ne les garde ailleurs). */
@@ -326,6 +333,7 @@
           <p class="text-sm text-muted">{a.description || "—"}</p>
           {#if a.progress && !a.unlocked}<SteamProgress progress={a.progress} />{/if}
         {/if}
+        {#if nested && nestedCount > 0}<div class="space-y-1.5">{@render nested()}</div>{/if}
 
         <BlockList cardKey={key} {imagesDir} />
       </div>

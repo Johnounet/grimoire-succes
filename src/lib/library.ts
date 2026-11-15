@@ -264,6 +264,23 @@ export interface WorkspaceItem extends CardOwner {
   pinned: boolean;
   /** Section de la carte ; absente ou null : hors section (« Autres succès »). */
   section?: number | null;
+  /** Succès rattaché : id du succès dans la carte duquel il s'affiche (un seul niveau). Sa carte
+   *  disparaît de la vue ; sa section suit celle du parent. */
+  parent?: number | null;
+}
+
+/**
+ * Rattachements valides, succès → succès parent. Mêmes règles que `save_workspace` (db.rs) : un seul
+ * niveau, le parent est un autre succès de la liste qui n'est lui-même rattaché à rien.
+ */
+export function nesting(items: WorkspaceItem[]): Map<number, number> {
+  const ach = new Map(items.filter((it) => it.card_id == null && it.achievement_id != null).map((it) => [it.achievement_id!, it]));
+  const out = new Map<number, number>();
+  for (const [id, it] of ach) {
+    const p = it.parent;
+    if (p != null && p !== id && ach.get(p)?.parent == null && ach.has(p)) out.set(id, p);
+  }
+  return out;
 }
 
 /** URL affichable d'une image enregistrée dans le dossier de données. */

@@ -7,7 +7,7 @@
 use crate::steam::model::{Achievement, GameAchievements, Progress, Source};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 const MIGRATIONS: &[&str] = &[
@@ -234,6 +234,11 @@ const MIGRATIONS: &[&str] = &[
         FROM workspace_items;
     UPDATE workspace_items SET position = (SELECT rank FROM ws_order WHERE ws_order.id = workspace_items.id);
     DROP TABLE ws_order;
+    "#,
+    // v15 : succès rattaché à un autre (affiché dans sa carte). Un seul niveau : `save_workspace`
+    // refuse un parent lui-même rattaché.
+    r#"
+    ALTER TABLE workspace_items ADD COLUMN parent_id INTEGER REFERENCES achievements(id) ON DELETE SET NULL;
     "#,
 ];
 
@@ -757,6 +762,9 @@ pub struct WorkspaceItem {
     /// Section de la carte (`None` : zone du haut). Sa place `grid` est relative à la section.
     #[serde(default)]
     pub section: Option<i64>,
+    /// Succès rattaché : id du succès dans la carte duquel il s'affiche (un seul niveau).
+    #[serde(default)]
+    pub parent: Option<i64>,
 }
 
 /// Cartes de l'espace de travail d'un jeu, dans l'ordre.
@@ -765,7 +773,7 @@ pub struct WorkspaceItem {
 /// interrompu), elle est remise à la fin plutôt que perdue avec ses blocs.
 pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<WorkspaceItem>> {
     let mut stmt = conn.prepare(
-        "SELECT achievement_id, card_id, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id
+        "SELECT achievement_id, card_id, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id, parent_id
          FROM workspace_items WHERE appid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map([appid], |r| {
@@ -781,6 +789,7 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
             },
             pinned: r.get(7)?,
             section: r.get(8)?,
+            parent: r.get(9)?,
         })
     })?;
     let mut items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -798,6 +807,7 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
             grid: None,
             pinned: false,
             section: None,
+            parent: None,
         });
     }
     Ok(items)
@@ -838,21 +848,35 @@ pub fn card_sizes(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<CardSiz
 /// Les succès et cartes libres qui n'appartiennent pas à ce jeu sont ignorés. Une carte libre absente
 /// de `items` n'est pas supprimée pour autant (voir `delete_free_card`).
 pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]) -> rusqlite::Result<()> {
+    // Rattachement d'un succès à un autre : un seul niveau. Le parent doit être un autre succès de la
+    // liste qui n'est lui-même rattaché à rien (deux succès rattachés l'un à l'autre perdent tous deux
+    // leur lien). Le jeu du parent est vérifié par la requête.
+    let listed: HashSet<i64> = items.iter().filter(|it| it.card_id.is_none()).filter_map(|it| it.achievement_id).collect();
+    let nested: HashSet<i64> = items
+        .iter()
+        .filter(|it| it.card_id.is_none() && it.parent.is_some())
+        .filter_map(|it| it.achievement_id)
+        .collect();
+    let parent_of = |it: &WorkspaceItem| {
+        it.parent.filter(|p| it.card_id.is_none() && Some(*p) != it.achievement_id && listed.contains(p) && !nested.contains(p))
+    };
     let tx = conn.savepoint()?;
     tx.execute("DELETE FROM workspace_items WHERE appid = ?1", [appid])?;
     {
         let mut insert = tx.prepare(
             "INSERT OR IGNORE INTO workspace_items
-                 (achievement_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id)
+                 (achievement_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id, parent_id)
              SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-                    (SELECT s.id FROM sections s WHERE s.id = ?10 AND s.appid = ?2)
+                    (SELECT s.id FROM sections s WHERE s.id = ?10 AND s.appid = ?2),
+                    (SELECT p.id FROM achievements p WHERE p.id = ?11 AND p.appid = ?2)
              FROM achievements WHERE id = ?1 AND appid = ?2",
         )?;
         let mut insert_free = tx.prepare(
             "INSERT OR IGNORE INTO workspace_items
-                 (card_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id)
+                 (card_id, appid, position, collapsed, grid_x, grid_y, grid_w, grid_h, pinned, section_id, parent_id)
              SELECT id, appid, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-                    (SELECT s.id FROM sections s WHERE s.id = ?10 AND s.appid = ?2)
+                    (SELECT s.id FROM sections s WHERE s.id = ?10 AND s.appid = ?2),
+                    ?11 -- toujours NULL : une carte libre n'est jamais rattachée (`parent_of`)
              FROM free_cards WHERE id = ?1 AND appid = ?2",
         )?;
         let mut remember = tx.prepare(
@@ -882,6 +906,7 @@ pub fn save_workspace(conn: &mut Connection, appid: u32, items: &[WorkspaceItem]
                 g.map(|g| g.h),
                 it.pinned,
                 it.section,
+                parent_of(it),
             ])?;
             // Taille mémorisée : cartes de succès seulement (une carte libre retirée est supprimée)
             if let (Some(g), Some(id)) = (g, it.achievement_id) {
@@ -1358,6 +1383,7 @@ mod tests {
             grid: None,
             pinned: true,
             section: None,
+            parent: None,
         };
         save_workspace(&mut conn, 620, &[c]).unwrap();
         fill_workspace(&conn, 620).unwrap();
@@ -1371,6 +1397,38 @@ mod tests {
         fill_workspace(&conn, 620).unwrap();
         let d = list_achievements(&conn, 620).unwrap().iter().find(|a| a.api_name.as_deref() == Some("D")).unwrap().id;
         assert_eq!(order(&conn).last(), Some(&Some(d)));
+    }
+
+    #[test]
+    fn succes_rattaches_un_seul_niveau() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None), ach("D", None)]), "P", None).unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+        let item = |id: i64, parent: Option<i64>| WorkspaceItem {
+            achievement_id: Some(id),
+            card_id: None,
+            collapsed: false,
+            grid: None,
+            pinned: false,
+            section: None,
+            parent,
+        };
+        let parents = |conn: &Connection| -> Vec<Option<i64>> { list_workspace(conn, 620).unwrap().iter().map(|it| it.parent).collect() };
+        // B et C dans A : gardés
+        save_workspace(&mut conn, 620, &[item(ids[0], None), item(ids[1], Some(ids[0])), item(ids[2], Some(ids[0])), item(ids[3], None)]).unwrap();
+        assert_eq!(parents(&conn), vec![None, Some(ids[0]), Some(ids[0]), None]);
+        // D dans B, lui-même rattaché : refusé (un seul niveau) ; rattaché à lui-même ou à un inconnu : refusé
+        save_workspace(&mut conn, 620, &[item(ids[0], None), item(ids[1], Some(ids[0])), item(ids[2], Some(ids[2])), item(ids[3], Some(ids[1]))]).unwrap();
+        assert_eq!(parents(&conn), vec![None, Some(ids[0]), None, None]);
+        save_workspace(&mut conn, 620, &[item(ids[0], Some(9999)), item(ids[1], Some(ids[3]))]).unwrap();
+        assert_eq!(parents(&conn), vec![None, None], "parent inconnu ou absent de la liste");
+        // Boucle A ↔ B : les deux liens tombent
+        save_workspace(&mut conn, 620, &[item(ids[0], Some(ids[1])), item(ids[1], Some(ids[0]))]).unwrap();
+        assert_eq!(parents(&conn), vec![None, None]);
+        // L'actualisation du jeu garde le lien ; un succès retiré de Steam aussi (il reste en base)
+        save_workspace(&mut conn, 620, &[item(ids[0], None), item(ids[1], Some(ids[0]))]).unwrap();
+        save_game(&mut conn, &game(vec![ach("A", Some(true)), ach("C", None), ach("D", None)]), "P", None).unwrap();
+        assert_eq!(parents(&conn), vec![None, Some(ids[0])]);
     }
 
     #[test]
@@ -1412,6 +1470,7 @@ mod tests {
             grid: None,
             pinned: false,
             section: None,
+            parent: None,
         };
 
         let mut wanted = vec![item(ids[2]), item(ids[0])];
@@ -1629,6 +1688,7 @@ mod tests {
             grid: Some(GridPos { x: 0, y: 0, w: 6, h: 6 }),
             pinned: true,
             section: None,
+            parent: None,
         };
         let ach_item = WorkspaceItem { achievement_id: Some(id_a), card_id: None, pinned: false, ..free.clone() };
         let bad = WorkspaceItem { achievement_id: Some(id_a), ..free.clone() };
@@ -1692,6 +1752,7 @@ mod tests {
                 grid: Some(GridPos { x: 2, y: 3, w: 4, h: 5 }),
                 pinned: true,
                 section: None,
+                parent: None,
             }]
         );
         let blocks = list_blocks(&conn, 620).unwrap();
@@ -1731,6 +1792,7 @@ mod tests {
             grid: None,
             pinned: false,
             section,
+            parent: None,
         };
         save_workspace(&mut conn, 620, &[item(ids[0], Some(s1.id)), item(ids[1], Some(999))]).unwrap();
         assert_eq!(list_workspace(&conn, 620).unwrap(), vec![item(ids[0], Some(s1.id)), item(ids[1], None)]);
