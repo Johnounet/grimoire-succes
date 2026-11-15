@@ -60,7 +60,7 @@
   role="group"
   aria-label={`Succès rattaché : ${label}`}
 >
-  <div class="flex items-center gap-2 py-1 pr-1 pl-1.5">
+  <div class="flex items-center gap-2 py-1 pr-1 pl-1.5 {a.unlocked ? 'unlocked-glow' : ''}">
     <button
       onclick={ontoggle}
       disabled={a.removed}

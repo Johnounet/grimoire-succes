@@ -38,6 +38,17 @@ body {
   scrollbar-color: var(--color-line) transparent;
 }
 
+/* Succès obtenu : dégradé vert sous le nom et la rareté, qui s'efface vers la droite
+   (demande de l'utilisateur, 2026-11-15). En image de fond : la couleur de fond reste celle du thème. */
+.unlocked-glow {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-ok) 24%, transparent) 0%,
+    color-mix(in srgb, var(--color-ok) 8%, transparent) 45%,
+    transparent 85%
+  );
+}
+
 /* Coche qui se dessine (succès obtenu) */
 .check-draw {
   stroke-dasharray: 16;

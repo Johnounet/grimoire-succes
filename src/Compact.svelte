@@ -445,7 +445,7 @@
 
 {#snippet card({ a, free, blocks: list }: Entry)}
   {#if free}
-    <div class="flex items-center gap-2">
+    <div class="-mx-1 flex items-center gap-2 rounded-md px-1 py-0.5 {free.done ? 'unlocked-glow' : ''}">
       <button
         onclick={() => toggleFree(free)}
         aria-pressed={free.done}
@@ -461,7 +461,7 @@
     </div>
   {:else if a}
     {@const icon = a.unlocked ? a.icon_url : (a.icon_gray_url ?? a.icon_url)}
-    <div class="flex items-center gap-2">
+    <div class="-mx-1 flex items-center gap-2 rounded-md px-1 py-0.5 {a.unlocked ? 'unlocked-glow' : ''}">
       <button
         onclick={() => toggle(a)}
         aria-pressed={a.unlocked}

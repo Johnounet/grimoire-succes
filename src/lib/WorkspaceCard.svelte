@@ -221,7 +221,7 @@
   <!-- Ligne compacte : succès sans guide -->
   <article
     class="ws-card group relative flex items-center gap-2 rounded-[4px] border border-l-[3px] bg-panel py-1.5 pr-2 pl-2
-      {a.removed ? 'opacity-60' : ''} {moving ? 'ring-2 ring-accent' : ''}"
+      {a.removed ? 'opacity-60' : ''} {moving ? 'ring-2 ring-accent' : ''} {checked ? 'unlocked-glow' : ''}"
     style:border-left-color={checked ? "var(--color-ok)" : undefined}
     aria-label={label}
     onpaste={paste}
@@ -260,7 +260,7 @@
     aria-label={label}
     onpaste={paste}
   >
-    <header class="relative flex shrink-0 items-center gap-2 rounded-t-[3px] p-2">
+    <header class="relative flex shrink-0 items-center gap-2 rounded-t-[3px] p-2 {checked ? 'unlocked-glow' : ''}">
       {@render checkbox("h-6 w-6")}
       {#if a}{@render achIcon(a, "h-9 w-9")}{/if}
 
@@ -349,6 +349,7 @@
       0 6px 16px -8px rgb(0 0 0 / 0.45);
   }
   .ws-card > header {
-    background: color-mix(in srgb, var(--color-raised) 70%, var(--color-panel));
+    /* `background-color` seulement : `background` effacerait le dégradé d'un succès obtenu (.unlocked-glow) */
+    background-color: color-mix(in srgb, var(--color-raised) 70%, var(--color-panel));
   }
 </style>
