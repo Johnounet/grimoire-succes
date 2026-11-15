@@ -395,6 +395,8 @@ const SETTINGS: &[&str] = &[
     "last_game",
     // Recherche d'une nouvelle version au démarrage (« 0 » : désactivée)
     "update_check",
+    // Bandeau « Pour bien démarrer » sur un jeu vierge (« 0 » : fermé par le joueur)
+    "start_tips",
 ];
 
 fn check_setting(key: &str) -> Result<(), String> {

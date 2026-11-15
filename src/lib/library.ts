@@ -167,7 +167,8 @@ export type SettingKey =
   | "theme_dark"
   | "theme_light"
   | "last_game"
-  | "update_check";
+  | "update_check"
+  | "start_tips";
 
 /** Place d'une carte dans la vue Tableau : grille de 12 colonnes, hauteur en rangées. */
 export interface GridPos {

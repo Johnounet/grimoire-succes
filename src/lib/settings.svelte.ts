@@ -14,6 +14,9 @@ export const settings = $state({
   compactOpacity: 0.95,
   /** Largeur minimale des colonnes de cartes de la fenêtre compacte (px). */
   compactColumnWidth: 420,
+  /** Bandeau « Pour bien démarrer » sur un jeu encore vierge ; fermé une fois, il ne revient plus
+   *  (sauf en le réactivant dans les Réglages). */
+  startTips: false, // vrai une fois les réglages lus (pas de bandeau qui clignote chez qui l'a fermé)
 });
 
 export const clampOpacity = (v: number) => (Number.isFinite(v) ? Math.min(1, Math.max(0.3, v)) : 0.95);
@@ -34,8 +37,8 @@ export function openRelock(target: AchievementRow | null) {
 }
 
 export async function loadSettings() {
-  const [spoiler, state, opacity, sidebar, columnWidth] = await Promise.all(
-    (["anti_spoiler", "state_filter", "compact_opacity", "sidebar_open", "compact_column_width"] as const).map((k) =>
+  const [spoiler, state, opacity, sidebar, columnWidth, tips] = await Promise.all(
+    (["anti_spoiler", "state_filter", "compact_opacity", "sidebar_open", "compact_column_width", "start_tips"] as const).map((k) =>
       api.getSetting(k).catch(() => null),
     ),
   );
@@ -44,6 +47,12 @@ export async function loadSettings() {
   settings.antiSpoiler = spoiler !== "0";
   if (state === "all" || state === "unlocked" || state === "locked") settings.stateFilter = state;
   settings.sidebarOpen = sidebar !== "0";
+  settings.startTips = tips !== "0";
+}
+
+export async function setStartTips(on: boolean) {
+  settings.startTips = on;
+  await api.setSetting("start_tips", on ? "1" : "0");
 }
 
 export async function setAntiSpoiler(on: boolean) {

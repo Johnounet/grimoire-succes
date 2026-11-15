@@ -9,7 +9,7 @@
     setAppearance,
     type AppearanceMode,
   } from "./theme.svelte";
-  import { setCompactOpacity, settings } from "./settings.svelte";
+  import { setCompactOpacity, setStartTips, settings } from "./settings.svelte";
   import { setAutoUpdate, update } from "./update.svelte";
   import {
     accelFromEvent,
@@ -181,6 +181,15 @@
             class="accent-accent"
           />
           Rechercher les nouvelles versions au démarrage
+        </label>
+        <label class="mt-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.startTips}
+            onchange={(e) => setStartTips(e.currentTarget.checked)}
+            class="accent-accent"
+          />
+          Astuces « Pour bien démarrer » sur un jeu encore vierge
         </label>
       </section>
 

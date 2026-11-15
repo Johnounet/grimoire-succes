@@ -45,7 +45,7 @@
   import { popoverStyle } from "./popover";
   import IntroPanel from "./IntroPanel.svelte";
   import NestedAchievement from "./NestedAchievement.svelte";
-  import { setAntiSpoiler, setStateFilter, settings } from "./settings.svelte";
+  import { setAntiSpoiler, setStartTips, setStateFilter, settings } from "./settings.svelte";
   import { tags } from "./tags.svelte";
   import WorkspaceCard from "./WorkspaceCard.svelte";
 
@@ -147,6 +147,14 @@
   /** Réglages rangés dans le bouton « Filtres » qui changent l'affichage (pastille du bouton). */
   const hiddenFilters = $derived(
     (filters.sort !== "personal" ? 1 : 0) + (filters.rarity !== "all" ? 1 : 0) + (filters.tag !== "all" ? 1 : 0) + (guidedOnly ? 1 : 0),
+  );
+  /** Bandeau « Pour bien démarrer » : jeu encore vierge (aucun bloc, carte libre, section ni préambule),
+   *  et bandeau pas encore fermé. Dès le premier ajout, il disparaît de lui-même. */
+  const showStartTips = $derived(
+    settings.startTips &&
+      !intro &&
+      sections.length === 0 &&
+      items.every((it) => it.card_id == null && blocksOf(cardKey(it)).length === 0),
   );
   let filtersOpen = $state(false);
   let filtersButton = $state<HTMLButtonElement>();
@@ -958,6 +966,35 @@
   </div>
 
   <div class="flex flex-1 flex-col gap-3 px-6 pt-3 pb-6">
+    {#if showStartTips}
+      <!-- Pour bien démarrer (2026-11-15) : les trois gestes de base, sur un jeu encore vierge -->
+      <aside aria-labelledby="start-tips-title" class="relative rounded-lg border border-accent/40 bg-accent/10 px-4 py-3 text-sm">
+        <h2 id="start-tips-title" class="font-semibold">Pour bien démarrer</h2>
+        <ul class="mt-1.5 space-y-1">
+          <li class="flex gap-2.5">
+            <span class="w-4 shrink-0 text-center text-accent" aria-hidden="true">¶</span>
+            <span><strong class="font-medium">Prendre des notes</strong> : survolez un succès, cliquez sur « + » puis « Texte ».</span>
+          </li>
+          <li class="flex gap-2.5">
+            <span class="w-4 shrink-0 text-center text-accent" aria-hidden="true">▶</span>
+            <span><strong class="font-medium">Ajouter une vidéo</strong> : copiez un lien YouTube, survolez un succès et faites Ctrl+V.</span>
+          </li>
+          <li class="flex gap-2.5">
+            <span class="w-4 shrink-0 text-center text-accent" aria-hidden="true">⌕</span>
+            <span><strong class="font-medium">Trouver une astuce</strong> : la loupe à côté du nom cherche sur YouTube, dans les guides Steam et sur Google.</span>
+          </li>
+        </ul>
+        <div class="mt-2.5 flex justify-end">
+          <button onclick={() => setStartTips(false)} class="rounded-md bg-accent px-3 py-1 text-sm font-medium text-on-accent hover:opacity-90">Compris</button>
+        </div>
+        <button
+          onclick={() => setStartTips(false)}
+          aria-label="Fermer les astuces"
+          title="Fermer (réactivables dans les Réglages)"
+          class="absolute top-2 right-2 grid h-7 w-7 place-items-center rounded text-muted transition hover:bg-raised hover:text-fg">✕</button
+        >
+      </aside>
+    {/if}
     {#if intro}
       <IntroPanel
         {intro}
