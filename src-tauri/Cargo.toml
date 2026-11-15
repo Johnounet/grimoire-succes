@@ -1,6 +1,6 @@
 [package]
 name = "grimoire"
-version = "0.2.0"
+version = "0.3.0"
 description = "Grimoire : concoctez vos guides de succès Steam jusqu’au 100 %"
 license = "GPL-3.0-only"
 edition = "2021"
