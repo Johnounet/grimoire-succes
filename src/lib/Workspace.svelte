@@ -161,12 +161,16 @@
     }
     return m;
   });
-  /** Lignes affichées dans la carte d'un parent : tous ses succès rattachés, quels que soient les filtres
-   *  (sauf un succès retiré de Steam sans guide, comme pour les cartes). */
+  /** Lignes affichées dans la carte d'un parent : ses succès rattachés qui passent le filtre d'état
+   *  (« À obtenir » cache ceux déjà obtenus, demande de l'utilisateur), sauf un succès retiré de Steam sans
+   *  guide. Les autres filtres (recherche, rareté, étiquette) ne cachent pas les lignes : ils décident
+   *  seulement si la carte du parent est montrée. */
   function kidRows(id: number) {
     return (kidsOf.get(id) ?? []).flatMap((it) => {
       const a = byId.get(it.achievement_id!);
-      return a && !(a.removed && blocksOf(a.id).length === 0) ? [{ it, a }] : [];
+      if (!a || (a.removed && blocksOf(a.id).length === 0)) return [];
+      if ((filters.state === "locked" && a.unlocked) || (filters.state === "unlocked" && !a.unlocked)) return [];
+      return [{ it, a }];
     });
   }
 
