@@ -11,6 +11,17 @@ const achievements = [
   ["ACH.BRIDGE", "Le pont le vit", "Terminer le test du pont de lumière", 53.2, false, false],
   ["ACH.SECRET", "Le secret de Wheatley", "Découvrir ce que cache Wheatley", 3.7, false, true],
   ["ACH.SPEED", "Rapide comme l'éclair", "Finir la chambre 9 en moins de 70 secondes", 12.4, false, false],
+  // `?many` : un jeu de taille réelle (~70 succès), pour juger la densité de la vue
+  ...(new URLSearchParams(location.search).has("many")
+    ? Array.from({ length: 64 }, (_, i) => [
+        `ACH.MANY_${i}`,
+        `Succès de remplissage n° ${i + 1}`,
+        "Une description assez longue, comme celles de Steam, qui ne tient pas toujours sur une seule ligne de la carte.",
+        Math.round(((i * 37) % 90) * 10) / 10 + 1,
+        i % 7 === 0,
+        false,
+      ])
+    : []),
 ].map(([api_name, name, description, rarity, unlocked, hidden], i) => ({
   id: i + 1,
   api_name,

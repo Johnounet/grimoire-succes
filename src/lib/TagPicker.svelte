@@ -46,7 +46,7 @@
     title="Étiquettes"
     aria-label="Modifier les étiquettes"
     class="rounded-full border border-dashed border-line px-1.5 py-px text-[10px] leading-4 text-muted transition hover:border-muted hover:text-fg
-      {compact && mine.length === 0 ? 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100' : ''}"
+      {compact && mine.length === 0 && !open ? 'hidden group-focus-within:inline-block group-hover:inline-block' : ''}"
   >
     {mine.length ? "±" : "+ étiquette"}
   </button>

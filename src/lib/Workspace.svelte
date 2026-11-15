@@ -41,6 +41,8 @@
     type WorkspaceItem,
   } from "./library";
   import MoreMenu, { type MenuItem } from "./MoreMenu.svelte";
+  import { pop } from "./motion.svelte";
+  import { popoverStyle } from "./popover";
   import IntroPanel from "./IntroPanel.svelte";
   import NestedAchievement from "./NestedAchievement.svelte";
   import { setAntiSpoiler, setStateFilter, settings } from "./settings.svelte";
@@ -142,6 +144,18 @@
     filters.tag = "all";
     guidedOnly = false;
   }
+  /** Réglages rangés dans le bouton « Filtres » qui changent l'affichage (pastille du bouton). */
+  const hiddenFilters = $derived(
+    (filters.sort !== "personal" ? 1 : 0) + (filters.rarity !== "all" ? 1 : 0) + (filters.tag !== "all" ? 1 : 0) + (guidedOnly ? 1 : 0),
+  );
+  let filtersOpen = $state(false);
+  let filtersButton = $state<HTMLButtonElement>();
+  let filtersHeight = $state(0);
+  const addItems: MenuItem[] = $derived([
+    { label: "Carte libre", hint: "Rattachée au jeu, pas à un succès : route générale, objets à ne pas rater…", onclick: onaddfree },
+    ...(intro ? [] : [{ label: "Préambule", hint: "Texte tout en haut du guide : prérequis, conseils…", onclick: onaddintro }]),
+    { label: "Section", hint: "Groupe nommé et repliable : un chapitre, les collectibles…", onclick: onaddsection },
+  ]);
 
   const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
@@ -605,7 +619,7 @@
   {@const cols = columnsOf(g)}
   {@const colOfKey = colMap(list, cols)}
   {#if list.length || moving != null}
-    <Columns items={list} key={cardKey} columns={cols} colOf={(it) => colOfKey.get(cardKey(it)) ?? 0} footer={moving != null ? foot : undefined}>
+    <Columns items={list} key={cardKey} columns={cols} gap={12} colOf={(it) => colOfKey.get(cardKey(it)) ?? 0} footer={moving != null ? foot : undefined}>
       {#snippet children(it)}{@render card(it)}{/snippet}
     </Columns>
     {#snippet foot(c: number)}
@@ -784,7 +798,9 @@
 
 <div class="flex min-h-full flex-col {sectionDrag != null ? 'section-dragging' : ''}">
   <!-- Barre d'outils : recherche, filtres, tri, ajouts -->
-  <div class="sticky top-0 z-20 border-b border-line bg-bg/95 px-6 py-2.5 backdrop-blur">
+  <!-- Une seule ligne (allègement, 2026-11-15) : recherche et état en vue, le reste dans « Filtres » et « + Ajouter ».
+       Pas de backdrop-blur : il piégerait la position fixe des menus (popover.ts). -->
+  <div class="sticky top-0 z-20 border-b border-line bg-bg px-6 py-2.5">
     <div class="flex flex-wrap items-center gap-2 text-sm">
       <div class="relative">
         <input
@@ -808,62 +824,119 @@
           </button>
         {/each}
       </div>
-      <select bind:value={filters.sort} aria-label="Trier" class="rounded-lg border border-line bg-panel px-2 py-1 outline-none focus:border-accent">
-        {#each sortOptions as s (s.value)}<option value={s.value}>{s.label}</option>{/each}
-      </select>
-      <select bind:value={filters.rarity} aria-label="Filtrer par rareté" class="rounded-lg border border-line bg-panel px-2 py-1 outline-none focus:border-accent">
-        {#each rarityTiers as t (t.value)}<option value={t.value}>{t.label}</option>{/each}
-      </select>
-      <select bind:value={filters.tag} aria-label="Filtrer par étiquette" class="rounded-lg border border-line bg-panel px-2 py-1 outline-none focus:border-accent">
-        <option value="all">Toutes les étiquettes</option>
-        <option value="none">Sans étiquette</option>
-        {#each tags.list as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
-      </select>
-      <label class="flex items-center gap-1.5 text-muted" title="Seulement les succès qui ont au moins un bloc de guide">
-        <input type="checkbox" bind:checked={guidedOnly} class="accent-accent" /> Avec guide
-      </label>
-      <button
-        onclick={() => setAntiSpoiler(!settings.antiSpoiler)}
-        aria-pressed={settings.antiSpoiler}
-        title="Mode anti-spoiler : floute les succès cachés non obtenus"
-        class="rounded-lg border px-2 py-0.5 text-xs transition
-          {settings.antiSpoiler ? 'border-accent/60 bg-accent/15 text-fg' : 'border-line text-muted hover:text-fg'}"
+      <!-- Tri, rareté, étiquette, « Avec guide », anti-spoiler -->
+      <div
+        class="relative"
+        onfocusout={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) filtersOpen = false;
+        }}
       >
-        Anti-spoiler {settings.antiSpoiler ? "activé" : "désactivé"}
-      </button>
-    </div>
-    <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-      <span>{shownCount} affiché{shownCount > 1 ? "s" : ""}</span>
-      {#if filtered}<button onclick={resetFilters} class="underline hover:text-fg">réinitialiser les filtres</button>{/if}
-      <button
-        onclick={onaddfree}
-        class="rounded-md border border-line px-2 py-0.5 transition hover:bg-raised hover:text-fg"
-        title="Carte rattachée au jeu, pas à un succès : route générale, objets à ne pas rater, compteur commun…"
-      >
-        + Carte libre
-      </button>
-      {#if !intro}
         <button
-          onclick={onaddintro}
-          class="rounded-md border border-line px-2 py-0.5 transition hover:bg-raised hover:text-fg"
-          title="Texte tout en haut du guide : prérequis, choses à ne pas rater, conseils…"
+          bind:this={filtersButton}
+          onclick={() => (filtersOpen = !filtersOpen)}
+          aria-expanded={filtersOpen}
+          aria-haspopup="dialog"
+          class="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 transition
+            {filtersOpen || hiddenFilters > 0 ? 'border-accent/60 text-fg' : 'border-line text-muted hover:text-fg'}"
         >
-          + Préambule
+          <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true">
+            <path d="M2 4h12M4.5 8h7M7 12h2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+          Filtres
+          {#if hiddenFilters > 0}
+            <span class="grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold text-on-accent">{hiddenFilters}</span>
+          {/if}
         </button>
+        {#if filtersOpen}
+          <div
+            role="dialog"
+            aria-label="Filtres et tri"
+            tabindex="-1"
+            transition:pop={{ y: -4 }}
+            onkeydown={(e) => {
+              if (e.key === "Escape") {
+                filtersOpen = false;
+                filtersButton?.focus();
+              }
+            }}
+            style={popoverStyle(filtersButton, 260, "left", filtersHeight)}
+            {@attach (el) => {
+              filtersHeight = el.scrollHeight;
+              return () => (filtersHeight = 0);
+            }}
+            class="z-50 space-y-2.5 rounded-lg border border-line bg-raised p-3 text-sm shadow-xl outline-none"
+          >
+            <label class="block">
+              <span class="mb-1 block text-xs text-muted">Trier</span>
+              <select bind:value={filters.sort} class="w-full rounded-lg border border-line bg-panel px-2 py-1 outline-none focus:border-accent">
+                {#each sortOptions as s (s.value)}<option value={s.value}>{s.label}</option>{/each}
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-xs text-muted">Rareté</span>
+              <select bind:value={filters.rarity} class="w-full rounded-lg border border-line bg-panel px-2 py-1 outline-none focus:border-accent">
+                {#each rarityTiers as t (t.value)}<option value={t.value}>{t.label}</option>{/each}
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-xs text-muted">Étiquette</span>
+              <select bind:value={filters.tag} class="w-full rounded-lg border border-line bg-panel px-2 py-1 outline-none focus:border-accent">
+                <option value="all">Toutes les étiquettes</option>
+                <option value="none">Sans étiquette</option>
+                {#each tags.list as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+              </select>
+            </label>
+            <label class="flex items-center gap-2" title="Seulement les succès qui ont au moins un bloc de guide">
+              <input type="checkbox" bind:checked={guidedOnly} class="accent-accent" /> Seulement ceux avec un guide
+            </label>
+            <label class="flex items-start gap-2 border-t border-line pt-2.5">
+              <input
+                type="checkbox"
+                checked={settings.antiSpoiler}
+                onchange={(e) => setAntiSpoiler(e.currentTarget.checked)}
+                class="mt-1 accent-accent"
+              />
+              <span>Anti-spoiler <span class="block text-xs text-muted">Floute les succès cachés non obtenus</span></span>
+            </label>
+            {#if hiddenFilters > 0}
+              <button
+                onclick={() => {
+                  resetFilters();
+                  filters.sort = "personal";
+                }}
+                class="text-xs text-muted underline hover:text-fg">Tout remettre par défaut</button
+              >
+            {/if}
+          </div>
+        {/if}
+      </div>
+      {#if settings.antiSpoiler}
+        <span class="text-xs text-muted" title="Les succès cachés non obtenus sont floutés (réglable dans « Filtres »)">Anti-spoiler</span>
       {/if}
-      <button
-        onclick={onaddsection}
-        class="rounded-md border border-line px-2 py-0.5 transition hover:bg-raised hover:text-fg"
-        title="Groupe nommé et repliable : un chapitre, les collectibles, le grind…"
-      >
-        + Section
-      </button>
+      {#if filtered}
+        <span class="text-xs text-muted">
+          {shownCount} affiché{shownCount > 1 ? "s" : ""} ·
+          <button onclick={resetFilters} class="underline hover:text-fg">réinitialiser</button>
+        </span>
+      {/if}
+      <span class="ml-auto"></span>
       {#if hasSections}
-        <button onclick={() => setAllSections(true)} class="underline hover:text-fg">replier les sections</button>
-        <button onclick={() => setAllSections(false)} class="underline hover:text-fg">déplier les sections</button>
+        <span class="text-xs text-muted">
+          <button onclick={() => setAllSections(true)} class="underline hover:text-fg">replier</button> /
+          <button onclick={() => setAllSections(false)} class="underline hover:text-fg">déplier</button> les sections
+        </span>
       {/if}
-      {#if !canMove}<span>Pour déplacer des cartes, choisissez le tri « Mon ordre ».</span>{/if}
+      <MoreMenu
+        items={addItems}
+        label="Ajouter une carte libre, un préambule ou une section"
+        buttonClass="rounded-lg border border-line px-2.5 py-1 text-muted transition hover:bg-raised hover:text-fg"
+      >
+        {#snippet trigger()}+ Ajouter{/snippet}
+      </MoreMenu>
     </div>
+    {#if !canMove && moving == null}
+      <p class="mt-1.5 text-xs text-muted">Tri « {sortOptions.find((s) => s.value === filters.sort)?.label} » : pour déplacer des cartes, revenez à « Mon ordre » (bouton Filtres).</p>
+    {/if}
     {#if moving != null}
       <div class="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-accent/60 bg-raised px-3 py-2 text-sm shadow-lg">
         <span class="min-w-0 flex-1">

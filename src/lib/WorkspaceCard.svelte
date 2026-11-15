@@ -217,7 +217,7 @@
 {#snippet meta(a: AchievementRow)}
   {#if a.unlocked}<span class="font-medium text-ok">Obtenu</span>{/if}
   {#if a.unlocked && a.rarity != null}<span class="text-muted">·</span>{/if}
-  {#if a.rarity != null}<span class="font-semibold whitespace-nowrap {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
+  {#if a.rarity != null}<span class="font-medium whitespace-nowrap {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
   {#if a.removed}<span class="rounded bg-raised px-1.5 py-px text-[10px] whitespace-nowrap text-muted">retiré de Steam</span>{/if}
   <span class="cursor-auto"><TagPicker achievementId={a.id} compact /></span>
 {/snippet}
@@ -265,7 +265,7 @@
 {#if compact && a}
   <!-- Ligne compacte : succès sans guide -->
   <article
-    class="ws-card group relative flex items-center gap-2 outline-none rounded-[4px] border border-l-[3px] bg-panel py-1.5 pr-2 pl-2
+    class="ws-card ws-row group relative flex items-center gap-2.5 outline-none rounded-[4px] border border-l-[3px] bg-panel py-2 pr-2 pl-2.5
       {a.removed ? 'opacity-60' : ''} {moving ? 'ring-2 ring-accent' : ''} {checked ? 'unlocked-glow' : ''}"
     style:border-left-color={checked ? "var(--color-ok)" : undefined}
     aria-label={label}
@@ -287,11 +287,20 @@
       {:else}
         <div class="flex min-w-0 items-center gap-1.5">
           <span class="truncate text-sm font-medium {a.unlocked ? '' : 'text-fg/90'}">{a.name}</span>
-          <HelpSearch name={a.name} iconOnly />
-          <span class="flex shrink-0 items-center gap-1.5 text-xs">{@render meta(a)}</span>
+          <!-- Loupe atténuée tant que la ligne n'est pas survolée (allègement, 2026-11-15) -->
+          <span class="shrink-0 opacity-45 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+            <HelpSearch name={a.name} iconOnly />
+          </span>
         </div>
-        <div class="truncate text-xs text-muted" title={a.description}>{a.description || "—"}</div>
-        {#if a.progress && !a.unlocked}<div class="mt-0.5 max-w-60"><SteamProgress progress={a.progress} /></div>{/if}
+        <!-- Nom seul sur sa ligne (il était coupé dès les premières lettres) ; rareté et étiquettes devant la
+             description. « Obtenu » n'est pas répété : la coche verte et le dégradé le disent déjà. -->
+        <div class="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
+          {#if a.rarity != null}<span class="shrink-0 font-medium whitespace-nowrap {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
+          {#if a.removed}<span class="shrink-0 rounded bg-raised px-1.5 py-px text-[10px] whitespace-nowrap text-muted">retiré de Steam</span>{/if}
+          <span class="shrink-0 cursor-auto empty:hidden"><TagPicker achievementId={a.id} compact /></span>
+          <span class="min-w-0 truncate text-muted/75" title={a.description}>{a.description || "—"}</span>
+        </div>
+        {#if a.progress && !a.unlocked}<div class="mt-1 max-w-52 opacity-70"><SteamProgress progress={a.progress} small /></div>{/if}
       {/if}
     </div>
     {@render pin()}
@@ -400,6 +409,12 @@
     box-shadow:
       0 1px 2px rgb(0 0 0 / 0.2),
       0 6px 16px -8px rgb(0 0 0 / 0.45);
+  }
+  /* Ligne compacte (succès sans guide) : plus calme qu'une carte complète, sans ombre, pour que
+     les cartes qui portent un guide ressortent (allègement, 2026-11-15) */
+  .ws-card.ws-row {
+    border-color: var(--color-line);
+    box-shadow: none;
   }
   .ws-card > header {
     /* `background-color` seulement : `background` effacerait le dégradé d'un succès obtenu (.unlocked-glow) */
