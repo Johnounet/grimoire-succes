@@ -12,9 +12,14 @@ export const settings = $state({
   sidebarOpen: true,
   /** Opacité de la fenêtre compacte (0,3 à 1). */
   compactOpacity: 0.95,
+  /** Largeur minimale des colonnes de cartes de la fenêtre compacte (px). */
+  compactColumnWidth: 420,
 });
 
 export const clampOpacity = (v: number) => (Number.isFinite(v) ? Math.min(1, Math.max(0.3, v)) : 0.95);
+export const COLUMN_WIDTH = { min: 280, max: 960, step: 20 };
+export const clampColumnWidth = (v: number) =>
+  Number.isFinite(v) ? Math.min(COLUMN_WIDTH.max, Math.max(COLUMN_WIDTH.min, Math.round(v))) : 420;
 
 /** État éphémère d'interface. */
 export const ui = $state({
@@ -29,12 +34,13 @@ export function openRelock(target: AchievementRow | null) {
 }
 
 export async function loadSettings() {
-  const [spoiler, state, opacity, sidebar] = await Promise.all(
-    (["anti_spoiler", "state_filter", "compact_opacity", "sidebar_open"] as const).map((k) =>
+  const [spoiler, state, opacity, sidebar, columnWidth] = await Promise.all(
+    (["anti_spoiler", "state_filter", "compact_opacity", "sidebar_open", "compact_column_width"] as const).map((k) =>
       api.getSetting(k).catch(() => null),
     ),
   );
   if (opacity) settings.compactOpacity = clampOpacity(Number(opacity));
+  if (columnWidth) settings.compactColumnWidth = clampColumnWidth(Number(columnWidth));
   settings.antiSpoiler = spoiler !== "0";
   if (state === "all" || state === "unlocked" || state === "locked") settings.stateFilter = state;
   settings.sidebarOpen = sidebar !== "0";
@@ -54,6 +60,13 @@ export async function setCompactOpacity(value: number) {
   settings.compactOpacity = clampOpacity(value);
   send("compact-opacity", { value: settings.compactOpacity });
   await api.setSetting("compact_opacity", String(settings.compactOpacity));
+}
+
+/** Largeur des colonnes de la fenêtre compacte : `save` à false pendant le glisser du curseur
+ *  (affichage seulement), puis true au lâcher (un seul enregistrement). */
+export async function setCompactColumnWidth(value: number, save = true) {
+  settings.compactColumnWidth = clampColumnWidth(value);
+  if (save) await api.setSetting("compact_column_width", String(settings.compactColumnWidth));
 }
 
 export async function setSidebarOpen(open: boolean) {

@@ -28,7 +28,7 @@
   import { COMPACT_KINDS, formatDuration, kindInfo, type Block, type CounterData, type ListData, type TimerData } from "./lib/blocks/types";
   import { rarityText } from "./lib/filters";
   import { api, cardKey, nesting, type AchievementRow, type CardKey, type FreeCard, type GameSummary, type WorkspaceItem } from "./lib/library";
-  import { clampOpacity, loadSettings, setCompactOpacity, settings } from "./lib/settings.svelte";
+  import { clampOpacity, COLUMN_WIDTH, loadSettings, setCompactColumnWidth, setCompactOpacity, settings } from "./lib/settings.svelte";
   import {
     applyShortcuts,
     formatAccel,
@@ -502,17 +502,34 @@
       {game?.name ?? "Mode compact"}
       {#if game}<span class="font-normal text-muted"> · {game.unlocked}/{game.total}</span>{/if}
     </span>
-    <input
-      type="range"
-      min="0.3"
-      max="1"
-      step="0.05"
-      value={settings.compactOpacity}
-      oninput={(e) => setCompactOpacity(Number(e.currentTarget.value))}
-      title="Opacité du fond"
-      aria-label="Opacité du fond de la fenêtre"
-      class="w-16 accent-accent"
-    />
+    <!-- Réglages en direct : largeur des colonnes, opacité du fond -->
+    <label class="flex shrink-0 items-center gap-1 text-xs text-muted" title="Largeur des colonnes : {settings.compactColumnWidth} px">
+      <span aria-hidden="true">↔</span>
+      <input
+        type="range"
+        min={COLUMN_WIDTH.min}
+        max={COLUMN_WIDTH.max}
+        step={COLUMN_WIDTH.step}
+        value={settings.compactColumnWidth}
+        oninput={(e) => setCompactColumnWidth(Number(e.currentTarget.value), false)}
+        onchange={(e) => setCompactColumnWidth(Number(e.currentTarget.value))}
+        aria-label="Largeur des colonnes de cartes"
+        class="w-20 accent-accent"
+      />
+    </label>
+    <label class="flex shrink-0 items-center gap-1 text-xs text-muted" title="Opacité du fond">
+      <span aria-hidden="true">◐</span>
+      <input
+        type="range"
+        min="0.3"
+        max="1"
+        step="0.05"
+        value={settings.compactOpacity}
+        oninput={(e) => setCompactOpacity(Number(e.currentTarget.value))}
+        aria-label="Opacité du fond de la fenêtre"
+        class="w-16 accent-accent"
+      />
+    </label>
     <button onclick={close} class="rounded px-1.5 text-muted hover:bg-raised hover:text-fg" aria-label="Fermer le mode compact" title="Fermer">✕</button>
   </header>
 
@@ -526,9 +543,12 @@
     {#if error}<p class="text-xs text-danger">{error}</p>{/if}
     {#if blocks.error}<p class="text-xs text-danger">{blocks.error}</p>{/if}
 
-    <!-- Cartes épinglées, en colonnes d'au moins 300 px (une seule dans une fenêtre étroite) -->
+    <!-- Cartes épinglées, en colonnes de largeur réglable (curseur ↔ ; une seule dans une fenêtre étroite) -->
     {#if cards.length}
-      <div class="grid items-start gap-2.5" style="grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr))">
+      <div
+        class="grid items-start gap-2.5"
+        style:grid-template-columns="repeat(auto-fill, minmax(min(100%, {settings.compactColumnWidth}px), 1fr))"
+      >
         {#each cards as { main, kids } (main.key)}
           <section class="space-y-1.5 rounded-lg border border-line p-2" style:background-color={seeThrough("--color-panel", 0.9)}>
             {@render card(main)}

@@ -160,6 +160,7 @@ export type SettingKey =
   | "shortcuts"
   | "shortcut_sound"
   | "compact_opacity"
+  | "compact_column_width"
   | "animations"
   | "check_sound"
   | "appearance"
