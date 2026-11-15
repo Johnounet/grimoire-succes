@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Réglages › Sauvegardes : copies de sécurité des données (backup.rs). Une automatique par jour,
-  // les 7 dernières gardées ; sauvegarde à la demande, restauration (l'état remplacé est d'abord
+  // Réglages › Sauvegardes : copies de sécurité des données (backup.rs). Automatiques toutes les
+  // heures si les données ont changé, une à la fermeture ; sauvegarde à la demande, restauration (l'état remplacé est d'abord
   // sauvegardé), suppression, ouverture du dossier.
   import { onMount } from "svelte";
   import { flushBlocks } from "./blocks/store.svelte";
@@ -15,6 +15,7 @@
 
   const KIND: Record<BackupInfo["kind"], string> = {
     auto: "automatique",
+    fermeture: "à la fermeture",
     manuel: "manuelle",
     "avant-restauration": "avant restauration",
     "avant-mise-a-jour": "avant mise à jour",
@@ -72,8 +73,8 @@
 <section aria-labelledby="s-backups">
   <h3 id="s-backups" class="text-sm font-semibold tracking-wide text-muted uppercase">Sauvegardes</h3>
   <p class="mt-1 text-xs text-muted">
-    Une copie automatique par jour de vos guides, coches, étiquettes et réglages ; les 7 dernières sont gardées.
-    Restaurer remet les données d'une sauvegarde, après avoir mis de côté celles d'aujourd'hui.
+    Copie de vos guides, coches, étiquettes et réglages toutes les heures s'ils ont changé (les 10 dernières, plus
+    une par jour sur 7 jours), et à chaque fermeture de Grimoire. Restaurer remet les données d'une sauvegarde, après avoir mis de côté celles d'aujourd'hui.
   </p>
 
   <div class="mt-3 flex flex-wrap gap-2">

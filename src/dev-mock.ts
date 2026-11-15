@@ -135,7 +135,7 @@ function importGame(appid: number) {
 /** Délai d'un vrai import (réseau), pour voir l'état « en cours » de l'interface. */
 const later = <T>(f: () => T, ms = 700) => new Promise<T>((ok) => setTimeout(() => ok(f()), ms));
 
-/** Sauvegardes simulées : quelques automatiques des derniers jours. */
+/** Sauvegardes simulées : quelques automatiques des derniers jours, et celle de la dernière fermeture. */
 let backups = [0, 1, 2].map((d) => ({
   id: `${d}-auto`,
   created_at: Math.floor(Date.now() / 1000) - d * 86400 - 3600,
@@ -143,6 +143,7 @@ let backups = [0, 1, 2].map((d) => ({
   games: 4,
   size: 2_900_000 + d * 1000,
 }));
+backups.push({ id: "fermeture", created_at: Math.floor(Date.now() / 1000) - 1800, kind: "fermeture", games: 4, size: 2_900_000 });
 
 /** Fenêtre compacte simulée (onglet « ?compact », données propres à l'onglet) : une carte épinglée
  *  de démonstration avec un élément de chaque sorte, et « Le pont le vit » épinglé avec un compteur (il a une progression Steam). */

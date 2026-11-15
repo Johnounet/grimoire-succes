@@ -87,10 +87,13 @@ pub async fn update_install(app: AppHandle, state: State<'_, UpdateState>) -> Re
     }
     let update = state.pending.lock().map_err(err)?.clone().ok_or("aucune mise à jour trouvée")?;
     // Sous Windows, l'installeur ferme l'application sans fermeture des fenêtres : leur place
-    // est enregistrée une fois le téléchargement fini
+    // est enregistrée une fois le téléchargement fini, et la copie de fin de séance écrite
     let app_for_save = app.clone();
     update
-        .download_and_install(|_, _| {}, move || crate::window_state::save_all(&app_for_save))
+        .download_and_install(|_, _| {}, move || {
+            crate::window_state::save_all(&app_for_save);
+            crate::backup::on_close_app(&app_for_save);
+        })
         .await
         .map_err(err)?;
     // Hors Windows, l'installation ne relance pas l'application

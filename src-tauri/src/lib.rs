@@ -92,6 +92,8 @@ pub fn run() {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
                 // La fenêtre compacte ne reçoit pas de demande de fermeture : sa place est enregistrée ici
                 window_state::save_all(window.app_handle());
+                // Copie de fin de séance (les blocs en attente ont été envoyés par la fenêtre avant)
+                backup::on_close_app(window.app_handle());
                 window.app_handle().exit(0);
             }
         })

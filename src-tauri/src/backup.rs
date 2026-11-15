@@ -8,11 +8,15 @@
 //! - `images/covers/` : jaquettes, copiées (petites, et réécrites si un jeu est rajouté) ;
 //! - `info.json` : date, sorte, nombre de jeux.
 //!
-//! Sortes : `auto` (une par jour, au démarrage puis toutes les heures si l'application reste ouverte ;
-//! les 7 dernières sont gardées), `manuel` (bouton des Réglages) et `avant-restauration` (état remplacé
-//! par une restauration, pour pouvoir revenir en arrière) et `avant-mise-a-jour` (base telle
-//! qu'elle était avant les migrations d'une nouvelle version du logiciel ; les 3 dernières gardées).
-//! Les manuelles et `avant-restauration` ne sont jamais supprimées d'office.
+//! Sortes :
+//! - `auto` : au démarrage puis toutes les heures, **seulement si les données ont changé** depuis la
+//!   dernière sauvegarde ; les 10 dernières gardées, plus la dernière de chacun des 7 jours d'avant ;
+//! - `fermeture` : à la fermeture de Grimoire (et avant l'installation d'une mise à jour), une seule,
+//!   remplacée à chaque fois : la sauvegarde la plus récente est ainsi celle de la fin de séance ;
+//! - `manuel` (bouton des Réglages), `avant-restauration` (état remplacé par une restauration, pour
+//!   pouvoir revenir en arrière) : jamais supprimées d'office ;
+//! - `avant-mise-a-jour` : base telle qu'elle était avant les migrations d'une nouvelle version du
+//!   logiciel ; les 3 dernières gardées.
 
 use crate::db;
 use crate::library::AppState;
@@ -22,13 +26,15 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 
-/// Sauvegardes automatiques gardées.
-pub const KEEP_AUTO: usize = 7;
+/// Sauvegardes automatiques récentes gardées.
+pub const KEEP_AUTO: usize = 10;
+/// En plus des récentes : la dernière sauvegarde automatique de chacun de ces jours (les plus récents
+/// où il y en a une).
+pub const KEEP_AUTO_DAYS: usize = 7;
 /// Sauvegardes d'avant mise à jour gardées.
 pub const KEEP_BEFORE_UPDATE: usize = 3;
-/// Écart entre deux sauvegardes automatiques.
 const DAY: i64 = 24 * 3600;
-/// Coup d'œil pendant que l'application reste ouverte.
+/// Écart entre deux sauvegardes automatiques (faites seulement si les données ont changé).
 const CHECK_EVERY: Duration = Duration::from_secs(3600);
 
 use crate::data_dir::DB_FILE;
@@ -38,6 +44,7 @@ const INFO_FILE: &str = "info.json";
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
     Auto,
+    Fermeture,
     Manuel,
     AvantRestauration,
     AvantMiseAJour,
@@ -47,6 +54,7 @@ impl Kind {
     fn slug(self) -> &'static str {
         match self {
             Kind::Auto => "auto",
+            Kind::Fermeture => "fermeture",
             Kind::Manuel => "manuel",
             Kind::AvantRestauration => "avant-restauration",
             Kind::AvantMiseAJour => "avant-mise-a-jour",
@@ -204,6 +212,42 @@ fn prune(data_dir: &Path, kind: Kind, keep: usize) {
     }
 }
 
+/// Sauvegardes automatiques à supprimer (`autos` : la plus récente d'abord) : on garde les
+/// `KEEP_AUTO` plus récentes, plus la dernière de chacun des `KEEP_AUTO_DAYS` jours les plus récents
+/// parmi les autres (jours sans sauvegarde sautés : l'historique ne fond pas pendant une pause).
+/// Jours comptés en temps universel (minuit à Paris = 1 h ou 2 h) : sans importance, il s'agit
+/// seulement d'espacer les copies anciennes.
+fn autos_to_remove(autos: &[BackupInfo]) -> Vec<&BackupInfo> {
+    let mut days_kept = Vec::new();
+    let mut out = Vec::new();
+    for b in autos.iter().skip(KEEP_AUTO) {
+        let day = b.created_at.div_euclid(DAY);
+        if days_kept.contains(&day) || days_kept.len() >= KEEP_AUTO_DAYS {
+            out.push(b);
+        } else {
+            days_kept.push(day);
+        }
+    }
+    out
+}
+
+fn prune_auto(data_dir: &Path) {
+    let autos: Vec<BackupInfo> = list(data_dir).into_iter().filter(|b| b.kind == Kind::Auto).collect();
+    for old in autos_to_remove(&autos) {
+        let _ = std::fs::remove_dir_all(backups_dir(data_dir).join(&old.id));
+    }
+}
+
+/// Même base dans deux sauvegardes : l'API de sauvegarde de SQLite recopie les pages telles quelles,
+/// donc des données inchangées donnent le même fichier. Une différence sans changement réel
+/// (rangement interne de SQLite) coûte au pire une sauvegarde de trop, jamais une de moins.
+fn same_database(a: &Path, b: &Path) -> bool {
+    match (std::fs::read(a), std::fs::read(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
+}
+
 /// Au démarrage, avant les migrations : copie de la base si une nouvelle version du logiciel va
 /// la modifier. Une migration défectueuse laisse ainsi une copie saine du jour même.
 pub fn before_migration(conn: &Connection, data_dir: &Path, images_dir: &Path) -> Result<Option<BackupInfo>, String> {
@@ -217,19 +261,46 @@ pub fn before_migration(conn: &Connection, data_dir: &Path, images_dir: &Path) -
     Ok(Some(info))
 }
 
-/// Sauvegarde automatique si la dernière date d'un jour ou plus (ou s'il n'y en a pas).
-pub fn auto_if_due(conn: &Connection, data_dir: &Path, images_dir: &Path) -> Result<Option<BackupInfo>, String> {
-    let last = list(data_dir).into_iter().find(|b| b.kind == Kind::Auto).map(|b| b.created_at);
-    if last.is_some_and(|t| now() - t < DAY) {
-        return Ok(None);
-    }
+/// Sauvegarde automatique si les données ont changé depuis la dernière sauvegarde, de toute sorte (une
+/// copie de fermeture ou manuelle identique suffit).
+pub fn auto_if_changed(conn: &Connection, data_dir: &Path, images_dir: &Path) -> Result<Option<BackupInfo>, String> {
     // Rien à protéger tant que la bibliothèque est vide (premier lancement)
     if db::library_appids(conn).map_err(err)?.is_empty() {
         return Ok(None);
     }
+    let previous = list(data_dir).into_iter().next();
     let info = create(conn, data_dir, images_dir, Kind::Auto)?;
-    prune(data_dir, Kind::Auto, KEEP_AUTO);
+    let root = backups_dir(data_dir);
+    if previous.is_some_and(|p| same_database(&root.join(&p.id).join(DB_FILE), &root.join(&info.id).join(DB_FILE))) {
+        let _ = std::fs::remove_dir_all(root.join(&info.id));
+        return Ok(None);
+    }
+    prune_auto(data_dir);
     Ok(Some(info))
+}
+
+/// À la fermeture : copie de l'état de fin de séance, qui remplace la précédente. Pas écrite pour une
+/// bibliothèque vide ni pour une base abîmée : elle remplacerait une bonne copie par une mauvaise.
+pub fn on_close(conn: &Connection, data_dir: &Path, images_dir: &Path) -> Result<Option<BackupInfo>, String> {
+    if db::library_appids(conn).map_err(err)?.is_empty() {
+        return Ok(None);
+    }
+    if let Some(problem) = db::quick_check(conn).map_err(err)? {
+        return Err(format!("base abîmée, sauvegarde de fermeture non écrite : {problem}"));
+    }
+    let info = create(conn, data_dir, images_dir, Kind::Fermeture)?;
+    prune(data_dir, Kind::Fermeture, 1);
+    Ok(Some(info))
+}
+
+/// Sauvegarde de fermeture depuis l'application (fenêtre principale fermée, mise à jour sur le point
+/// de s'installer). Sans effet si la base n'est pas ouverte.
+pub fn on_close_app(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let conn = state.conn();
+    if let Err(e) = on_close(&conn, &state.data_dir, &state.images_dir) {
+        eprintln!("sauvegarde de fermeture : {e}");
+    }
 }
 
 /// Base d'une sauvegarde utilisable : lisible, pas d'une version plus récente du logiciel (on ne
@@ -305,7 +376,7 @@ pub fn delete(data_dir: &Path, id: &str) -> Result<(), String> {
     std::fs::remove_dir_all(backup_path(data_dir, id)?).map_err(err)
 }
 
-/// Au démarrage, puis toutes les heures : sauvegarde automatique si elle est due.
+/// Au démarrage, puis toutes les heures : sauvegarde automatique si les données ont changé.
 pub fn start(app: AppHandle) {
     std::thread::Builder::new()
         .name("sauvegardes".into())
@@ -314,7 +385,7 @@ pub fn start(app: AppHandle) {
                 let state = app.state::<AppState>();
                 rename_old_dir(&state.data_dir);
                 let conn = state.conn();
-                if let Err(e) = auto_if_due(&conn, &state.data_dir, &state.images_dir) {
+                if let Err(e) = auto_if_changed(&conn, &state.data_dir, &state.images_dir) {
                     eprintln!("sauvegarde automatique : {e}");
                 }
             }
@@ -402,15 +473,23 @@ mod tests {
         assert_eq!(list(&data).iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["1-manuel"]);
         delete(&data, "1-manuel").unwrap();
 
-        // Bibliothèque vide : pas de sauvegarde automatique
-        assert!(auto_if_due(&conn, &data, &images).unwrap().is_none());
+        // Bibliothèque vide : pas de sauvegarde automatique ni de fermeture
+        assert!(auto_if_changed(&conn, &data, &images).unwrap().is_none());
+        assert!(on_close(&conn, &data, &images).unwrap().is_none());
 
         db::save_game(&mut conn, &game(620), "Portal 2", Some(("covers/620.jpg", "portrait"))).unwrap();
         std::fs::create_dir_all(images.join("covers")).unwrap();
         std::fs::write(images.join("covers/620.jpg"), b"jaquette").unwrap();
-        let first = auto_if_due(&conn, &data, &images).unwrap().unwrap();
+        let first = auto_if_changed(&conn, &data, &images).unwrap().unwrap();
         assert_eq!((first.kind, first.games), (Kind::Auto, 1));
-        assert!(auto_if_due(&conn, &data, &images).unwrap().is_none(), "une par jour");
+        assert!(auto_if_changed(&conn, &data, &images).unwrap().is_none(), "rien n'a changé");
+        // Même après que SQLite a vidé son journal dans la base
+        let _: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0)).unwrap();
+        assert!(auto_if_changed(&conn, &data, &images).unwrap().is_none(), "rien n'a changé (journal vidé)");
+        // Valeur réécrite à l'identique : pas un changement
+        conn.execute("UPDATE games SET name = name", []).unwrap();
+        assert!(auto_if_changed(&conn, &data, &images).unwrap().is_none(), "réécriture identique");
+        assert_eq!(list(&data).len(), 1);
 
         // Le joueur supprime son jeu (et sa jaquette), puis restaure
         db::delete_game(&conn, 620).unwrap();
@@ -427,16 +506,53 @@ mod tests {
         assert!(restore(&mut conn, &data, &images, "../x").is_err());
         assert!(delete(&data, "inconnue").is_err());
 
-        // Seules les 7 automatiques les plus récentes restent ; les autres sortes ne sont pas touchées
-        for _ in 0..9 {
+        // Changement réel : nouvelle sauvegarde automatique
+        conn.execute("UPDATE games SET name = 'Portal 2 (renommé)'", []).unwrap();
+        assert!(auto_if_changed(&conn, &data, &images).unwrap().is_some());
+
+        // Fermeture : une seule, remplacée à chaque fois, la plus récente de toutes
+        let close1 = on_close(&conn, &data, &images).unwrap().unwrap();
+        std::thread::sleep(Duration::from_millis(1100));
+        let close2 = on_close(&conn, &data, &images).unwrap().unwrap();
+        let all = list(&data);
+        assert_eq!(all[0].id, close2.id);
+        assert_eq!(all.iter().filter(|b| b.kind == Kind::Fermeture).count(), 1);
+        assert!(all.iter().all(|b| b.id != close1.id));
+        // Fermeture identique aux données : pas de sauvegarde automatique en plus
+        assert!(auto_if_changed(&conn, &data, &images).unwrap().is_none());
+
+        // Automatiques élaguées (toutes du même jour : les 10 plus récentes) ; autres sortes intactes
+        for _ in 0..12 {
             create(&conn, &data, &images, Kind::Auto).unwrap();
         }
-        prune(&data, Kind::Auto, KEEP_AUTO);
+        prune_auto(&data);
         let all = list(&data);
-        assert_eq!(all.iter().filter(|b| b.kind == Kind::Auto).count(), KEEP_AUTO);
+        assert!(all.iter().filter(|b| b.kind == Kind::Auto).count() <= KEEP_AUTO + 1, "au plus un jour de plus");
         assert_eq!(all.iter().filter(|b| b.kind == Kind::AvantRestauration).count(), 1);
+        assert_eq!(all.iter().filter(|b| b.kind == Kind::Fermeture).count(), 1);
         drop(conn);
         let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// Les 10 plus récentes, plus la dernière de chacun des 7 jours d'avant où il y en a une.
+    #[test]
+    fn automatiques_gardees() {
+        let info = |created_at: i64| BackupInfo { id: created_at.to_string(), created_at, kind: Kind::Auto, games: 1, size: 0 };
+        let day0 = 20_000 * DAY;
+        // Aujourd'hui : 12 sauvegardes horaires ; avant : 3 par jour, avec une pause de 5 jours
+        let mut autos: Vec<BackupInfo> = (0..12).map(|h| info(day0 + 3600 * (12 - h))).collect();
+        for d in [1, 2, 3, 9, 10, 11, 12, 13, 14] {
+            for h in [20, 15, 10] {
+                autos.push(info(day0 - d * DAY + 3600 * h));
+            }
+        }
+        let removed: Vec<i64> = autos_to_remove(&autos).iter().map(|b| b.created_at).collect();
+        let kept: Vec<i64> = autos.iter().map(|b| b.created_at).filter(|t| !removed.contains(t)).collect();
+        assert_eq!(kept.len(), KEEP_AUTO + KEEP_AUTO_DAYS);
+        assert_eq!(kept[..KEEP_AUTO], autos[..KEEP_AUTO].iter().map(|b| b.created_at).collect::<Vec<_>>()[..]);
+        // Aujourd'hui (la plus récente des 2 restantes), puis la dernière des jours 1, 2, 3, 9, 10, 11
+        assert_eq!(kept[KEEP_AUTO], day0 + 3600 * 2);
+        assert_eq!(kept[KEEP_AUTO + 1..], [1, 2, 3, 9, 10, 11].map(|d| day0 - d * DAY + 3600 * 20));
     }
 
     /// Base d'une ancienne version : copiée telle quelle avant d'être migrée.
