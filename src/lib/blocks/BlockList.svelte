@@ -13,6 +13,7 @@
   import TextBlock from "./TextBlock.svelte";
   import TimerBlock from "./TimerBlock.svelte";
   import type { CardKey } from "../library";
+  import { plainText } from "../markdown";
   import { blockKinds, formatDuration, kindInfo, type Block, type BlockKind } from "./types";
   import VideoBlock from "./VideoBlock.svelte";
 
@@ -105,7 +106,7 @@
     const d = b.data as unknown as Record<string, unknown>;
     switch (b.kind) {
       case "text": {
-        const line = String(d.markdown ?? "").split("\n").find((l) => l.trim()) ?? "";
+        const line = plainText(String(d.markdown ?? "").split("\n").find((l) => l.trim()) ?? "");
         return line.replace(/^[#>\-*\s]+|[*_`]/g, "").trim();
       }
       case "image":

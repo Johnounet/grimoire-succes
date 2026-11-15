@@ -1,7 +1,7 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { tick } from "svelte";
-  import { renderMarkdown } from "../markdown";
+  import { renderMarkdown, TEXT_COLORS } from "../markdown";
   import { saveBlock } from "./store.svelte";
   import type { Block } from "./types";
 
@@ -11,6 +11,8 @@
   // svelte-ignore state_referenced_locally
   let editing = $state(block.data.markdown === "");
   let area = $state<HTMLTextAreaElement>();
+  /** Nuancier des couleurs du texte ouvert dans la barre. */
+  let palette = $state(false);
 
   const html = $derived(renderMarkdown(block.data.markdown));
 
@@ -82,7 +84,13 @@
     { label: "•", title: "Liste à puces", cls: "", run: () => wrap("- ", "", true) },
     { label: "1.", title: "Liste numérotée", cls: "", run: () => wrap("1. ", "", true) },
     { label: "🔗", title: "Lien (Ctrl+K)", cls: "", run: () => wrap("[", "](https://)") },
+    { label: "⚠", title: "Encadré d'avertissement (ligne commençant par « !! »)", cls: "", run: () => wrap("!! ", "", true) },
   ];
+
+  function color(name: string) {
+    palette = false;
+    wrap(`{${name}}`, "{/}");
+  }
 </script>
 
 {#if editing}
@@ -99,6 +107,30 @@
           {t.label}
         </button>
       {/each}
+      <!-- Couleur du texte sélectionné : palette fixe -->
+      <button
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => (palette = !palette)}
+        aria-expanded={palette}
+        title="Couleur du texte sélectionné"
+        aria-label="Couleur du texte sélectionné"
+        class="h-7 min-w-7 rounded border border-line px-1.5 text-xs font-bold text-muted hover:bg-raised hover:text-fg"
+      >
+        <span class="border-b-2 border-danger">A</span>
+      </button>
+      {#if palette}
+        {#each TEXT_COLORS as c (c.name)}
+          <button
+            onmousedown={(e) => e.preventDefault()}
+            onclick={() => color(c.name)}
+            title={c.label}
+            aria-label={c.label}
+            class="tc-{c.name} grid h-7 w-7 place-items-center rounded border border-line text-xs font-bold hover:bg-raised"
+          >
+            A
+          </button>
+        {/each}
+      {/if}
       <button onclick={() => (editing = false)} class="ml-auto rounded px-2 text-xs text-muted hover:text-fg">Terminé</button>
     </div>
     <textarea
@@ -110,7 +142,7 @@
         if (block.data.markdown.trim() !== "") editing = false;
       }}
       rows="3"
-      placeholder="Vos notes… (**gras**, ## titre, - liste, [lien](https://…))"
+      placeholder={"Vos notes… (**gras**, ## titre, - liste, [lien](https://…), {rouge}texte{/}, !! avertissement)"}
       class="block w-full resize-none rounded-lg border border-line bg-bg px-3 py-2 text-sm leading-relaxed outline-none focus:border-accent"
     ></textarea>
   </div>
@@ -165,5 +197,39 @@
   }
   .md :global(strong) {
     font-weight: 700;
+  }
+  /* Couleurs du texte : celles du thème, lisibles sur Nuit comme sur Papier */
+  .md :global(.tc-rouge),
+  .tc-rouge {
+    color: var(--color-danger);
+  }
+  .md :global(.tc-orange),
+  .tc-orange {
+    color: color-mix(in srgb, var(--color-danger) 45%, var(--color-gold));
+  }
+  .md :global(.tc-vert),
+  .tc-vert {
+    color: var(--color-ok);
+  }
+  .md :global(.tc-or),
+  .tc-or {
+    color: var(--color-gold);
+  }
+  /* Encadré d'avertissement (lignes « !! ») */
+  .md :global(.callout) {
+    position: relative;
+    margin: 0.5em 0;
+    padding: 0.4em 0.7em 0.4em 2em;
+    border-left: 3px solid var(--color-danger);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--color-danger) 13%, transparent);
+    font-weight: 500;
+  }
+  .md :global(.callout)::before {
+    content: "⚠";
+    position: absolute;
+    left: 0.6em;
+    top: 0.4em;
+    color: var(--color-danger);
   }
 </style>
