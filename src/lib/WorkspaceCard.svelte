@@ -10,7 +10,7 @@
   import BlockList from "./blocks/BlockList.svelte";
   import { blocksOf, createBlock, imageFrom, saveBlock, uploadImage } from "./blocks/store.svelte";
   import HelpSearch from "./HelpSearch.svelte";
-  import MoreMenu from "./MoreMenu.svelte";
+  import MoreMenu, { type MenuItem } from "./MoreMenu.svelte";
   import { openRelock } from "./settings.svelte";
   import TagPicker from "./TagPicker.svelte";
   import { rarityText } from "./filters";
@@ -60,7 +60,7 @@
     /** Nouveau titre d'une carte libre. */
     onrename?: (title: string) => void;
     /** Entrées « Déplacer vers… » du menu (sections). */
-    moves?: { label: string; onclick: () => void; hint?: string }[];
+    moves?: MenuItem[];
     /** Nombre de succès rattachés à celui-ci ; `nested` les affiche (lignes NestedAchievement). */
     nestedCount?: number;
     nested?: Snippet;

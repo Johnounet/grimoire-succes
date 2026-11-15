@@ -7,6 +7,11 @@
     label: string;
     onclick: () => void;
     hint?: string;
+    /** Titre du groupe : affiché (avec un trait) avant le premier élément d'un nouveau groupe, et les
+     *  éléments du groupe sont en retrait. */
+    group?: string;
+    /** Pastille de couleur (valeur CSS) devant le libellé, ex. couleur d'une section. */
+    color?: string;
   }
 
   let {
@@ -59,7 +64,16 @@
       style={popoverStyle(button, 256, "right")}
       class="z-50 rounded-lg border border-line bg-raised p-1 shadow-xl"
     >
-      {#each items as it, i (it.label)}
+      {#each items as it, i (i)}
+        {#if it.group && it.group !== items[i - 1]?.group}
+          <div
+            role="presentation"
+            class="px-2.5 pt-1.5 pb-0.5 text-[11px] font-semibold tracking-wide text-muted uppercase
+              {i > 0 ? 'mt-1 border-t border-line' : ''}"
+          >
+            {it.group}
+          </div>
+        {/if}
         <button
           role="menuitem"
           onclick={() => {
@@ -69,8 +83,10 @@
           {@attach (el) => {
             if (i === 0) el.focus();
           }}
-          class="block w-full rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-panel focus-visible:bg-panel focus-visible:outline-none"
+          class="block w-full rounded-md py-1.5 pr-2.5 text-left text-sm hover:bg-panel focus-visible:bg-panel focus-visible:outline-none
+            {it.group ? 'pl-4' : 'pl-2.5'}"
         >
+          {#if it.color}<span class="mr-1.5 inline-block h-2.5 w-2.5 rounded-sm align-[-1px]" style:background={it.color}></span>{/if}
           {it.label}
           {#if it.hint}<span class="block text-[11px] text-muted">{it.hint}</span>{/if}
         </button>

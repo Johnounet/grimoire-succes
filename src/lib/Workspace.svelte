@@ -36,7 +36,7 @@
     type Section,
     type WorkspaceItem,
   } from "./library";
-  import MoreMenu from "./MoreMenu.svelte";
+  import MoreMenu, { type MenuItem } from "./MoreMenu.svelte";
   import NestedAchievement from "./NestedAchievement.svelte";
   import { setAntiSpoiler, setStateFilter, settings } from "./settings.svelte";
   import { tags } from "./tags.svelte";
@@ -343,7 +343,7 @@
 
   /** Entrées du menu d'une carte : rattacher (succès), « Déplacer vers… » (à la fin de la section choisie). */
   function movesFor(it: WorkspaceItem) {
-    const out: { label: string; onclick: () => void; hint?: string }[] = [];
+    const out: MenuItem[] = [];
     if (it.achievement_id != null && it.card_id == null) {
       const id = it.achievement_id;
       out.push({
@@ -359,8 +359,14 @@
     const here = sectionOf(it);
     out.push(...sections
       .filter((s) => s.id !== here)
-      .map((s) => ({ label: `Déplacer vers « ${s.title || "Section sans titre"} »`, onclick: () => toEnd(cardKey(it), s.id) })));
-    if (here != null) out.push({ label: "Sortir de la section", onclick: () => toEnd(cardKey(it), null) });
+      .map((s) => ({
+        group: "Déplacer vers…",
+        label: s.title || "Section sans titre",
+        color: sectionColor(s.color),
+        onclick: () => toEnd(cardKey(it), s.id),
+      })));
+    if (here != null)
+      out.push({ group: "Déplacer vers…", label: "Autres succès (hors section)", color: "var(--color-muted)", onclick: () => toEnd(cardKey(it), null) });
     return out;
   }
 
