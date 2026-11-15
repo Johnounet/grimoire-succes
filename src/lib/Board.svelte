@@ -117,6 +117,66 @@
     onlayout(positions);
   }
 
+  /** Zone qui défile autour de la grille (la plus proche), sinon la page. */
+  function scrollParent(el: HTMLElement): HTMLElement {
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const o = getComputedStyle(p).overflowY;
+      if ((o === "auto" || o === "scroll") && p.scrollHeight > p.clientHeight) return p;
+    }
+    return (document.scrollingElement as HTMLElement | null) ?? document.documentElement;
+  }
+
+  /** Bande (px) près du bord haut ou bas où la souris fait défiler, et vitesse maximale (px par image). */
+  const EDGE = 60;
+  const EDGE_SPEED = 20;
+
+  /**
+   * Pendant le glisser d'une carte : défile seulement quand la souris est près du bord haut ou bas de la
+   * zone qui défile, d'autant plus vite qu'elle en est proche. Jusqu'au relâchement du bouton.
+   */
+  function edgeScroll(gridEl: HTMLElement) {
+    const box = scrollParent(gridEl);
+    const isPage = box === document.scrollingElement || box === document.documentElement;
+    let x = 0;
+    let y = -1;
+    let raf = 0;
+    const ours = new WeakSet<Event>();
+    const speed = () => {
+      const r = isPage ? { top: 0, bottom: window.innerHeight } : box.getBoundingClientRect();
+      const top = Math.max(r.top, 0);
+      const bottom = Math.min(r.bottom, window.innerHeight);
+      if (y < 0) return 0;
+      if (y < top + EDGE) return -Math.min(1, (top + EDGE - y) / EDGE);
+      if (y > bottom - EDGE) return Math.min(1, (y - (bottom - EDGE)) / EDGE);
+      return 0;
+    };
+    const step = () => {
+      raf = 0;
+      const v = speed();
+      if (!v) return;
+      const before = box.scrollTop;
+      box.scrollTop += Math.round(v * EDGE_SPEED) || Math.sign(v);
+      if (box.scrollTop === before) return; // déjà tout en haut ou tout en bas
+      // La grille a bougé sous la souris immobile : gridstack recalcule la place de la carte
+      const ev = new MouseEvent("mousemove", { clientX: x, clientY: y, bubbles: true });
+      ours.add(ev);
+      document.dispatchEvent(ev);
+      raf = requestAnimationFrame(step);
+    };
+    const move = (e: MouseEvent) => {
+      if (ours.has(e)) return; // le nôtre, envoyé par `step`
+      x = e.clientX;
+      y = e.clientY;
+      if (!raf) raf = requestAnimationFrame(step);
+    };
+    const stop = () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("mousemove", move, true);
+    };
+    document.addEventListener("mousemove", move, true);
+    document.addEventListener("mouseup", stop, { once: true, capture: true });
+  }
+
   /** Conteneur : crée la grille (qui adopte les cartes déjà présentes). */
   function setupGrid(el: HTMLElement) {
     const g = GridStack.init(
@@ -129,6 +189,10 @@
         minRow: untrack(() => minRow),
         acceptWidgets: true,
         handle: ".card-drag",
+        // Pas le défilement de gridstack : il fait défiler dès qu'un bout de la carte glissée sort de
+        // l'écran (presque toujours pour une grande carte), d'où un écran qui bouge au moindre geste.
+        // Remplacé par `edgeScroll` : seulement quand la souris approche du bord.
+        draggable: { handle: ".card-drag", scroll: false },
         resizable: { handles: "e, se, s, sw, w" },
       },
       el,
@@ -148,6 +212,7 @@
       // `target` peut être la poignée : on note la place de la carte elle-même
       const el = target.closest<HTMLElement & { [ORIGIN]?: Origin }>(".grid-stack-item");
       if (el?.parentNode) el[ORIGIN] = { parent: el.parentNode, next: el.nextSibling };
+      edgeScroll(g.el);
       // Fin du geste : au relâchement (gridstack ne prévient pas la grille de départ si la carte en change)
       if (ondragcard) {
         ondragcard(true);
