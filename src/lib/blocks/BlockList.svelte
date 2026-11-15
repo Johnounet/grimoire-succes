@@ -9,12 +9,12 @@
   import CounterBlock from "./CounterBlock.svelte";
   import ImageBlock from "./ImageBlock.svelte";
   import ListBlock from "./ListBlock.svelte";
-  import { blocksOf, createBlock, deleteBlock, duplicateBlock, reorderBlocks, saveBlock } from "./store.svelte";
+  import { blocks, blocksOf, createBlock, deleteBlock, duplicateBlock, reorderBlocks, saveBlock } from "./store.svelte";
   import TextBlock from "./TextBlock.svelte";
   import TimerBlock from "./TimerBlock.svelte";
   import { tick } from "svelte";
   import { FIT_CARD_EVENT, type CardKey } from "../library";
-  import { blockKinds, kindInfo, type Block, type BlockKind } from "./types";
+  import { blockKinds, formatDuration, kindInfo, type Block, type BlockKind } from "./types";
   import VideoBlock from "./VideoBlock.svelte";
 
   /** `cardKey` : carte d'un succès ou carte libre. */
@@ -92,12 +92,65 @@
     dropAt = null;
   }
 
+  /**
+   * Tableau : la carte se cale sur son contenu. `shrink` : elle peut aussi rapetisser (bloc retiré ou
+   * replié) et les cartes du dessous remontent ; sinon elle ne fait que grandir si besoin.
+   */
+  function fit(shrink = false) {
+    toolbar?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true, detail: { shrink } }));
+  }
+
   async function add(kind: BlockKind) {
     hideTip();
     await createBlock(cardKey, kind);
-    // Tableau : la carte grandit pour montrer le nouveau bloc
     await tick();
-    toolbar?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true }));
+    fit();
+  }
+
+  async function remove(b: Block) {
+    await deleteBlock(b);
+    await tick();
+    fit(true);
+  }
+
+  async function toggle(b: Block) {
+    b.data.collapsed = !b.data.collapsed;
+    saveBlock(b);
+    await tick();
+    fit(!!b.data.collapsed);
+  }
+
+  // Bloc remis par « Annuler » (notification hors de la carte) : la carte grandit pour le montrer
+  let restoredSeen = blocks.restored.n;
+  $effect(() => {
+    const n = blocks.restored.n;
+    if (n === restoredSeen) return;
+    restoredSeen = n;
+    if (blocks.restored.key === cardKey) tick().then(() => fit());
+  });
+
+  /** Résumé d'un bloc replié, pour savoir ce qu'il contient sans le déplier. */
+  function summary(b: Block): string {
+    const d = b.data as unknown as Record<string, unknown>;
+    switch (b.kind) {
+      case "text": {
+        const line = String(d.markdown ?? "").split("\n").find((l) => l.trim()) ?? "";
+        return line.replace(/^[#>\-*\s]+|[*_`]/g, "").trim();
+      }
+      case "image":
+        return String(d.caption ?? "") || (d.file ? "" : "vide");
+      case "video":
+        return String(d.title ?? "") || (d.url ? "" : "vide");
+      case "list": {
+        const items = (d.items as { checked: boolean }[]) ?? [];
+        return `${items.filter((i) => i.checked).length} / ${items.length}`;
+      }
+      case "counter":
+        return d.goal != null ? `${d.value} / ${d.goal}` : String(d.value);
+      case "timer":
+        if (d.running_since != null) return "en cours";
+        return d.best_ms != null ? `meilleur : ${formatDuration(d.best_ms as number)}` : "";
+    }
   }
 
   // Raccourcis typés pour les composants de chaque bloc
@@ -161,7 +214,7 @@
           {#if dragging != null && dropAt === i + 1 && i === list.length - 1}
             <div class="absolute inset-x-0 -bottom-1.5 h-0.5 rounded bg-accent" aria-hidden="true"></div>
           {/if}
-          <header class="flex items-center gap-1.5 px-2 pt-1.5 text-[11px] text-muted">
+          <header class="flex items-center gap-1.5 px-2 pt-1.5 text-[11px] text-muted {b.data.collapsed ? 'pb-1.5' : ''}">
             <span
               role="presentation"
               onmousedown={(e) => {
@@ -172,6 +225,15 @@
               title="Glisser pour réordonner"
               class="cursor-grab rounded px-0.5 hover:bg-raised hover:text-fg active:cursor-grabbing">⠿</span
             >
+            <button
+              onclick={() => toggle(b)}
+              aria-expanded={!b.data.collapsed}
+              aria-label={b.data.collapsed ? `Déplier le bloc ${info.label}` : `Replier le bloc ${info.label}`}
+              title={b.data.collapsed ? "Déplier" : "Replier"}
+              class="grid h-5 w-5 shrink-0 place-items-center rounded hover:bg-raised hover:text-fg"
+            >
+              <span class="transition-transform {b.data.collapsed ? '-rotate-90' : ''}">▾</span>
+            </button>
             <span aria-hidden="true">{info.icon}</span>
             {#if b.kind === "counter" || b.kind === "timer"}
               <!-- Nom facultatif à la place du type : repris par le mode compact et les raccourcis -->
@@ -186,7 +248,11 @@
                   placeholder:tracking-wide placeholder:text-muted placeholder:uppercase hover:border-line focus:border-accent"
               />
             {:else}
-              <span class="font-medium tracking-wide uppercase">{info.label}</span>
+              <span class="shrink-0 font-medium tracking-wide uppercase">{info.label}</span>
+            {/if}
+            {#if b.data.collapsed}
+              {@const s = summary(b)}
+              {#if s}<span class="min-w-0 truncate normal-case">· {s}</span>{/if}
             {/if}
             <span class="ml-auto flex shrink-0 gap-0.5 opacity-0 transition group-hover/block:opacity-100 group-focus-within/block:opacity-100">
               <button
@@ -210,13 +276,14 @@
                 aria-label={`Dupliquer le bloc ${info.label}`}>⧉</button
               >
               <button
-                onclick={() => deleteBlock(b)}
+                onclick={() => remove(b)}
                 class="rounded px-1.5 py-0.5 hover:bg-raised hover:text-danger"
                 title="Supprimer"
                 aria-label={`Supprimer le bloc ${info.label}`}>🗑</button
               >
             </span>
           </header>
+          {#if !b.data.collapsed}
           <div class="px-2.5 pt-1 pb-2.5">
             {#if b.kind === "text"}
               <TextBlock block={as(b, "text")} />
@@ -232,6 +299,7 @@
               <TimerBlock block={as(b, "timer")} />
             {/if}
           </div>
+          {/if}
         </section>
       {/each}
     </div>

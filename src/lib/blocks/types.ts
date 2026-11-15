@@ -52,7 +52,8 @@ export interface Block<K extends BlockKind = BlockKind> extends CardOwner {
   id: number;
   kind: K;
   position: number;
-  data: DataByKind[K];
+  /** `collapsed` : bloc replié dans sa carte (fenêtre principale seulement), commun à tous les types. */
+  data: DataByKind[K] & { collapsed?: boolean };
 }
 
 export const blockKinds: { kind: BlockKind; label: string; icon: string; hint: string }[] = [

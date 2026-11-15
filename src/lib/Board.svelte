@@ -59,6 +59,9 @@
   let grid: GridStack | null = null;
   let hover = $state(false);
 
+  /** Hauteur minimale d'une carte, en lignes de la grille. */
+  const MIN_H = 3;
+
   /** Cartes que le joueur retire : leur place sera comblée par les cartes du dessous. */
   const closing = new Set<CardKey>();
 
@@ -168,7 +171,9 @@
     });
     const onFit = (e: Event) => {
       const item = (e.target as HTMLElement).closest(".grid-stack-item");
-      if (item) fitCard(item as GridItemHTMLElement);
+      if (!item) return;
+      if ((e as CustomEvent<{ shrink?: boolean } | null>).detail?.shrink) shrinkCard(item as GridItemHTMLElement);
+      else fitCard(item as GridItemHTMLElement);
     };
     el.addEventListener(FIT_CARD_EVENT, onFit);
     return () => {
@@ -191,6 +196,22 @@
       grid.update(el, { h: rows });
       emitLayout();
     }
+  }
+
+  /**
+   * Bloc retiré ou replié par le joueur : la carte se cale juste sous ce qu'elle contient encore,
+   * et les cartes du dessous remontent dans la place libérée (sans changer de colonne).
+   * Une carte déjà plus petite que son contenu (réduite exprès) ne bouge pas.
+   */
+  function shrinkCard(el: GridItemHTMLElement) {
+    const n = el.gridstackNode;
+    const rows = neededRows(el);
+    if (!grid || !n || rows == null) return;
+    const before = area(n);
+    const h = Math.max(MIN_H, rows);
+    if (h >= before.h) return;
+    grid.update(el, { h });
+    closeGap({ x: before.x, y: before.y + h, w: before.w, h: before.h - h }); // enregistre aussi
   }
 
   /** Nombre de lignes de la grille qu'il faut à la carte pour tout montrer sans défiler. */
@@ -267,7 +288,7 @@
         el.setAttribute("gs-auto-position", "true");
       }
       el.setAttribute("gs-min-w", "2");
-      el.setAttribute("gs-min-h", "3");
+      el.setAttribute("gs-min-h", String(MIN_H));
       // Grille déjà créée : carte ajoutée après coup. Sinon, GridStack.init l'adoptera.
       queueMicrotask(() => {
         if (grid && !node.gridstackNode) grid.makeWidget(el);

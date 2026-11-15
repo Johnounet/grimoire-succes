@@ -18,6 +18,8 @@ export const blocks = $state({
   /** Blocs par carte (`cardKey` : succès ou carte libre), dans l'ordre. */
   byCard: {} as Record<CardKey, Block[]>,
   error: "",
+  /** Dernier bloc remis par « Annuler » : sa carte (Tableau) s'agrandit pour le montrer. */
+  restored: { key: 0 as CardKey, n: 0 },
 });
 
 export const toast = $state({
@@ -143,7 +145,12 @@ export async function deleteBlock(block: Block) {
   renumber(list);
   structureChanged();
   showToast(`Bloc « ${kindInfo(snapshot.kind).label} » supprimé`, () =>
-    createBlock(key, snapshot.kind, snapshot.data, index),
+    createBlock(key, snapshot.kind, snapshot.data, index).then((b) => {
+      if (!b) return;
+      // Champs modifiés, pas l'objet remplacé : il est lu par un $effect (BlockList)
+      blocks.restored.key = key;
+      blocks.restored.n++;
+    }),
   );
 }
 
