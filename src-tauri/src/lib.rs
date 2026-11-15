@@ -129,6 +129,8 @@ pub fn run() {
             library::free_card_create,
             library::intro_create,
             library::free_card_set_collapsed,
+            library::game_notes_get,
+            library::game_notes_set,
             library::free_card_rename,
             library::free_card_set_done,
             library::free_card_delete,

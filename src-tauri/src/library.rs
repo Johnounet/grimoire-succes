@@ -344,6 +344,17 @@ pub fn intro_create(state: State<'_, AppState>, appid: u32) -> Result<db::FreeCa
     db::get_or_create_intro(&state.conn(), appid, "").map_err(err)
 }
 
+/// Bloc-notes personnel du jeu (onglet « Bloc-notes »).
+#[tauri::command]
+pub fn game_notes_get(state: State<'_, AppState>, appid: u32) -> Result<String, String> {
+    db::get_game_notes(&state.conn(), appid).map_err(err)
+}
+
+#[tauri::command]
+pub fn game_notes_set(state: State<'_, AppState>, appid: u32, body: String) -> Result<(), String> {
+    db::set_game_notes(&state.conn(), appid, &body).map_err(err)
+}
+
 #[tauri::command]
 pub fn free_card_set_collapsed(state: State<'_, AppState>, id: i64, collapsed: bool) -> Result<(), String> {
     db::set_free_card_collapsed(&state.conn(), id, collapsed).map_err(err)
@@ -397,6 +408,8 @@ const SETTINGS: &[&str] = &[
     "update_check",
     // Bandeau « Pour bien démarrer » sur un jeu vierge (« 0 » : fermé par le joueur)
     "start_tips",
+    // Jeux dont le dernier onglet ouvert est le bloc-notes (JSON : liste d'appid)
+    "notes_tab",
 ];
 
 fn check_setting(key: &str) -> Result<(), String> {

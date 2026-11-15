@@ -121,6 +121,9 @@ export const api = {
   freeCardSetDone: (id: number, done: boolean) => invoke<void>("free_card_set_done", { id, done }),
   /** Préambule du jeu : celui qui existe, sinon un nouveau. */
   introCreate: (appid: number) => invoke<FreeCard>("intro_create", { appid }),
+  /** Bloc-notes personnel du jeu (texte vide s'il n'y en a pas ; jamais exporté avec les guides). */
+  gameNotesGet: (appid: number) => invoke<string>("game_notes_get", { appid }),
+  gameNotesSet: (appid: number, body: string) => invoke<void>("game_notes_set", { appid, body }),
   freeCardSetCollapsed: (id: number, collapsed: boolean) => invoke<void>("free_card_set_collapsed", { id, collapsed }),
   freeCardDelete: (id: number) => invoke<void>("free_card_delete", { id }),
   backups: () => invoke<BackupInfo[]>("backups_list"),
@@ -168,7 +171,8 @@ export type SettingKey =
   | "theme_light"
   | "last_game"
   | "update_check"
-  | "start_tips";
+  | "start_tips"
+  | "notes_tab";
 
 /** Place d'une carte dans la vue Tableau : grille de 12 colonnes, hauteur en rangées. */
 export interface GridPos {

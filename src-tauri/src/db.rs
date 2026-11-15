@@ -260,6 +260,15 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE blocks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
     "#,
+    // v19 : bloc-notes personnel du jeu (onglet « Bloc-notes ») : un texte par jeu, hors des guides
+    // (jamais exporté). Pas de ligne tant qu'il est vide.
+    r#"
+    CREATE TABLE game_notes (
+        appid      INTEGER PRIMARY KEY REFERENCES games(appid) ON DELETE CASCADE,
+        body       TEXT    NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    "#,
 ];
 
 /// Nombre de colonnes possible pour une section ou la zone « Autres succès ».
@@ -1096,6 +1105,28 @@ pub fn get_or_create_intro(conn: &Connection, appid: u32, title: &str) -> rusqli
     }
 }
 
+/// Bloc-notes du jeu (texte vide s'il n'y en a pas).
+pub fn get_game_notes(conn: &Connection, appid: u32) -> rusqlite::Result<String> {
+    Ok(conn
+        .query_row("SELECT body FROM game_notes WHERE appid = ?1", [appid], |r| r.get(0))
+        .optional()?
+        .unwrap_or_default())
+}
+
+/// Enregistre le bloc-notes du jeu ; un texte vide (ou fait d'espaces) supprime la ligne.
+pub fn set_game_notes(conn: &Connection, appid: u32, body: &str) -> rusqlite::Result<()> {
+    if body.trim().is_empty() {
+        conn.execute("DELETE FROM game_notes WHERE appid = ?1", [appid])?;
+    } else {
+        conn.execute(
+            "INSERT INTO game_notes (appid, body, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(appid) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at",
+            params![appid, body, now()],
+        )?;
+    }
+    Ok(())
+}
+
 pub fn set_free_card_collapsed(conn: &Connection, id: i64, collapsed: bool) -> rusqlite::Result<()> {
     conn.execute("UPDATE free_cards SET collapsed = ?2 WHERE id = ?1", params![id, collapsed])?;
     Ok(())
@@ -1510,6 +1541,24 @@ mod tests {
         create_block(&mut conn, Owner::Card(p.id), "text", &serde_json::json!({"markdown": "x"}), None).unwrap();
         delete_free_card(&conn, p.id).unwrap();
         assert!(list_blocks(&conn, 620).unwrap().is_empty(), "blocs supprimés avec lui");
+    }
+
+    #[test]
+    fn bloc_notes_par_jeu() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None)]), "P", None).unwrap();
+        assert_eq!(get_game_notes(&conn, 620).unwrap(), "", "vide au départ");
+        set_game_notes(&conn, 620, "Ne pas oublier la clé du bunker").unwrap();
+        set_game_notes(&conn, 620, "Clé du bunker : prise").unwrap();
+        assert_eq!(get_game_notes(&conn, 620).unwrap(), "Clé du bunker : prise", "remplacé, pas ajouté");
+        set_game_notes(&conn, 620, "  
+ ").unwrap();
+        let rows: i64 = conn.query_row("SELECT COUNT(*) FROM game_notes", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 0, "texte vide : ligne supprimée");
+        set_game_notes(&conn, 620, "x").unwrap();
+        delete_game(&conn, 620).unwrap();
+        let rows: i64 = conn.query_row("SELECT COUNT(*) FROM game_notes", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 0, "supprimé avec le jeu");
     }
 
     #[test]

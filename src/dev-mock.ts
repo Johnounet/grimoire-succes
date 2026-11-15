@@ -59,6 +59,7 @@ let tags = [
 let nextTagId = tags.length + 1;
 let achievementTags: { achievement_id: number; tag_id: number }[] = [];
 const settings = new Map<string, string>();
+const gameNotes = new Map<number, string>();
 type MockBlock = { id: number; achievement_id: number | null; card_id: number | null; kind: string; position: number; data: unknown; pinned: boolean };
 let blocks: MockBlock[] = [];
 let nextBlockId = 1;
@@ -441,6 +442,12 @@ export function installMock(label = "main") {
       // Pas de 2ᵉ fenêtre dans un navigateur : openCompact ouvre un onglet sans appeler cette commande
       case "compact_open":
         throw new Error("simulation : fenêtre compacte dans un onglet");
+      case "game_notes_get":
+        return gameNotes.get(args.appid as number) ?? "";
+      case "game_notes_set":
+        if (String(args.body).trim()) gameNotes.set(args.appid as number, args.body as string);
+        else gameNotes.delete(args.appid as number);
+        return null;
       case "setting_get":
         return settings.get(args.key as string) ?? null;
       case "setting_set":

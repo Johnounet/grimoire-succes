@@ -28,6 +28,7 @@
   import ProgressRing from "./ProgressRing.svelte";
   import { openRelock, ui } from "./settings.svelte";
   import Workspace from "./Workspace.svelte";
+  import NotesPanel from "./NotesPanel.svelte";
 
   let {
     game,
@@ -58,6 +59,32 @@
   let heroOk = $state(true);
   let workspace = $state.raw<WorkspaceItem[]>([]);
   let freeCards = $state<FreeCard[]>([]);
+
+  // ----- Onglets « Succès » / « Bloc-notes » : le dernier ouvert est retenu pour chaque jeu -----
+  let tab = $state<"achievements" | "notes">("achievements");
+  /** Jeux dont le dernier onglet ouvert est le bloc-notes (réglage `notes_tab`). */
+  let notesGames: number[] = [];
+  $effect(() => {
+    const appid = game.appid;
+    api
+      .getSetting("notes_tab")
+      .then((v) => {
+        try {
+          notesGames = v ? (JSON.parse(v) as number[]) : [];
+        } catch {
+          notesGames = [];
+        }
+        if (appid === game.appid) tab = notesGames.includes(appid) ? "notes" : "achievements";
+      })
+      .catch(() => {});
+  });
+  function setTab(t: "achievements" | "notes") {
+    tab = t;
+    const appid = game.appid;
+    notesGames = notesGames.filter((a) => a !== appid);
+    if (t === "notes") notesGames.push(appid);
+    api.setSetting("notes_tab", JSON.stringify(notesGames)).catch(() => {});
+  }
   const freeById = $derived(new Map(freeCards.map((f) => [f.id, f])));
   /** Préambule du jeu (carte libre `intro`), s'il existe. */
   const intro = $derived(freeCards.find((f) => f.intro) ?? null);
@@ -461,8 +488,29 @@
     </div>
   {/if}
 
-  <!-- Vue unique : tous les succès et les cartes libres -->
-  <div class="min-h-0 flex-1 overflow-y-auto">
+  <div class="flex gap-1 border-b border-line px-6" role="tablist" aria-label="Contenu du jeu">
+    {#each [{ v: "achievements", l: "Succès" }, { v: "notes", l: "Bloc-notes" }] as const as t (t.v)}
+      <button
+        role="tab"
+        aria-selected={tab === t.v}
+        onclick={() => setTab(t.v)}
+        class="-mb-px border-b-2 px-3 py-2 text-sm transition
+          {tab === t.v ? 'border-accent font-medium text-fg' : 'border-transparent text-muted hover:text-fg'}"
+      >
+        {t.l}
+      </button>
+    {/each}
+  </div>
+
+  {#if tab === "notes"}
+    <div class="min-h-0 flex-1 overflow-y-auto" role="tabpanel" aria-label="Bloc-notes">
+      {#key game.appid}<NotesPanel appid={game.appid} />{/key}
+    </div>
+  {/if}
+
+  <!-- Vue unique : tous les succès et les cartes libres. Gardée (cachée) pendant le bloc-notes : les vidéos
+       ouvertes continuent et rien n'est à recharger au retour. -->
+  <div class="min-h-0 flex-1 overflow-y-auto {tab === 'notes' ? 'hidden' : ''}" role="tabpanel" aria-label="Succès">
     {#key game.appid}
       <Workspace
         {achievements}

@@ -25,7 +25,7 @@ export const toast = $state({
   undo: null as null | (() => void),
 });
 
-const pending = new Map<number, { timer: ReturnType<typeof setTimeout>; send: () => Promise<void> }>();
+const pending = new Map<number | string, { timer: ReturnType<typeof setTimeout>; send: () => Promise<void> }>();
 
 function fail(e: unknown) {
   blocks.error = `Enregistrement d'un bloc impossible : ${e}`;
@@ -113,6 +113,28 @@ export function saveBlock(block: Block) {
       push();
     }, SAVE_DELAY_MS),
   });
+}
+
+/** Enregistrement différé d'autre chose qu'un bloc (bloc-notes du jeu : clé « notes:<appid> »), envoyé
+ *  avec les blocs à la fermeture de la fenêtre (`flushBlocks`). */
+export function deferSave(key: string, push: () => Promise<void>) {
+  clearTimeout(pending.get(key)?.timer);
+  pending.set(key, {
+    send: push,
+    timer: setTimeout(() => {
+      pending.delete(key);
+      push();
+    }, SAVE_DELAY_MS),
+  });
+}
+
+/** Envoie tout de suite l'enregistrement différé `key`, s'il y en a un. */
+export function flushSave(key: string) {
+  const p = pending.get(key);
+  if (!p) return;
+  pending.delete(key);
+  clearTimeout(p.timer);
+  p.send();
 }
 
 /** Épingle (ou retire) un bloc seul au mode compact : la fenêtre compacte se recharge. */

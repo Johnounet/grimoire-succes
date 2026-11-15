@@ -5,7 +5,20 @@
   import { saveBlock } from "./store.svelte";
   import type { Block } from "./types";
 
-  let { block }: { block: Block<"text"> } = $props();
+  let {
+    block,
+    onsave,
+    placeholder = "Vos notes… (**gras**, ## titre, - liste, [lien](https://…), {rouge}texte{/}, !! avertissement)",
+    rows = 3,
+  }: {
+    block: Block<"text">;
+    /** Enregistrement à la place de `saveBlock` : texte qui n'est pas un bloc (bloc-notes du jeu). */
+    onsave?: () => void;
+    placeholder?: string;
+    /** Hauteur minimale de la zone de saisie, en lignes. */
+    rows?: number;
+  } = $props();
+  const save = () => (onsave ? onsave() : saveBlock(block));
 
   // Valeur initiale seulement, voulu : un bloc vide s'ouvre en édition
   // svelte-ignore state_referenced_locally
@@ -31,7 +44,7 @@
 
   function input() {
     autosize();
-    saveBlock(block);
+    save();
   }
 
   /** Entoure la sélection (ou insère en début de ligne) puis enregistre. */
@@ -50,7 +63,7 @@
       caret = s + before.length + sel.length;
     }
     block.data.markdown = next;
-    saveBlock(block);
+    save();
     tick().then(() => {
       area?.focus();
       area?.setSelectionRange(caret, caret);
@@ -141,8 +154,8 @@
       onblur={() => {
         if (block.data.markdown.trim() !== "") editing = false;
       }}
-      rows="3"
-      placeholder={"Vos notes… (**gras**, ## titre, - liste, [lien](https://…), {rouge}texte{/}, !! avertissement)"}
+      {rows}
+      {placeholder}
       class="block w-full resize-none rounded-lg border border-line bg-bg px-3 py-2 text-sm leading-relaxed outline-none focus:border-accent"
     ></textarea>
   </div>

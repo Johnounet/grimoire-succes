@@ -137,6 +137,15 @@ Blocs sans succès, choisis plutôt que des blocs isolés dans l'espace.
 - **C'est une carte libre marquée `intro`** (migration v17, index unique : un seul par jeu ; commandes `intro_create`, qui rend celui qui existe, et `free_card_set_collapsed`). Elle n'entre **jamais** dans l'espace de travail : `list_workspace` ne la remet pas, `save_workspace` la refuse. Donc ni colonne, ni filtres, ni tri, ni bilans des sections, ni mode compact (l'utilisateur ne veut pas d'épinglage).
 - **Guides** : exporté en tête (`intro: true`, sans place). À l'import, ses blocs rejoignent le préambule existant (créé s'il manque) avec la même règle anti-doublons que les autres cartes.
 
+## Bloc-notes du jeu
+
+(demande de l'utilisateur, 2026-11-15 : retour à l'objectif de départ, « un gros bloc-notes ») Onglets **« Succès » / « Bloc-notes »** sous l'en-tête du jeu (`GameView.svelte`). **Distinct du Préambule** (décision de l'utilisateur) : le Préambule fait partie du guide (exporté, pour les autres) ; le bloc-notes est **personnel**, jamais exporté (les sauvegardes le gardent, elles copient toute la base).
+
+- **Données** : table `game_notes` (migration v19 : `appid` clé, `body`, `updated_at`, `ON DELETE CASCADE` : supprimé avec le jeu), pas de ligne tant qu'il est vide. Commandes `game_notes_get` / `game_notes_set` (texte vide = ligne supprimée). Test `bloc_notes_par_jeu`.
+- **Interface** : `NotesPanel.svelte`, un faux bloc « Texte » édité par `TextBlock.svelte` (props `onsave`, `placeholder`, `rows` ajoutées ; sans `onsave`, rien ne change pour les blocs). Tout le cadre est cliquable pour écrire. Enregistrement différé par `deferSave` (store des blocs, clé `notes:<appid>`), donc envoyé aussi par `flushBlocks` à la fermeture de la fenêtre ; `flushSave` au changement de jeu. **Piège** : le texte est copié dans une variable simple au moment de `save` ; lu dans le nettoyage du composant, le `$state` rendait l'ancienne valeur et la dernière frappe était perdue.
+- Dernier onglet retenu **par jeu** : réglage `notes_tab` (liste JSON des appid ouverts sur le bloc-notes). La vue des succès reste montée (cachée) pendant le bloc-notes : vidéos qui continuent, rien à recharger.
+- Pas dans le mode compact pour l'instant (à voir après validation).
+
 ## Animations et son
 
 - Module `src/lib/motion.svelte.ts` : réglage `animations` (`system` = selon Windows, par défaut / `on` / `off`), section « Interface » des Réglages, synchronisé avec la fenêtre compacte (`motion-changed`). Animations réduites → attribut `data-reduced-motion` sur `<html>` (coupe tout le CSS, `app.css`) **et** `dur()` qui renvoie 0 pour ce qui est lancé en JS (transitions Svelte, `flip`, svelte-dnd-action). Toute nouvelle animation JS doit passer par `dur()` / `reduced()`, jamais `matchMedia` directement.
