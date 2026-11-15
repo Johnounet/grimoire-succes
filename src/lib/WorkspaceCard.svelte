@@ -7,7 +7,6 @@
   import { dragHandle } from "svelte-dnd-action";
   import BlockList from "./blocks/BlockList.svelte";
   import { blocksOf, createBlock, imageFrom, saveBlock, uploadImage } from "./blocks/store.svelte";
-  import CopyId from "./CopyId.svelte";
   import HelpSearch from "./HelpSearch.svelte";
   import MoreMenu from "./MoreMenu.svelte";
   import { openRelock } from "./settings.svelte";
@@ -63,7 +62,6 @@
   const blockCount = $derived(blocksOf(key).length);
   /** Succès obtenu ou carte libre cochée : coche pleine et liseré gauche vert. */
   const checked = $derived(a ? a.unlocked : !!free?.done);
-  const borderColor = $derived(checked ? "var(--color-ok)" : "var(--color-line)");
   /** Carte libre avec des blocs : la suppression demande confirmation (rien ne les garde ailleurs). */
   let confirming = $state(false);
 
@@ -96,13 +94,13 @@
 </script>
 
 <article
-  class="group rounded-[4px] border border-l-[3px] border-line bg-panel transition-colors
+  class="ws-card group rounded-[4px] border border-l-[3px] bg-panel transition-colors
     {board ? 'flex h-full flex-col overflow-hidden' : ''}"
-  style:border-left-color={borderColor}
+  style:border-left-color={checked ? "var(--color-ok)" : undefined}
   aria-label={label}
   onpaste={paste}
 >
-  <header class="relative flex shrink-0 items-center gap-2 p-2">
+  <header class="relative flex shrink-0 items-center gap-2 rounded-t-[3px] p-2">
     {#if board}
       <span
         class="card-drag grid h-8 w-5 shrink-0 cursor-grab place-items-center rounded text-muted hover:bg-raised hover:text-fg active:cursor-grabbing"
@@ -181,14 +179,21 @@
           <span class="sr-only">Succès caché, activer pour révéler</span>
         </button>
       {:else}
-        <div class="font-medium {board ? 'line-clamp-2 leading-snug break-words' : 'truncate'} {a.unlocked ? '' : 'text-fg/90'}">
-          {a.name}
+        <!-- Nom puis loupe « Aide » juste à sa droite (cliquable : elle n'est pas une zone de glisser) -->
+        <div class="flex items-start gap-1">
+          <div class="min-w-0 font-medium {board ? 'line-clamp-2 leading-snug break-words' : 'truncate'} {a.unlocked ? '' : 'text-fg/90'}">
+            {a.name}
+          </div>
+          <HelpSearch name={a.name} iconOnly />
         </div>
       {/if}
-      <div class="flex items-center gap-1.5 text-xs whitespace-nowrap">
-        <span class="font-medium {a.unlocked ? 'text-ok' : 'text-muted'}">{a.unlocked ? "Obtenu" : "À obtenir"}</span>
-        {#if a.rarity != null}<span class="text-muted">·</span><span class="font-semibold {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
-        {#if collapsed && !board && blockCount > 0}<span class="text-muted">· {blockCount} bloc{blockCount > 1 ? "s" : ""}</span>{/if}
+      <!-- Rareté puis étiquettes ; « Obtenu » seulement une fois coché (« À obtenir » n'apprenait rien) -->
+      <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+        {#if a.unlocked}<span class="font-medium text-ok">Obtenu</span>{/if}
+        {#if a.unlocked && a.rarity != null}<span class="text-muted">·</span>{/if}
+        {#if a.rarity != null}<span class="font-semibold whitespace-nowrap {rarityText(a.rarity)}">{a.rarity.toFixed(1)} %</span>{/if}
+        {#if collapsed && !board && blockCount > 0}<span class="whitespace-nowrap text-muted">· {blockCount} bloc{blockCount > 1 ? "s" : ""}</span>{/if}
+        <span class="cursor-auto"><TagPicker achievementId={a.id} compact /></span>
       </div>
     </div>
     {/if}
@@ -238,6 +243,15 @@
                   hint: "Prépare la commande console achievement_clear",
                   onclick: () => openRelock(a),
                 },
+                ...(a.api_name
+                  ? [
+                      {
+                        label: "Copier l'ID technique",
+                        hint: a.api_name,
+                        onclick: () => navigator.clipboard.writeText(a.api_name ?? "").catch(() => {}),
+                      },
+                    ]
+                  : []),
               ]
             : []),
           ...moves,
@@ -278,16 +292,22 @@
         {#if a.progress && !a.unlocked}<SteamProgress progress={a.progress} />{/if}
       {/if}
 
-      {#if a}
-        <div class="flex flex-wrap items-center gap-2">
-          {#if a.api_name}<CopyId id={a.api_name} />{/if}
-          {#if !spoiler}<HelpSearch name={a.name} />{/if}
-          <TagPicker achievementId={a.id} />
-        </div>
-      {/if}
-
       <BlockList cardKey={key} {imagesDir} />
       </div>
     </div>
   {/if}
 </article>
+
+<style>
+  /* Cartes bien détachées les unes des autres : bordure plus marquée que celle des blocs,
+     ombre portée et en-tête teinté (demande de l'utilisateur, 2026-11-15) */
+  .ws-card {
+    border-color: color-mix(in srgb, var(--color-line) 60%, var(--color-muted));
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.2),
+      0 6px 16px -8px rgb(0 0 0 / 0.45);
+  }
+  .ws-card > header {
+    background: color-mix(in srgb, var(--color-raised) 70%, var(--color-panel));
+  }
+</style>

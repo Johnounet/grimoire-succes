@@ -16,7 +16,7 @@
   import { GridStack, type GridItemHTMLElement, type GridStackNode } from "gridstack";
   import "gridstack/dist/gridstack.min.css";
   import { tick, untrack, type Snippet } from "svelte";
-  import { CARD_MENU_EVENT, cardKey, cardSizes, DRAG_MIME, FIT_CARD_EVENT, type CardKey, type GridPos, type WorkspaceItem } from "./library";
+  import { cardKey, cardSizes, DRAG_MIME, FIT_CARD_EVENT, type CardKey, type GridPos, type WorkspaceItem } from "./library";
   import { arrive, reduced } from "./motion.svelte";
   import { ui } from "./settings.svelte";
 
@@ -171,15 +171,9 @@
       if (item) fitCard(item as GridItemHTMLElement);
     };
     el.addEventListener(FIT_CARD_EVENT, onFit);
-    const onMenu = (e: Event) => {
-      const item = (e.target as HTMLElement).closest(".grid-stack-item");
-      if (item) menuToggled(item as GridItemHTMLElement, (e as CustomEvent<{ open: boolean }>).detail.open);
-    };
-    el.addEventListener(CARD_MENU_EVENT, onMenu);
     return () => {
       stopMotion();
       el.removeEventListener(FIT_CARD_EVENT, onFit);
-      el.removeEventListener(CARD_MENU_EVENT, onMenu);
       grid?.destroy(false);
       grid = null;
     };
@@ -217,45 +211,9 @@
     return Math.ceil((need + 2 * margin) / grid.getCellHeight(true));
   }
 
-  /** Carte dont le menu « Ajouter un bloc » est ouvert : sa hauteur et la place des autres cartes avant. */
-  const beforeMenu = new Map<GridItemHTMLElement, { h: number; others: Map<GridStackNode, number> }>();
-
-  /**
-   * Menu « Ajouter un bloc » ouvert : on note la taille de la carte et la place des autres (la carte va
-   * grandir et les pousser). Fermé : la carte reprend sa taille d'avant (ou ce qu'il faut pour un bloc
-   * ajouté entre-temps) et les cartes poussées remontent à leur place.
-   */
-  function menuToggled(el: GridItemHTMLElement, open: boolean) {
-    const n = el.gridstackNode;
-    if (!grid || !n) return;
-    if (open) {
-      if (!beforeMenu.has(el)) {
-        const others = new Map(grid.engine.nodes.filter((o) => o !== n).map((o) => [o, o.y ?? 0]));
-        beforeMenu.set(el, { h: n.h ?? DEFAULT.h, others });
-      }
-      return;
-    }
-    const before = beforeMenu.get(el);
-    beforeMenu.delete(el);
-    if (!before) return;
-    const h = Math.max(before.h, neededRows(el) ?? 0);
-    if (h >= (n.h ?? 0)) return;
-    const g = grid;
-    g.batchUpdate();
-    g.update(el, { h });
-    // Les cartes poussées vers le bas retournent à leur place, si elle est libre
-    const moved = [...before.others].filter(([o, y]) => g.engine.nodes.includes(o) && (o.y ?? 0) > y).sort((a, b) => a[1] - b[1]);
-    for (const [o, y] of moved) {
-      const want = { ...area(o), y };
-      if (o.el && g.engine.nodes.every((x) => x === o || !overlap(area(x), want))) g.update(o.el, { y });
-    }
-    g.batchUpdate(false);
-    emitLayout();
-  }
-
   /**
    * Agrandit la carte quand son contenu grandit à la suite d'une action du joueur dans la carte
-   * (bloc ajouté, menu d'ajout ouvert, élément de liste, texte, image, vidéo…).
+   * (bloc ajouté, élément de liste, texte, image, vidéo…).
    * Les changements sans action récente (chargement, images qui arrivent) ne comptent pas : une carte
    * que le joueur a volontairement réduite le reste. Un redimensionnement de la carte non plus
    * (la largeur change, le texte se replie).

@@ -25,14 +25,6 @@
 </script>
 
 <div class="space-y-2">
-  <input
-    bind:value={block.data.label}
-    oninput={() => saveBlock(block)}
-    placeholder="Ce que vous comptez (ex. plumes trouvées)"
-    aria-label="Nom du compteur"
-    class="w-full bg-transparent text-sm text-muted outline-none placeholder:text-muted/60 focus:text-fg"
-  />
-
   <div class="flex items-center gap-3">
     <button
       onclick={() => add(-1)}

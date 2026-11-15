@@ -4,16 +4,16 @@
   // Réordonnancement par glisser HTML natif (poignée ⠿) et boutons ↑ ↓ au clavier.
   // Pas svelte-dnd-action ici : ses poignées partagent un état global, et une poignée de bloc
   // rendrait aussi déplaçable la carte qui le contient (zones imbriquées).
-  import { dur, pop } from "../motion.svelte";
+  import { dur } from "../motion.svelte";
   import { flip } from "svelte/animate";
   import CounterBlock from "./CounterBlock.svelte";
   import ImageBlock from "./ImageBlock.svelte";
   import ListBlock from "./ListBlock.svelte";
-  import { blocksOf, createBlock, deleteBlock, duplicateBlock, reorderBlocks } from "./store.svelte";
+  import { blocksOf, createBlock, deleteBlock, duplicateBlock, reorderBlocks, saveBlock } from "./store.svelte";
   import TextBlock from "./TextBlock.svelte";
   import TimerBlock from "./TimerBlock.svelte";
   import { tick } from "svelte";
-  import { CARD_MENU_EVENT, FIT_CARD_EVENT, type CardKey } from "../library";
+  import { FIT_CARD_EVENT, type CardKey } from "../library";
   import { blockKinds, kindInfo, type Block, type BlockKind } from "./types";
   import VideoBlock from "./VideoBlock.svelte";
 
@@ -22,18 +22,27 @@
 
   const FLIP = 150;
   const MIME = "application/x-grimoire-block";
-  let menuOpen = $state(false);
-  let menuWrap = $state<HTMLElement>();
+  let toolbar = $state<HTMLElement>();
 
-  // Prévient le tableau (après la mise à jour de l'affichage) : la carte grandit pour montrer le menu,
-  // puis reprend sa taille à la fermeture si rien n'a été ajouté
-  let menuWasOpen = false;
-  $effect(() => {
-    const open = menuOpen;
-    if (open === menuWasOpen) return;
-    menuWasOpen = open;
-    menuWrap?.dispatchEvent(new CustomEvent(CARD_MENU_EVENT, { bubbles: true, detail: { open } }));
-  });
+  /** Délai avant l'infobulle d'un symbole d'ajout : assez long pour ne pas gêner, assez court pour apprendre. */
+  const TIP_DELAY = 500;
+  let tip = $state<{ label: string; hint: string; x: number; y: number } | null>(null);
+  let tipTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Infobulle sous le symbole, en position fixe : elle échappe à la carte qui coupe son contenu. */
+  function showTip(el: HTMLElement, k: { label: string; hint: string }, delay: number) {
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      const x = Math.max(110, Math.min(r.left + r.width / 2, window.innerWidth - 110));
+      tip = { label: k.label, hint: k.hint, x, y: r.bottom + 6 };
+    }, delay);
+  }
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tip = null;
+  }
+  $effect(() => () => clearTimeout(tipTimer));
 
   const list = $derived(blocksOf(cardKey));
 
@@ -84,11 +93,11 @@
   }
 
   async function add(kind: BlockKind) {
-    menuOpen = false;
+    hideTip();
     await createBlock(cardKey, kind);
-    // Tableau : la carte, revenue à sa taille d'avant le menu, grandit pour montrer le nouveau bloc
+    // Tableau : la carte grandit pour montrer le nouveau bloc
     await tick();
-    menuWrap?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true }));
+    toolbar?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true }));
   }
 
   // Raccourcis typés pour les composants de chaque bloc
@@ -96,6 +105,40 @@
 </script>
 
 <div class="space-y-2">
+  <!-- Ajout d'un bloc : un symbole par type, nom et usage en infobulle -->
+  <div
+    bind:this={toolbar}
+    role="toolbar"
+    aria-label="Ajouter un bloc"
+    class="flex items-center gap-0.5 text-muted/70 transition-colors group-hover:text-muted"
+  >
+    <span class="mr-0.5 text-sm leading-none" aria-hidden="true">+</span>
+    {#each blockKinds as k (k.kind)}
+      <button
+        onclick={() => add(k.kind)}
+        onmouseenter={(e) => showTip(e.currentTarget, k, TIP_DELAY)}
+        onmouseleave={hideTip}
+        onfocus={(e) => showTip(e.currentTarget, k, 0)}
+        onblur={hideTip}
+        aria-label={`Ajouter un bloc ${k.label}`}
+        class="grid h-7 w-7 place-items-center rounded-md text-sm transition hover:bg-raised hover:text-fg
+          focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        <span aria-hidden="true">{k.icon}</span>
+      </button>
+    {/each}
+  </div>
+  {#if tip}
+    <div
+      role="tooltip"
+      class="pointer-events-none fixed z-50 max-w-[220px] -translate-x-1/2 rounded-md border border-line bg-raised px-2 py-1 text-center shadow-lg"
+      style="left: {tip.x}px; top: {tip.y}px"
+    >
+      <div class="text-xs font-medium text-fg">{tip.label}</div>
+      <div class="text-[11px] leading-tight text-muted">{tip.hint}</div>
+    </div>
+  {/if}
+
   {#if list.length}
     <div class="space-y-2" role="list">
       {#each list as b, i (b.id)}
@@ -130,8 +173,22 @@
               class="cursor-grab rounded px-0.5 hover:bg-raised hover:text-fg active:cursor-grabbing">⠿</span
             >
             <span aria-hidden="true">{info.icon}</span>
-            <span class="font-medium tracking-wide uppercase">{info.label}</span>
-            <span class="ml-auto flex gap-0.5 opacity-0 transition group-hover/block:opacity-100 group-focus-within/block:opacity-100">
+            {#if b.kind === "counter" || b.kind === "timer"}
+              <!-- Nom facultatif à la place du type : repris par le mode compact et les raccourcis -->
+              <input
+                bind:value={(b.data as { label: string }).label}
+                oninput={() => saveBlock(b)}
+                placeholder={info.label}
+                aria-label={`Nom du ${info.label.toLowerCase()} (facultatif)`}
+                title="Nommer ce {info.label.toLowerCase()} (facultatif)"
+                maxlength="80"
+                class="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 font-medium text-fg outline-none
+                  placeholder:tracking-wide placeholder:text-muted placeholder:uppercase hover:border-line focus:border-accent"
+              />
+            {:else}
+              <span class="font-medium tracking-wide uppercase">{info.label}</span>
+            {/if}
+            <span class="ml-auto flex shrink-0 gap-0.5 opacity-0 transition group-hover/block:opacity-100 group-focus-within/block:opacity-100">
               <button
                 onclick={() => move(i, i - 1)}
                 disabled={i === 0}
@@ -179,48 +236,4 @@
       {/each}
     </div>
   {/if}
-
-  <!-- Ajout d'un bloc : le menu prend place dans la carte (qui grandit dans le tableau) -->
-  <div
-    bind:this={menuWrap}
-    class="relative"
-    onfocusout={(e) => {
-      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) menuOpen = false;
-    }}
-  >
-    <button
-      onclick={() => (menuOpen = !menuOpen)}
-      aria-expanded={menuOpen}
-      aria-haspopup="menu"
-      class="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line py-1.5 text-sm text-muted transition hover:border-accent hover:text-fg"
-    >
-      <span class="text-base leading-none">+</span> Ajouter un bloc
-    </button>
-    {#if menuOpen}
-      <div
-        role="menu"
-        tabindex="-1"
-        in:pop={{ y: -4, start: 0.98 }}
-        onkeydown={(e) => e.key === "Escape" && (menuOpen = false)}
-        class="mt-1 grid grid-cols-2 gap-1 rounded-lg border border-line bg-raised p-1.5"
-      >
-        {#each blockKinds as k, i (k.kind)}
-          <button
-            role="menuitem"
-            onclick={() => add(k.kind)}
-            {@attach (el) => {
-              if (i === 0) el.focus();
-            }}
-            class="flex items-start gap-2 rounded-md p-2 text-left transition hover:bg-panel focus-visible:bg-panel focus-visible:outline-none"
-          >
-            <span class="grid h-6 w-6 shrink-0 place-items-center rounded bg-bg text-sm" aria-hidden="true">{k.icon}</span>
-            <span class="min-w-0">
-              <span class="block text-sm font-medium">{k.label}</span>
-              <span class="block text-[11px] leading-tight text-muted">{k.hint}</span>
-            </span>
-          </button>
-        {/each}
-      </div>
-    {/if}
-  </div>
 </div>

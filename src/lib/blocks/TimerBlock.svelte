@@ -49,14 +49,6 @@
 </script>
 
 <div class="space-y-2">
-  <input
-    bind:value={block.data.label}
-    oninput={() => saveBlock(block)}
-    placeholder="Ce que vous chronométrez (ex. niveau 3 en moins de 5 min)"
-    aria-label="Nom du chronomètre"
-    class="w-full bg-transparent text-sm text-muted outline-none placeholder:text-muted/60 focus:text-fg"
-  />
-
   <div class="flex items-center gap-3">
     <div
       class="min-w-0 flex-1 font-mono text-3xl font-bold tabular-nums
