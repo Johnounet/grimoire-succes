@@ -1,3 +1,24 @@
+<script lang="ts" module>
+  // Ctrl+V sur la carte survolée par la souris (demande de l'utilisateur, 2026-11-15), sans avoir à cliquer
+  // dessus. Un seul écouteur pour toutes les cartes, en phase de capture. Il ne prend la main que si le
+  // collage ne visait rien d'autre : pas dans un champ de texte (où qu'il soit), et le focus hors de la
+  // carte survolée (sinon le collage suit son chemin normal : zone d'une image, `onpaste` de la carte).
+  let hovered: { el: () => HTMLElement | undefined; paste: (e: ClipboardEvent) => void } | null = null;
+  if (typeof document !== "undefined") {
+    document.addEventListener(
+      "paste",
+      (e) => {
+        const target = e.target as HTMLElement | null;
+        if (!hovered || target?.closest?.("input, textarea, [contenteditable]")) return;
+        if (target && hovered.el()?.contains(target)) return;
+        e.stopPropagation();
+        hovered.paste(e);
+      },
+      true,
+    );
+  }
+</script>
+
 <script lang="ts">
   // Carte de la vue des succès : celle d'un succès (`a`), ou une carte libre (`free`) avec un titre
   // modifiable et des blocs, sans description ni étiquettes.
@@ -88,10 +109,11 @@
     else onremove();
   }
 
-  /** Ctrl+V d'une capture n'importe où sur la carte (hors champ de texte) : nouveau bloc image. */
+  /** Ctrl+V sur la carte (survolée, ou cliquée), hors champ de texte : capture = nouveau bloc image,
+   *  lien YouTube = nouveau bloc vidéo. */
   async function paste(e: ClipboardEvent) {
-    const target = e.target as HTMLElement;
-    if (target.closest("input, textarea, [contenteditable]")) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest?.("input, textarea, [contenteditable]")) return;
     // Lien YouTube collé (demande de l'utilisateur, 2026-11-15) : nouveau bloc vidéo, sauf si la carte l'a déjà
     const text = e.clipboardData?.getData("text/plain").trim() ?? "";
     const ref = text && !/\s/.test(text) ? parseYouTube(text) : null;
@@ -114,6 +136,18 @@
       /* le bloc reste vide : l'utilisateur peut réessayer */
     }
   }
+
+  /** Carte survolée : c'est elle qui reçoit un Ctrl+V (écouteur du module, plus haut). */
+  // Repérée par cet objet, pas par son élément : une ligne qui devient carte complète change d'élément.
+  let article = $state<HTMLElement>();
+  const me = { el: () => article, paste: (e: ClipboardEvent) => paste(e) };
+  function enter() {
+    hovered = me;
+  }
+  function leave() {
+    if (hovered === me) hovered = null;
+  }
+  $effect(() => () => leave());
 
   const menu = $derived([
     {
@@ -236,6 +270,9 @@
     style:border-left-color={checked ? "var(--color-ok)" : undefined}
     aria-label={label}
     tabindex="-1"
+    bind:this={article}
+    onmouseenter={enter}
+    onmouseleave={leave}
     onpaste={paste}
   >
     {@render checkbox("h-5 w-5")}
@@ -271,6 +308,9 @@
     style:border-left-color={checked ? "var(--color-ok)" : undefined}
     aria-label={label}
     tabindex="-1"
+    bind:this={article}
+    onmouseenter={enter}
+    onmouseleave={leave}
     onpaste={paste}
   >
     <header class="relative flex shrink-0 items-center gap-2 rounded-t-[3px] p-2 {checked ? 'unlocked-glow' : ''}">

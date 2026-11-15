@@ -62,7 +62,7 @@ export interface Block<K extends BlockKind = BlockKind> extends CardOwner {
 export const COMPACT_KINDS: readonly BlockKind[] = ["counter", "timer", "video", "list"];
 
 export const blockKinds: { kind: BlockKind; label: string; icon: string; hint: string }[] = [
-  { kind: "video", label: "Vidéo YouTube", icon: "▶", hint: "Lecteur intégré et repères de temps. Raccourci : cliquer sur la carte puis Ctrl+V d'un lien YouTube" },
+  { kind: "video", label: "Vidéo YouTube", icon: "▶", hint: "Lecteur intégré et repères de temps. Raccourci : Ctrl+V d'un lien YouTube, la souris sur la carte" },
   { kind: "image", label: "Image", icon: "▣", hint: "Fichier, glisser-déposer ou Ctrl+V" },
   { kind: "text", label: "Texte", icon: "¶", hint: "Notes avec gras, titres, listes, liens" },
   { kind: "list", label: "Liste", icon: "☑", hint: "Cases à cocher : collectibles, étapes" },
