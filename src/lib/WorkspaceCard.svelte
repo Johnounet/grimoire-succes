@@ -246,12 +246,10 @@
       {/if}
     </div>
     {@render pin()}
-    <!-- Au survol : symboles d'ajout de bloc et actions, par-dessus la fin de la ligne -->
-    <div
-      class="absolute inset-y-0 right-0 hidden items-center gap-1 rounded-r-[4px] bg-panel pr-1.5 pl-3 shadow-[-12px_0_12px_-4px] shadow-panel
-        group-focus-within:flex group-hover:flex has-[[aria-expanded=true]]:flex"
-    >
-      {#if !a.removed}<BlockList cardKey={key} {imagesDir} />{/if}
+    <!-- Au survol : « + » (menu des types de bloc) et actions. Barre courte et dans le flux de la ligne
+         (pas par-dessus) : le nom se raccourcit, la loupe reste visible. -->
+    <div class="hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex has-[[aria-expanded=true]]:flex">
+      {#if !a.removed}<BlockList cardKey={key} {imagesDir} addMenu />{/if}
       {@render actions()}
     </div>
   </article>

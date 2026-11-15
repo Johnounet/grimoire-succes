@@ -16,9 +16,12 @@
   import { plainText } from "../markdown";
   import { blockKinds, formatDuration, kindInfo, type Block, type BlockKind } from "./types";
   import VideoBlock from "./VideoBlock.svelte";
+  import MoreMenu from "../MoreMenu.svelte";
 
-  /** `cardKey` : carte d'un succès ou carte libre. */
-  let { cardKey, imagesDir }: { cardKey: CardKey; imagesDir: string } = $props();
+  /** `cardKey` : carte d'un succès ou carte libre. `addMenu` : un seul bouton « + » qui ouvre la liste des
+   *  types de bloc, à la place des 6 symboles (ligne compacte d'un succès sans guide : la barre de survol
+   *  doit rester courte pour laisser voir le nom et la loupe). */
+  let { cardKey, imagesDir, addMenu = false }: { cardKey: CardKey; imagesDir: string; addMenu?: boolean } = $props();
 
   const FLIP = 150;
   const MIME = "application/x-grimoire-block";
@@ -129,6 +132,16 @@
   const as = <K extends BlockKind>(b: Block, _k: K) => b as Block<K>;
 </script>
 
+{#if addMenu}
+  <MoreMenu
+    items={blockKinds.map((k) => ({ label: `${k.icon}  ${k.label}`, hint: k.hint, onclick: () => add(k.kind) }))}
+    label="Ajouter un bloc"
+    buttonClass="grid h-7 w-7 shrink-0 place-items-center rounded text-base text-muted transition hover:bg-raised hover:text-fg
+      focus-visible:outline-2 focus-visible:outline-accent"
+  >
+    {#snippet trigger()}<span aria-hidden="true">+</span>{/snippet}
+  </MoreMenu>
+{:else}
 <div class="space-y-2">
   <!-- Ajout d'un bloc : un symbole par type, nom et usage en infobulle -->
   <div
@@ -276,3 +289,4 @@
     </div>
   {/if}
 </div>
+{/if}
