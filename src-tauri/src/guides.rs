@@ -180,6 +180,8 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
         .map(|a| a.id)
         .collect();
 
+    let with_blocks: HashSet<i64> = blocks_of.keys().filter_map(|&(a, c)| if c.is_none() { a } else { None }).collect();
+
     let mut images = BTreeMap::new();
     let mut used_tags: Vec<i64> = Vec::new();
     let mut card = |achievement_id: Option<i64>, card_id: Option<i64>, place: Option<GuidePlace>| -> GuideCard {
@@ -230,6 +232,17 @@ pub fn export(conn: &Connection, images_dir: &Path, appid: u32, keep_state: bool
 
     let mut cards = Vec::new();
     for it in workspace {
+        // Vue unique : tous les succès sont dans l'espace. Seuls ceux qui portent quelque chose de
+        // personnel (blocs, étiquettes, section, épingle) vont dans le guide, pas les 200 succès du jeu.
+        if let Some(id) = it.achievement_id {
+            let personal = with_blocks.contains(&id)
+                || tags_of.contains_key(&id)
+                || it.section.is_some()
+                || (keep_state && it.pinned);
+            if !personal {
+                continue;
+            }
+        }
         let place = GuidePlace {
             collapsed: it.collapsed,
             grid: it.grid,
@@ -499,6 +512,14 @@ fn import_all(
                 if present.insert(id) {
                     workspace.push(place(p, Some(id), None));
                     report.placed += 1;
+                } else if let Some(section) = place(p, Some(id), None).section {
+                    // Vue unique : le succès a déjà sa place ; la section du guide l'y range s'il n'en a pas
+                    if let Some(i) = workspace.iter().position(|it| it.achievement_id == Some(id) && it.section.is_none()) {
+                        let mut it = workspace.remove(i);
+                        it.section = Some(section);
+                        workspace.push(it);
+                        report.placed += 1;
+                    }
                 }
             }
         }
@@ -710,6 +731,35 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn vue_unique_export_leger_et_section_reprise() {
+        let dir = temp_dir("vue");
+        let mut conn = setup(&["A", "B", "C"]);
+        let ids: Vec<i64> = db::list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+        // Tous les succès sont dans l'espace ; seul B a un bloc, dans une section
+        let phase = db::create_section(&conn, 620, "Phase 1", "ambre").unwrap();
+        db::create_block(&mut conn, Owner::Achievement(ids[1]), "text", &json!({"markdown": "note"}), None).unwrap();
+        let mut ws: Vec<WorkspaceItem> = ids
+            .iter()
+            .map(|&id| WorkspaceItem { achievement_id: Some(id), card_id: None, collapsed: false, grid: None, pinned: false, section: None })
+            .collect();
+        ws[1].section = Some(phase.id);
+        db::save_workspace(&mut conn, 620, &ws).unwrap();
+        let guide = export(&conn, &dir, 620, false).unwrap();
+        assert_eq!(guide.cards.len(), 1, "les succès sans rien de personnel ne sont pas exportés");
+
+        // Import chez quelqu'un dont l'espace contient déjà tous les succès (hors section) : B rejoint la section
+        let mut other = setup(&["A", "B", "C"]);
+        db::fill_workspace(&other, 620).unwrap();
+        import(&mut other, &dir, &guide).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let b = db::list_achievements(&other, 620).unwrap()[1].id;
+        let section = db::list_sections(&other, 620).unwrap()[0].id;
+        let ws = db::list_workspace(&other, 620).unwrap();
+        assert_eq!(ws.len(), 3);
+        assert_eq!(ws.iter().find(|it| it.achievement_id == Some(b)).unwrap().section, Some(section));
     }
 
     fn guide_vide() -> GuideFile {

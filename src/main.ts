@@ -2,12 +2,6 @@ import { mount } from "svelte";
 import "./app.css";
 
 async function start() {
-  // Maquette de la vue unique des succès (développement seulement, « ?maquette »)
-  if (import.meta.env.DEV && new URLSearchParams(location.search).has("maquette")) {
-    const { default: Maquette } = await import("./maquette/Maquette.svelte");
-    mount(Maquette, { target: document.getElementById("app")! });
-    return;
-  }
   // Hors de Tauri (navigateur), en développement seulement : cœur Rust simulé.
   // « ?compact » dans l'adresse simule la fenêtre compacte.
   let compact = new URLSearchParams(location.search).has("compact");

@@ -9,11 +9,10 @@
   import CounterBlock from "./CounterBlock.svelte";
   import ImageBlock from "./ImageBlock.svelte";
   import ListBlock from "./ListBlock.svelte";
-  import { blocks, blocksOf, createBlock, deleteBlock, duplicateBlock, reorderBlocks, saveBlock } from "./store.svelte";
+  import { blocksOf, createBlock, deleteBlock, duplicateBlock, reorderBlocks, saveBlock } from "./store.svelte";
   import TextBlock from "./TextBlock.svelte";
   import TimerBlock from "./TimerBlock.svelte";
-  import { tick } from "svelte";
-  import { FIT_CARD_EVENT, type CardKey } from "../library";
+  import type { CardKey } from "../library";
   import { blockKinds, formatDuration, kindInfo, type Block, type BlockKind } from "./types";
   import VideoBlock from "./VideoBlock.svelte";
 
@@ -22,7 +21,6 @@
 
   const FLIP = 150;
   const MIME = "application/x-grimoire-block";
-  let toolbar = $state<HTMLElement>();
 
   /** Délai avant l'infobulle d'un symbole d'ajout : assez long pour ne pas gêner, assez court pour apprendre. */
   const TIP_DELAY = 500;
@@ -92,42 +90,15 @@
     dropAt = null;
   }
 
-  /**
-   * Tableau : la carte se cale sur son contenu. `shrink` : elle peut aussi rapetisser (bloc retiré ou
-   * replié) et les cartes du dessous remontent ; sinon elle ne fait que grandir si besoin.
-   */
-  function fit(shrink = false) {
-    toolbar?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true, detail: { shrink } }));
-  }
-
   async function add(kind: BlockKind) {
     hideTip();
     await createBlock(cardKey, kind);
-    await tick();
-    fit();
   }
 
-  async function remove(b: Block) {
-    await deleteBlock(b);
-    await tick();
-    fit(true);
-  }
-
-  async function toggle(b: Block) {
+  function toggle(b: Block) {
     b.data.collapsed = !b.data.collapsed;
     saveBlock(b);
-    await tick();
-    fit(!!b.data.collapsed);
   }
-
-  // Bloc remis par « Annuler » (notification hors de la carte) : la carte grandit pour le montrer
-  let restoredSeen = blocks.restored.n;
-  $effect(() => {
-    const n = blocks.restored.n;
-    if (n === restoredSeen) return;
-    restoredSeen = n;
-    if (blocks.restored.key === cardKey) tick().then(() => fit());
-  });
 
   /** Résumé d'un bloc replié, pour savoir ce qu'il contient sans le déplier. */
   function summary(b: Block): string {
@@ -160,7 +131,6 @@
 <div class="space-y-2">
   <!-- Ajout d'un bloc : un symbole par type, nom et usage en infobulle -->
   <div
-    bind:this={toolbar}
     role="toolbar"
     aria-label="Ajouter un bloc"
     class="flex items-center gap-0.5 text-muted/70 transition-colors group-hover:text-muted"
@@ -276,7 +246,7 @@
                 aria-label={`Dupliquer le bloc ${info.label}`}>⧉</button
               >
               <button
-                onclick={() => remove(b)}
+                onclick={() => deleteBlock(b)}
                 class="rounded px-1.5 py-0.5 hover:bg-raised hover:text-danger"
                 title="Supprimer"
                 aria-label={`Supprimer le bloc ${info.label}`}>🗑</button

@@ -222,6 +222,19 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE free_cards ADD COLUMN done INTEGER NOT NULL DEFAULT 0;
     "#,
+    // v14 : vue unique des succès. L'ordre des cartes devient l'ordre de lecture : celui du Tableau
+    // (ligne puis colonne, dans chaque section) pour les cartes placées, l'ancien ordre ensuite.
+    // Les succès qui n'étaient pas dans l'espace y sont ajoutés à la lecture (`fill_workspace`).
+    r#"
+    CREATE TEMP TABLE ws_order AS
+        SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY appid
+            ORDER BY grid_y IS NULL, grid_y, grid_x, position
+        ) - 1 AS rank
+        FROM workspace_items;
+    UPDATE workspace_items SET position = (SELECT rank FROM ws_order WHERE ws_order.id = workspace_items.id);
+    DROP TABLE ws_order;
+    "#,
 ];
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -790,6 +803,23 @@ pub fn list_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<Vec<Wor
     Ok(items)
 }
 
+/// Vue unique des succès : tout succès du jeu a sa place dans l'espace. Ceux qui n'en ont pas encore
+/// (jeu ajouté, nouveaux succès après une actualisation, ancien espace partiel) sont ajoutés à la fin,
+/// hors section, dans l'ordre Steam.
+pub fn fill_workspace(conn: &Connection, appid: u32) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO workspace_items (achievement_id, appid, position, collapsed, pinned)
+         SELECT a.id, a.appid,
+                (SELECT COALESCE(MAX(position), -1) + 1 FROM workspace_items WHERE appid = ?1) + a.steam_order,
+                0, 0
+         FROM achievements a
+         WHERE a.appid = ?1
+           AND NOT EXISTS (SELECT 1 FROM workspace_items w WHERE w.achievement_id = a.id)",
+        [appid],
+    )?;
+    Ok(())
+}
+
 /// Taille mémorisée d'une carte du tableau (y compris des cartes retirées de l'espace de travail).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CardSize {
@@ -1310,6 +1340,64 @@ mod tests {
         // Steam d'accord : l'état redevient ordinaire
         save_game(&mut conn, &game(vec![ach("A", Some(false)), ach("B", Some(true))]), "P", None).unwrap();
         assert_eq!(state(&conn), vec![(false, false), (true, false)]);
+    }
+
+    #[test]
+    fn vue_unique_tous_les_succes_ont_leur_place() {
+        let mut conn = open_in_memory().unwrap();
+        save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None)]), "P", None).unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+        let order = |conn: &Connection| -> Vec<Option<i64>> {
+            list_workspace(conn, 620).unwrap().iter().map(|it| it.achievement_id).collect()
+        };
+        // Espace déjà choisi (C seul) : gardé en tête, les autres suivent dans l'ordre Steam
+        let c = WorkspaceItem {
+            achievement_id: Some(ids[2]),
+            card_id: None,
+            collapsed: false,
+            grid: None,
+            pinned: true,
+            section: None,
+        };
+        save_workspace(&mut conn, 620, &[c]).unwrap();
+        fill_workspace(&conn, 620).unwrap();
+        assert_eq!(order(&conn), vec![Some(ids[2]), Some(ids[0]), Some(ids[1])]);
+        assert!(list_workspace(&conn, 620).unwrap()[0].pinned, "la carte garde ses réglages");
+        // Rien de plus la deuxième fois
+        fill_workspace(&conn, 620).unwrap();
+        assert_eq!(order(&conn).len(), 3);
+        // Un nouveau succès après une actualisation arrive à la fin
+        save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None), ach("D", None)]), "P", None).unwrap();
+        fill_workspace(&conn, 620).unwrap();
+        let d = list_achievements(&conn, 620).unwrap().iter().find(|a| a.api_name.as_deref() == Some("D")).unwrap().id;
+        assert_eq!(order(&conn).last(), Some(&Some(d)));
+    }
+
+    #[test]
+    fn migration_v14_ordre_de_lecture_du_tableau() {
+        // Base arrêtée à la v13 : deux cartes placées (la 2ᵉ plus haut) et une sans place
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        for (i, sql) in MIGRATIONS.iter().take(13).enumerate() {
+            conn.execute_batch(sql).unwrap();
+            conn.pragma_update(None, "user_version", i as i64 + 1).unwrap();
+        }
+        save_game(&mut conn, &game(vec![ach("A", None), ach("B", None), ach("C", None)]), "P", None).unwrap();
+        let ids: Vec<i64> = list_achievements(&conn, 620).unwrap().iter().map(|a| a.id).collect();
+        let place = |id: i64, pos: i64, y: Option<i64>| {
+            conn.execute(
+                "INSERT INTO workspace_items (achievement_id, appid, position, grid_x, grid_y, grid_w, grid_h)
+                 VALUES (?1, 620, ?2, 0, ?3, 4, 4)",
+                params![id, pos, y],
+            )
+            .unwrap();
+        };
+        place(ids[0], 0, Some(8));
+        place(ids[1], 1, Some(0));
+        place(ids[2], 2, None);
+        migrate(&mut conn).unwrap();
+        let order: Vec<Option<i64>> = list_workspace(&conn, 620).unwrap().iter().map(|it| it.achievement_id).collect();
+        assert_eq!(order, vec![Some(ids[1]), Some(ids[0]), Some(ids[2])]);
     }
 
     #[test]

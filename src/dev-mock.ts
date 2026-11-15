@@ -248,6 +248,10 @@ export function installMock(label = "main") {
         celebrated = true;
         return null;
       case "workspace_list":
+        // Vue unique : tout succès a sa place (comme `fill_workspace`), à la fin dans l'ordre Steam
+        for (const a of achievements)
+          if (!workspace.some((it) => it.achievement_id === a.id))
+            workspace.push({ achievement_id: a.id, card_id: null, grid: null, collapsed: false, pinned: false, section: null } as MockItem);
         return workspace;
       case "guide_export":
         console.info("[mock] guide_export", args.appid, args.keepState);

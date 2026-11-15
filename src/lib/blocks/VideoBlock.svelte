@@ -3,7 +3,6 @@
   // Lecteur piloté par postMessage (voir player.svelte.ts).
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { tick } from "svelte";
-  import { FIT_CARD_EVENT } from "../library";
   import { embedUrl, parseYouTube, watchUrl } from "../youtube";
   import { YouTubePlayer } from "./player.svelte";
   import { saveBlock } from "./store.svelte";
@@ -34,9 +33,6 @@
     urlDraft = "";
     urlError = "";
     saveBlock(block);
-    // Tableau : la carte s'agrandit pour montrer toute la vidéo (jamais ne rapetisse)
-    await tick();
-    player.iframe?.dispatchEvent(new CustomEvent(FIT_CARD_EVENT, { bubbles: true }));
   }
 
   const seek = (t: number) => player.seek(t);

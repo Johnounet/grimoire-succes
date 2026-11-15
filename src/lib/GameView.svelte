@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     api,
-    cardSizes,
     heroUrl,
     isComplete,
     percent,
@@ -15,20 +14,19 @@
   } from "./library";
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import AchievementList from "./AchievementList.svelte";
   import ExportDialog from "./ExportDialog.svelte";
   import { provideHelpGame } from "./helpSearch";
   import { blocks, forgetCard, loadBlocks } from "./blocks/store.svelte";
   import { openCompact } from "./compact";
   import MoreMenu from "./MoreMenu.svelte";
-  import { appear, arrivals } from "./motion.svelte";
+  import { appear } from "./motion.svelte";
   import { chime } from "./sound.svelte";
   import RelockDialog from "./RelockDialog.svelte";
   import { on, send } from "./sync";
   import { loadGameTags } from "./tags.svelte";
-  import type { GridPos, WorkspaceItem } from "./library";
+  import type { WorkspaceItem } from "./library";
   import ProgressRing from "./ProgressRing.svelte";
-  import { openRelock, setPanelOpen, settings, ui } from "./settings.svelte";
+  import { openRelock, ui } from "./settings.svelte";
   import Workspace from "./Workspace.svelte";
 
   let {
@@ -70,9 +68,6 @@
   const revealed = new SvelteSet<number>();
 
   const byId = $derived(new Map(achievements.map((a) => [a.id, a])));
-  const personalOrder = $derived(
-    new Map(workspace.filter((it) => it.achievement_id != null).map((it, i) => [it.achievement_id!, i])),
-  );
 
   // Valeurs dérivées : elles ne changent que si la valeur change, pas à chaque mise à jour de `game`
   // (une coche renvoie un nouveau `game`, qui ne doit pas recharger la liste).
@@ -101,7 +96,6 @@
   $effect(() => {
     const appid = appidKey;
     revealed.clear();
-    arrivals.clear();
     workspace = [];
     freeCards = [];
     sections = [];
@@ -110,11 +104,6 @@
     untrack(() => (ui.relock.open = false));
     loadBlocks(appid);
     loadGameTags(appid);
-    cardSizes.clear();
-    api.workspaceCardSizes(appid).then((sizes) => {
-      if (appid !== game.appid) return;
-      for (const s of sizes) if (!cardSizes.has(s.achievement_id)) cardSizes.set(s.achievement_id, { w: s.w, h: s.h });
-    });
     api.freeCards(appid).then((f) => {
       if (appid === game.appid) freeCards = f;
     });
@@ -149,37 +138,10 @@
   function saveWorkspace(items: WorkspaceItem[]) {
     const appid = game.appid;
     workspace = items;
-    for (const it of items) if (it.grid && it.achievement_id != null) cardSizes.set(it.achievement_id, { w: it.grid.w, h: it.grid.h });
     saving = saving
       .then(() => api.workspaceSave(appid, items))
       .then(() => send("data-changed", { appid }))
       .catch((e) => (error = `Enregistrement de l'espace de travail impossible : ${e}`));
-  }
-
-  /** Ajoute des succès à l'espace. `at` : case du tableau où le premier a été déposé ; `section` : section
-   *  d'arrivée (aucune : zone du haut). */
-  function addToWorkspace(ids: number[], at?: { x: number; y: number }, section: number | null = null) {
-    const present = new Set(workspace.map((it) => it.achievement_id));
-    const fresh = ids.filter((id) => byId.has(id) && !present.has(id));
-    if (fresh.length === 0) return;
-    for (const id of fresh) arrivals.add(id);
-    // Une carte déjà venue dans l'espace retrouve sa dernière taille ; elle s'agrandira de toute façon
-    // si son contenu (ses blocs) ne tient pas dedans
-    const size = (id: number) => cardSizes.get(id) ?? { w: 4, h: 8 };
-    const place = (id: number, i: number): GridPos | null => (i === 0 && at ? { ...at, ...size(id) } : null);
-    saveWorkspace([
-      ...workspace,
-      ...fresh.map((id, i) => ({
-        achievement_id: id,
-        card_id: null,
-        collapsed: false,
-        grid: place(id, i),
-        pinned: false,
-        section,
-        size: size(id),
-        fresh: true,
-      })),
-    ]);
   }
 
   // ----- Sections -----
@@ -188,9 +150,9 @@
   function saveSections(next: Section[]) {
     const appid = game.appid;
     sections = next;
-    // L'espace est rangé zone du haut puis sections dans l'ordre : le suivre (mode compact, ordre personnel)
-    const rank = new Map(next.map((s, i) => [s.id, i + 1]));
-    const r = (section: number | null | undefined) => (section != null ? (rank.get(section) ?? 0) : 0);
+    // L'espace est rangé sections dans l'ordre puis hors section : le suivre (mode compact, export)
+    const rank = new Map(next.map((s, i) => [s.id, i]));
+    const r = (section: number | null | undefined) => (section != null ? (rank.get(section) ?? next.length) : next.length);
     const sorted = workspace.map((it, i) => ({ it, i })).sort((a, b) => r(a.it.section) - r(b.it.section) || a.i - b.i);
     if (sorted.some((x, i) => x.i !== i)) saveWorkspace(sorted.map((x) => x.it));
     saving = saving
@@ -216,23 +178,11 @@
     }
   }
 
-  /**
-   * Supprime une section. `removeCards` : ses cartes quittent l'espace (les cartes libres sont supprimées
-   * avec leurs blocs, les succès gardent les leurs) ; sinon elles passent dans la zone du haut, sous ses cartes.
-   */
-  function deleteSection(id: number, removeCards: boolean) {
+  /** Supprime une section : ses cartes passent hors section (« Autres succès »), à la fin, avec leurs guides. */
+  function deleteSection(id: number) {
     const appid = game.appid;
     const inside = workspace.filter((it) => it.section === id);
-    if (removeCards) {
-      saveWorkspace(workspace.filter((it) => it.section !== id));
-      for (const it of inside) if (it.card_id != null) deleteFreeCard(it.card_id);
-    } else if (inside.length) {
-      const known = new Set(sections.map((s) => s.id));
-      const top = workspace.filter((it) => it.section == null || !known.has(it.section));
-      const bottom = Math.max(0, ...top.map((it) => (it.grid ? it.grid.y + it.grid.h : 0)));
-      const moved = inside.map((it) => ({ ...it, section: null, grid: it.grid ? { ...it.grid, y: it.grid.y + bottom } : null }));
-      saveWorkspace([...top, ...moved, ...workspace.filter((it) => it.section !== id && !top.includes(it))]);
-    }
+    if (inside.length) saveWorkspace([...workspace.filter((it) => it.section !== id), ...inside.map((it) => ({ ...it, section: null }))]);
     sections = sections.filter((s) => s.id !== id);
     saving = saving
       .then(() => api.sectionDelete(id))
@@ -248,24 +198,17 @@
       const card = await api.freeCardCreate(appid, "");
       if (appid !== game.appid) return;
       freeCards.push(card);
-      arrivals.add(-card.id);
       focusKey = -card.id;
-      // Le focus ne vaut qu'à la création, pas quand la carte réapparaît (changement de vue)
+      // Le focus ne vaut qu'à la création
       setTimeout(() => {
         if (focusKey === -card.id) focusKey = null;
       }, 1000);
-      saveWorkspace([
-        ...workspace,
-        {
-          achievement_id: null,
-          card_id: card.id,
-          collapsed: false,
-          grid: null,
-          pinned: false,
-          size: { w: 4, h: 6 },
-          fresh: true,
-        },
-      ]);
+      // En tête de la première section (ou de tout, sans section) : visible sans chercher
+      const section = sections[0]?.id ?? null;
+      const at = Math.max(0, workspace.findIndex((it) => (it.section ?? null) === section));
+      const next = [...workspace];
+      next.splice(at, 0, { achievement_id: null, card_id: card.id, collapsed: false, grid: null, pinned: false, section });
+      saveWorkspace(next);
     } catch (e) {
       error = `Création de la carte impossible : ${e}`;
     }
@@ -299,8 +242,9 @@
     }
   }
 
-  /** Appelé une fois la carte retirée de l'espace : supprime la carte et ses blocs. */
+  /** Supprime une carte libre et ses blocs. */
   async function deleteFreeCard(id: number) {
+    saveWorkspace(workspace.filter((it) => it.card_id !== id));
     try {
       await api.freeCardDelete(id);
       freeCards = freeCards.filter((f) => f.id !== id);
@@ -471,10 +415,11 @@
     </div>
   {/if}
 
-  <div class="flex min-h-0 flex-1">
-    <!-- Centre : espace de travail -->
-    <div class="min-w-0 flex-1 overflow-y-auto">
+  <!-- Vue unique : tous les succès et les cartes libres -->
+  <div class="min-h-0 flex-1 overflow-y-auto">
+    {#key game.appid}
       <Workspace
+        {achievements}
         items={workspace}
         {sections}
         {focusSection}
@@ -488,45 +433,12 @@
         {imagesDir}
         ontoggle={toggle}
         onchange={saveWorkspace}
-        onadd={addToWorkspace}
         onaddfree={addFreeCard}
         onrename={renameFreeCard}
         ontogglefree={toggleFreeCard}
         ondeletefree={deleteFreeCard}
       />
-    </div>
-
-    <!-- Droite : liste complète, repliable -->
-    {#if settings.panelOpen}
-      <aside class="flex w-[clamp(320px,34vw,480px)] shrink-0 flex-col border-l border-line bg-panel" aria-label="Tous les succès">
-        <div class="flex shrink-0 items-center justify-between border-b border-line px-3 py-2">
-          <h2 class="text-sm font-semibold">Tous les succès</h2>
-          <button
-            onclick={() => setPanelOpen(false)}
-            class="rounded px-2 py-0.5 text-muted hover:bg-raised hover:text-fg"
-            aria-label="Replier la liste des succès"
-            title="Replier"
-          >
-            ›
-          </button>
-        </div>
-        <div class="min-h-0 flex-1 overflow-y-auto">
-          {#key game.appid}
-            <AchievementList {achievements} {personalOrder} {revealed} ontoggle={toggle} onadd={(ids) => addToWorkspace(ids)} />
-          {/key}
-        </div>
-      </aside>
-    {:else}
-      <button
-        onclick={() => setPanelOpen(true)}
-        class="flex w-10 shrink-0 flex-col items-center gap-3 border-l border-line bg-panel py-4 text-muted transition hover:bg-raised hover:text-fg"
-        aria-label="Afficher la liste des succès"
-        title="Afficher la liste des succès"
-      >
-        <span>‹</span>
-        <span class="text-xs tracking-wide [writing-mode:vertical-rl]">Tous les succès</span>
-      </button>
-    {/if}
+    {/key}
   </div>
 </section>
 

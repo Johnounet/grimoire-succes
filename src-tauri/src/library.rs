@@ -277,7 +277,9 @@ pub fn achievements_lock_all(state: State<'_, AppState>, appid: u32) -> Result<G
 
 #[tauri::command]
 pub fn workspace_list(state: State<'_, AppState>, appid: u32) -> Result<Vec<db::WorkspaceItem>, String> {
-    db::list_workspace(&state.conn(), appid).map_err(err)
+    let conn = state.conn();
+    db::fill_workspace(&conn, appid).map_err(err)?;
+    db::list_workspace(&conn, appid).map_err(err)
 }
 
 /// Dernière taille connue des cartes du jeu, pour qu'une carte remise dans l'espace la retrouve.
@@ -350,6 +352,8 @@ const SETTINGS: &[&str] = &[
     "profile_url",
     "workspace_view",
     "panel_open",
+    // Filtre d'état de la vue des succès (all / unlocked / locked), retenu d'un jeu à l'autre
+    "state_filter",
     "sidebar_open",
     // Raccourcis globaux du mode compact : touches (JSON), retour sonore
     "shortcuts",

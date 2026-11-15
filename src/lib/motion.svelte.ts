@@ -1,6 +1,6 @@
 // Animations : réglage « selon Windows / activées / désactivées » et petites transitions communes.
 // Les animations CSS sont coupées par l'attribut `data-reduced-motion` sur <html> (voir app.css).
-// Celles lancées en JavaScript (transitions Svelte, `flip`, gridstack, Web Animations) passent
+// Celles lancées en JavaScript (transitions Svelte, `flip`, Web Animations) passent
 // par `dur()`, qui renvoie 0 quand les animations sont réduites.
 import { untrack } from "svelte";
 import { cubicOut } from "svelte/easing";
@@ -77,32 +77,3 @@ export function appear(el: Element, y = 6) {
   );
 }
 
-/** Succès qui viennent d'être ajoutés à l'espace : leur carte apparaîtra avec `arrive`. */
-export const arrivals = new Set<number>();
-
-/** Arrivée d'une carte dans l'espace de travail (seulement si elle vient d'y être ajoutée). */
-export function arrive(el: Element, id: number) {
-  if (!arrivals.delete(id) || untrack(reduced)) return;
-  el.animate(
-    [
-      { opacity: 0, transform: "scale(0.92)" },
-      { opacity: 1, transform: "none" },
-    ],
-    { duration: SPEED.slow, easing: "cubic-bezier(0.2, 0.9, 0.3, 1.2)" },
-  );
-}
-
-/** Départ d'une carte : se résout quand l'animation est finie (tout de suite si réduites). */
-export function leave(el: Element | null | undefined): Promise<void> {
-  if (!el || reduced()) return Promise.resolve();
-  const a = el.animate(
-    [
-      { opacity: 1, transform: "none" },
-      { opacity: 0, transform: "scale(0.92)" },
-    ],
-    { duration: SPEED.base, easing: "ease-in", fill: "forwards" },
-  );
-  // Limite de temps : une fenêtre en arrière-plan ralentit les images, le retrait ne doit pas attendre
-  const late = new Promise<void>((r) => setTimeout(r, SPEED.base + 60));
-  return Promise.race([a.finished.then(() => {}, () => {}), late]);
-}

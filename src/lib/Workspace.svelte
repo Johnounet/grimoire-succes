@@ -1,26 +1,31 @@
 <script lang="ts">
-  // Espace de travail d'un jeu : les succès choisis et les cartes libres, en vue Tableau (grille libre)
-  // ou Liste. Chaque carte est repérée par sa `cardKey` (succès positif, carte libre négative).
-  // - Tableau : gridstack (voir Board.svelte), position et taille de chaque carte enregistrées.
-  // - Liste : pile de cartes réordonnée par svelte-dnd-action (souris, tactile, clavier).
-  // Arrivée depuis le panneau par glisser natif (DRAG_MIME) dans les deux vues.
+  // Vue des succès d'un jeu (vue unique, 2026-11-15) : tous les succès et les cartes libres, rangés par
+  // sections puis « Autres succès », en colonnes automatiques (Columns.svelte). Recherche, filtres et tri
+  // en haut. Un succès sans guide est une ligne compacte, une carte complète dès son premier bloc.
+  // Chaque carte est repérée par sa `cardKey` (succès positif, carte libre négative).
   //
-  // Sections (facultatives) : groupes de cartes nommés, repliables, réordonnés en glissant leur poignée
-  // (glisser natif, SECTION_MIME). Les cartes sans section sont dans la zone du haut. Chaque section a son
-  // propre tableau (ou sa propre pile en vue Liste) ; une carte passe de l'un à l'autre en la glissant.
-  // `items` est toujours rangé ainsi : zone du haut, puis chaque section dans l'ordre (mode compact).
-  import { flip } from "svelte/animate";
+  // Ordre (« Mon ordre ») : celui de `items`, toujours rangé sections dans l'ordre puis hors section
+  // (mode compact, export). Déplacement par clics : ⇅ sur une carte, puis clic sur la carte devant
+  // laquelle la placer, ou « Mettre à la fin » sur l'en-tête d'une section.
+  import { tick } from "svelte";
   import type { SvelteSet } from "svelte/reactivity";
-  import { dragHandleZone, SHADOW_ITEM_MARKER_PROPERTY_NAME, type DndEvent } from "svelte-dnd-action";
-  import Board from "./Board.svelte";
+  import { blocksOf } from "./blocks/store.svelte";
+  import Columns from "./Columns.svelte";
+  import {
+    apply,
+    counts,
+    defaultFilters,
+    matches,
+    rarityTiers,
+    sortOptions,
+    type Filters,
+    type StateFilter,
+  } from "./filters";
   import {
     cardKey,
-    DRAG_MIME,
-    isFreeKey,
     type AchievementRow,
     type CardKey,
     type FreeCard,
-    type GridPos,
     sectionColor,
     sectionColorLabel,
     SECTION_COLORS,
@@ -28,16 +33,15 @@
     type WorkspaceItem,
   } from "./library";
   import MoreMenu from "./MoreMenu.svelte";
-  import { setWorkspaceView, settings, ui } from "./settings.svelte";
-  import { arrive, dur, leave } from "./motion.svelte";
+  import { setAntiSpoiler, setStateFilter, settings } from "./settings.svelte";
+  import { tags } from "./tags.svelte";
   import WorkspaceCard from "./WorkspaceCard.svelte";
 
-  /** Élément manipulé par svelte-dnd-action (qui exige un champ `id`). */
-  type Card = { id: CardKey; item: WorkspaceItem; [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: boolean };
-  /** Zone du haut (`section` null) ou section. */
+  /** Section, ou « Autres » (`section` null). */
   type Group = { key: string; section: Section | null; items: WorkspaceItem[] };
 
   let {
+    achievements,
     items,
     sections,
     byId,
@@ -48,7 +52,6 @@
     imagesDir,
     ontoggle,
     onchange,
-    onadd,
     onaddfree,
     onrename,
     ontogglefree,
@@ -57,11 +60,13 @@
     onsections,
     ondeletesection,
   }: {
+    /** Tous les succès du jeu, dans l'ordre Steam. */
+    achievements: AchievementRow[];
+    /** Toutes les cartes (succès et cartes libres), dans « Mon ordre ». */
     items: WorkspaceItem[];
     /** Sections du jeu, dans l'ordre. */
     sections: Section[];
     byId: Map<number, AchievementRow>;
-    /** Cartes libres du jeu, par id. */
     freeById: Map<number, FreeCard>;
     /** Carte libre qui vient d'être créée (son titre prend le focus). */
     focusKey: CardKey | null;
@@ -71,46 +76,119 @@
     imagesDir: string;
     ontoggle: (a: AchievementRow) => void;
     onchange: (items: WorkspaceItem[]) => void;
-    /** Succès ajoutés : `at` case du tableau du premier, `section` section d'arrivée (null : zone du haut). */
-    onadd: (ids: number[], at?: { x: number; y: number }, section?: number | null) => void;
-    /** Nouvelle carte libre. */
     onaddfree: () => void;
     onrename: (id: number, title: string) => void;
-    /** Carte libre cochée ou décochée. */
     ontogglefree: (id: number) => void;
-    /** Carte libre supprimée (après son retrait de l'espace). */
+    /** Carte libre supprimée (avec ses blocs). */
     ondeletefree: (id: number) => void;
     onaddsection: () => void;
-    /** Sections modifiées (titre, état replié, ordre). */
+    /** Sections modifiées (titre, état replié, couleur, ordre). */
     onsections: (sections: Section[]) => void;
-    /** Supprime la section ; `removeCards` : ses cartes quittent aussi l'espace, sinon elles passent en haut. */
-    ondeletesection: (id: number, removeCards: boolean) => void;
+    /** Supprime la section ; ses cartes passent dans « Autres succès ». */
+    ondeletesection: (id: number) => void;
   } = $props();
 
-  const achievementCount = $derived(items.filter((it) => it.achievement_id != null).length);
-  const freeCount = $derived(items.length - achievementCount);
+  // ----- Filtres et tri -----
+  let filters = $state<Filters>({ ...defaultFilters(), sort: "personal" });
+  // Filtre d'état : retenu d'un jeu et d'un lancement à l'autre
+  $effect.pre(() => {
+    filters.state = settings.stateFilter;
+  });
+  function setState(s: StateFilter) {
+    filters.state = s;
+    setStateFilter(s);
+  }
+  /** Seulement les succès qui ont un guide (et les cartes libres qui ont des blocs). */
+  let guidedOnly = $state(false);
+  // Étiquette filtrée supprimée entre-temps : on revient à « toutes »
+  $effect(() => {
+    const t = filters.tag;
+    if (typeof t === "number" && !tags.list.some((x) => x.id === t)) filters.tag = "all";
+  });
+  const n = $derived(counts(achievements));
+  const stateTabs: { value: StateFilter; label: string; count: () => number }[] = [
+    { value: "locked", label: "À obtenir", count: () => n.locked },
+    { value: "unlocked", label: "Obtenus", count: () => n.unlocked },
+    { value: "all", label: "Tous", count: () => n.all },
+  ];
+  const filtered = $derived(
+    filters.text.trim() !== "" || filters.rarity !== "all" || filters.tag !== "all" || guidedOnly,
+  );
+  function resetFilters() {
+    filters.text = "";
+    filters.rarity = "all";
+    filters.tag = "all";
+    guidedOnly = false;
+  }
 
-  const FLIP = 150;
-  const SECTION_MIME = "application/x-grimoire-section";
+  const fold = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
-  // ----- Sections -----
+  /** La carte passe les filtres. Une carte libre n'a ni rareté ni étiquette : ces filtres la masquent. */
+  function visible(it: WorkspaceItem): boolean {
+    const key = cardKey(it);
+    if (guidedOnly && blocksOf(key).length === 0) return false;
+    if (it.card_id != null) {
+      const f = freeById.get(it.card_id);
+      if (!f || filters.rarity !== "all" || filters.tag !== "all") return false;
+      if (filters.state === "locked" && f.done) return false;
+      if (filters.state === "unlocked" && !f.done) return false;
+      const q = fold(filters.text.trim());
+      return !q || q.split(/\s+/).every((w) => fold(f.title).includes(w));
+    }
+    const a = it.achievement_id != null ? byId.get(it.achievement_id) : undefined;
+    if (!a) return false;
+    // Succès retiré de Steam : montré seulement s'il garde un guide
+    if (a.removed && blocksOf(a.id).length === 0) return false;
+    return matches(a, filters, tags.byAch);
+  }
+
+  // ----- Sections et groupes -----
   const known = $derived(new Set(sections.map((s) => s.id)));
-  /** Section d'une carte (null : zone du haut, y compris si sa section n'existe plus). */
+  /** Section d'une carte (null : hors section, y compris si sa section n'existe plus). */
   const sectionOf = (it: WorkspaceItem) => (it.section != null && known.has(it.section) ? it.section : null);
   const groups: Group[] = $derived([
-    { key: "top", section: null, items: items.filter((it) => sectionOf(it) == null) },
     ...sections.map((s) => ({ key: String(s.id), section: s, items: items.filter((it) => sectionOf(it) === s.id) })),
+    { key: "rest", section: null, items: items.filter((it) => sectionOf(it) == null) },
   ]);
   const hasSections = $derived(sections.length > 0);
 
-  /** Range les cartes : zone du haut, puis les sections dans l'ordre (ordre relatif conservé). */
+  /** Cartes affichées d'un groupe, dans l'ordre du tri choisi. */
+  function shownOf(g: Group): WorkspaceItem[] {
+    const list = g.items.filter(visible);
+    if (filters.sort === "personal") return list;
+    // Autres tris : les cartes libres en tête, puis les succès triés (ordre Steam d'origine à égalité)
+    const free = list.filter((it) => it.card_id != null);
+    const inGroup = new Set(list.map((it) => it.achievement_id));
+    const rows = apply(
+      achievements.filter((a) => inGroup.has(a.id)),
+      { ...filters, text: "", state: "all", rarity: "all", tag: "all" },
+    );
+    const byAch = new Map(list.map((it) => [it.achievement_id, it]));
+    return [...free, ...rows.map((a) => byAch.get(a.id)!)];
+  }
+  const shown = $derived(groups.map((g) => ({ g, list: shownOf(g) })));
+  const shownCount = $derived(shown.reduce((s, x) => s + x.list.length, 0));
+
+  /** Bilan d'un groupe : succès obtenus / succès (hors retirés de Steam), et cartes libres. */
+  function tally(g: Group) {
+    const achs = g.items.flatMap((it) => {
+      const a = it.achievement_id != null ? byId.get(it.achievement_id) : undefined;
+      return a && !a.removed ? [a] : [];
+    });
+    const done = achs.filter((a) => a.unlocked).length;
+    return { total: achs.length, done, free: g.items.filter((it) => it.card_id != null).length };
+  }
+
+  /** Range les cartes : sections dans l'ordre, puis hors section (ordre relatif conservé). */
   function ordered(list: WorkspaceItem[]): WorkspaceItem[] {
-    const ids = new Set(sections.map((s) => s.id));
-    const of = (it: WorkspaceItem) => (it.section != null && ids.has(it.section) ? it.section : null);
-    return [...list.filter((it) => of(it) == null), ...sections.flatMap((s) => list.filter((it) => of(it) === s.id))];
+    const of = (it: WorkspaceItem) => (it.section != null && known.has(it.section) ? it.section : null);
+    return [...sections.flatMap((s) => list.filter((it) => of(it) === s.id)), ...list.filter((it) => of(it) == null)];
   }
   function emit(list: WorkspaceItem[]) {
     onchange(ordered(list));
+  }
+  function update(key: CardKey, patch: Partial<WorkspaceItem>) {
+    emit(items.map((it) => (cardKey(it) === key ? { ...it, ...patch } : it)));
   }
 
   function patchSection(id: number, patch: Partial<Section>) {
@@ -131,18 +209,14 @@
   function setAllSections(collapsed: boolean) {
     onsections(sections.map((s) => ({ ...s, collapsed })));
   }
-
   /** Section dont la suppression est demandée (question affichée sous son en-tête). */
   let deleting = $state<number | null>(null);
-  function askDelete(g: Group) {
-    if (!g.section) return;
-    if (g.items.length === 0) ondeletesection(g.section.id, false);
-    else deleting = g.section.id;
-  }
+  /** Section dont on choisit la couleur (nuancier affiché sous son en-tête). */
+  let coloring = $state<number | null>(null);
 
   // Réordonner les sections : glisser natif par la poignée ⠿ de l'en-tête
+  const SECTION_MIME = "application/x-grimoire-section";
   let sectionDrag = $state<number | null>(null);
-  /** Rang où la section glissée arrivera (trait d'insertion). */
   let dropIndex = $state<number | null>(null);
   function sectionDragStart(e: DragEvent, s: Section) {
     if (!e.dataTransfer) return;
@@ -157,7 +231,6 @@
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    // Moitié haute de la section : avant elle ; moitié basse : après (au plus 40 px pour une grande section)
     const half = Math.min(box.height / 2, 40);
     dropIndex = e.clientY < box.top + half ? index : e.clientY > box.bottom - half ? index + 1 : (dropIndex ?? index);
   }
@@ -172,298 +245,175 @@
     dropIndex = null;
   }
 
-  /** Succès glissés depuis le panneau sur l'en-tête d'une section : ajoutés dans la section. */
-  let headHover = $state<number | null>(null);
-  function headDragOver(e: DragEvent, s: Section) {
-    if (!e.dataTransfer?.types.includes(DRAG_MIME)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    headHover = s.id;
-  }
-  function headDrop(e: DragEvent, s: Section) {
-    headHover = null;
-    const ids = panelIds(e);
-    if (ids) onadd(ids, undefined, s.id);
-  }
-
-  // ----- Zone survolée pendant qu'on y amène une carte : son cadre s'éclaire -----
-  /** Une carte du tableau est en train d'être déplacée. */
-  let cardDrag = $state(false);
-  /** Zone (`top` ou id de section) sous le curseur pendant un déplacement de carte ou un glisser du panneau. */
-  let dropZone = $state<string | null>(null);
-  function zoneAt(x: number, y: number): string | null {
-    for (const el of document.querySelectorAll<HTMLElement>("[data-zone]")) {
-      const b = el.getBoundingClientRect();
-      if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) return el.dataset.zone ?? null;
-    }
-    return null;
-  }
-  $effect(() => {
-    if (!cardDrag) return;
-    const move = (e: MouseEvent) => (dropZone = zoneAt(e.clientX, e.clientY));
-    document.addEventListener("mousemove", move, { capture: true, passive: true });
-    return () => document.removeEventListener("mousemove", move, { capture: true });
+  // ----- Déplacement par clics -----
+  /** Carte en cours de déplacement. */
+  let moving = $state<CardKey | null>(null);
+  /** Carte qui vient d'être déplacée : brièvement soulignée, et amenée à l'écran. */
+  let landed = $state<CardKey | null>(null);
+  const canMove = $derived(filters.sort === "personal");
+  const movingLabel = $derived.by(() => {
+    if (moving == null) return "";
+    if (moving < 0) return freeById.get(-moving)?.title || "Carte sans titre";
+    const a = byId.get(moving);
+    return a ? (spoiler(a) ? "succès caché" : a.name) : "";
   });
-  /** Glisser depuis le panneau des succès : même éclairage, par les événements du glisser natif. */
-  function zoneDragOver(e: DragEvent, key: string) {
-    if (e.dataTransfer?.types.includes(DRAG_MIME)) dropZone = key;
-  }
-  // Fin du geste : plus rien d'éclairé
+  // Plus de tri « Mon ordre » : le déplacement s'arrête
   $effect(() => {
-    if (!ui.draggingFromPanel && !cardDrag) dropZone = null;
+    if (!canMove) moving = null;
   });
 
-  /** Section dont on choisit la couleur (nuancier affiché sous son en-tête). */
-  let coloring = $state<number | null>(null);
-
-  // ----- Vue liste : une pile par zone, copie locale modifiée pendant un glisser -----
-  let lists = $state.raw<Record<string, Card[]>>({});
-  let dragging = false;
-  $effect(() => {
-    const next = Object.fromEntries(groups.map((g) => [g.key, g.items.map((item) => ({ id: cardKey(item), item }))]));
-    if (!dragging) lists = next;
-  });
-
-  /** Carte (clé) qui vient d'être cochée ou décochée : sa coche s'anime. */
-  let justToggled = $state<CardKey | null>(null);
-  /** Tableaux affichés, par zone. */
-  const boards: Record<string, ReturnType<typeof Board> | undefined> = $state({});
-  let listHover = $state<string | null>(null);
-
-  function listConsider(g: Group, e: CustomEvent<DndEvent<Card>>) {
-    dragging = true;
-    lists = { ...lists, [g.key]: e.detail.items };
-  }
-  function listFinalize(g: Group, e: CustomEvent<DndEvent<Card>>) {
-    dragging = false;
-    lists = { ...lists, [g.key]: e.detail.items };
-    emit(groups.flatMap((x) => (lists[x.key] ?? []).map((c) => ({ ...c.item, section: x.section?.id ?? null }))));
+  async function moved(key: CardKey) {
+    moving = null;
+    landed = key;
+    setTimeout(() => {
+      if (landed === key) landed = null;
+    }, 1400);
+    await tick();
+    // Colonnes recalculées puis mesurées : on attend deux images avant d'amener la carte à l'écran
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        document.querySelector(`[data-card="${key}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+      ),
+    );
   }
 
-  // ----- Modifications d'une carte -----
-  function update(key: CardKey, patch: Partial<WorkspaceItem>) {
-    emit(items.map((it) => (cardKey(it) === key ? { ...it, ...patch } : it)));
-  }
-  /** Cartes en train de partir (animation de sortie) : un 2ᵉ clic ne les retire pas deux fois. */
-  const leaving = new Set<CardKey>();
-  /** Retire une carte de l'espace ; une carte libre est supprimée avec ses blocs. */
-  async function remove(key: CardKey) {
-    if (leaving.has(key)) return;
-    leaving.add(key);
-    await leave(document.querySelector(`[data-card="${key}"]`));
-    leaving.delete(key);
-    // Tableau : les cartes du dessous remonteront dans la place libérée
+  /** Place la carte déplacée juste avant `target` (et dans sa section). */
+  function placeBefore(target: WorkspaceItem) {
+    const key = moving;
+    if (key == null || key === cardKey(target)) return void (moving = null);
     const it = items.find((x) => cardKey(x) === key);
-    if (it) boards[groupKey(sectionOf(it))]?.willRemove(key);
-    emit(items.filter((x) => cardKey(x) !== key));
-    if (isFreeKey(key)) ondeletefree(-key);
+    if (!it) return;
+    const rest = items.filter((x) => cardKey(x) !== key);
+    const at = rest.findIndex((x) => cardKey(x) === cardKey(target));
+    rest.splice(at, 0, { ...it, section: sectionOf(target) });
+    emit(rest);
+    moved(key);
   }
-  const groupKey = (section: number | null) => (section == null ? "top" : String(section));
-  function togglePin(it: WorkspaceItem) {
-    update(cardKey(it), { pinned: !it.pinned });
+
+  /** Met la carte à la fin d'une section (null : hors section). */
+  function toEnd(key: CardKey, section: number | null) {
+    const it = items.find((x) => cardKey(x) === key);
+    if (!it) return;
+    emit([...items.filter((x) => cardKey(x) !== key), { ...it, section }]);
+    moved(key);
   }
-  function toggle(a: AchievementRow) {
-    justToggled = a.id;
-    ontoggle(a);
-  }
-  function setAllCollapsed(collapsed: boolean) {
-    emit(items.map((it) => ({ ...it, collapsed })));
-  }
-  /** Change une carte de section par son menu : une place libre lui sera trouvée, à sa taille. */
-  function moveTo(it: WorkspaceItem, section: number | null) {
-    const size = it.grid ? { w: it.grid.w, h: it.grid.h } : it.size;
-    update(cardKey(it), { section, grid: null, size });
-  }
-  /** Entrées « Déplacer vers… » du menu d'une carte. */
+
+  /** Entrées « Déplacer vers… » du menu d'une carte (à la fin de la section choisie). */
   function movesFor(it: WorkspaceItem) {
     if (!hasSections) return [];
     const here = sectionOf(it);
     const out = sections
       .filter((s) => s.id !== here)
-      .map((s) => ({ label: `Déplacer vers « ${s.title || "Section sans titre"} »`, onclick: () => moveTo(it, s.id) }));
-    if (here != null) out.unshift({ label: "Sortir de la section", onclick: () => moveTo(it, null) });
+      .map((s) => ({ label: `Déplacer vers « ${s.title || "Section sans titre"} »`, onclick: () => toEnd(cardKey(it), s.id) }));
+    if (here != null) out.push({ label: "Sortir de la section", onclick: () => toEnd(cardKey(it), null) });
     return out;
   }
 
-  /** Tableau d'une zone : nouvelles positions (n'émet que s'il y a un vrai changement). */
-  function layout(section: number | null, positions: Map<CardKey, GridPos>) {
-    let changed = false;
-    const next = items.map((it) => {
-      if (sectionOf(it) !== section) return it;
-      const p = positions.get(cardKey(it));
-      const g = it.grid;
-      if (!p || (g && g.x === p.x && g.y === p.y && g.w === p.w && g.h === p.h)) return it;
-      changed = true;
-      return { ...it, grid: p };
-    });
-    if (changed) emit(next);
-  }
-  /** Carte glissée d'un tableau à celui d'une autre zone. */
-  function moveIn(section: number | null, key: CardKey, pos: GridPos) {
-    emit(items.map((it) => (cardKey(it) === key ? { ...it, section, grid: pos } : it)));
-  }
-
-  // ----- Arrivée depuis le panneau (vue liste et en-têtes de section) -----
-  function panelIds(e: DragEvent): number[] | null {
-    ui.draggingFromPanel = false;
-    const raw = e.dataTransfer?.getData(DRAG_MIME);
-    if (!raw) return null;
-    e.preventDefault();
-    try {
-      return (JSON.parse(raw) as unknown[]).filter((x): x is number => typeof x === "number");
-    } catch {
-      return null; // données d'un autre glisser : ignorées
-    }
-  }
-  function listDragOver(e: DragEvent, key: string) {
-    if (!e.dataTransfer?.types.includes(DRAG_MIME)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = "copy";
-    listHover = key;
-  }
-  function listDrop(e: DragEvent, section: number | null) {
-    listHover = null;
-    e.stopPropagation();
-    const ids = panelIds(e);
-    if (ids) onadd(ids, undefined, section);
-  }
-
+  /** Carte (clé) qui vient d'être cochée ou décochée : sa coche s'anime. */
+  let justToggled = $state<CardKey | null>(null);
   const spoiler = (a: AchievementRow) => settings.antiSpoiler && a.hidden && !a.unlocked && !revealed.has(a.id);
-  const isShadow = (c: Card) => !!c[SHADOW_ITEM_MARKER_PROPERTY_NAME];
-
-  /** Bilan d'une section : succès obtenus / succès de la section, et cartes libres. */
-  function tally(g: Group) {
-    const achs = g.items.filter((it) => it.achievement_id != null);
-    const done = achs.filter((it) => byId.get(it.achievement_id!)?.unlocked).length;
-    return { total: achs.length, done, free: g.items.length - achs.length };
-  }
 </script>
 
-{#snippet card(it: WorkspaceItem, board: boolean)}
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === "Escape" && moving != null) moving = null;
+  }}
+/>
+
+{#snippet card(it: WorkspaceItem)}
   {@const key = cardKey(it)}
   {@const a = it.achievement_id != null ? byId.get(it.achievement_id) : undefined}
   {@const free = it.card_id != null ? freeById.get(it.card_id) : undefined}
-  {#if free}
-    <WorkspaceCard
-      {free}
-      focusTitle={focusKey === key}
-      collapsed={it.collapsed}
-      pinned={it.pinned}
-      spoiler={false}
-      animate={justToggled === key}
-      {board}
-      {imagesDir}
-      moves={movesFor(it)}
-      ontoggle={() => {
-        justToggled = key;
-        ontogglefree(free.id);
-      }}
-      onreveal={() => {}}
-      oncollapse={() => update(key, { collapsed: !it.collapsed })}
-      onremove={() => remove(key)}
-      onpin={() => togglePin(it)}
-      onrename={(title) => onrename(free.id, title)}
-    />
-  {:else if a}
-    <WorkspaceCard
-      {a}
-      collapsed={it.collapsed}
-      pinned={it.pinned}
-      spoiler={spoiler(a)}
-      animate={justToggled === a.id}
-      {board}
-      {imagesDir}
-      moves={movesFor(it)}
-      ontoggle={() => toggle(a)}
-      onreveal={() => revealed.add(a.id)}
-      oncollapse={() => update(a.id, { collapsed: !it.collapsed })}
-      onremove={() => remove(a.id)}
-      onpin={() => togglePin(it)}
-    />
-  {/if}
-{/snippet}
-
-{#snippet boardCard(it: WorkspaceItem)}{@render card(it, true)}{/snippet}
-
-<!-- Cartes d'une zone : un tableau, ou une pile en vue Liste -->
-{#snippet zone(g: Group)}
-  {@const section = g.section?.id ?? null}
-  {#if settings.workspaceView === "board"}
-    {@const top = section == null}
-    <div class="flex flex-col {top && !hasSections ? 'flex-1' : ''}">
-      {#key top && hasSections}
-        <Board
-          bind:this={boards[g.key]}
-          items={g.items}
-          card={boardCard}
-          minRow={top && !hasSections ? 8 : 3}
-          spare={top && !hasSections ? 10 : g.items.length ? 2 : 0}
-          hint={top ? (hasSections ? "Hors section : glissez des cartes ici si besoin" : "") : "Section vide : glissez-y des cartes"}
-          onlayout={(p) => layout(section, p)}
-          onmovein={(key, pos) => moveIn(section, key, pos)}
-          ondropids={(ids, at) => onadd(ids, at, section)}
-          ondragcard={(d) => (cardDrag = d)}
-          framed={hasSections}
-        />
-      {/key}
-    </div>
-  {:else}
-    <div
-      role="region"
-      aria-label={g.section ? `Cartes de la section « ${g.section.title} »` : "Cartes hors section"}
-      ondragover={(e) => listDragOver(e, g.key)}
-      ondragleave={() => (listHover = null)}
-      ondrop={(e) => listDrop(e, section)}
-    >
-      <div
-        use:dragHandleZone={{
-          items: lists[g.key] ?? [],
-          flipDurationMs: dur(FLIP),
-          type: "workspace",
-          dropTargetStyle: {},
-          useCursorForDetection: true,
+  <div class="relative {landed === key ? 'landed' : ''}" data-card={key}>
+    {#if free}
+      <WorkspaceCard
+        {free}
+        focusTitle={focusKey === key}
+        pinned={it.pinned}
+        spoiler={false}
+        animate={justToggled === key}
+        {imagesDir}
+        {canMove}
+        moving={moving === key}
+        moves={movesFor(it)}
+        ontoggle={() => {
+          justToggled = key;
+          ontogglefree(free.id);
         }}
-        onconsider={(e) => listConsider(g, e)}
-        onfinalize={(e) => listFinalize(g, e)}
-        class="space-y-2 rounded-xl transition
-          {(lists[g.key] ?? []).length === 0 ? 'min-h-14' : ''}
-          {ui.draggingFromPanel && !hasSections ? 'outline-2 outline-offset-4 outline-dashed' : ''}
-          {listHover === g.key ? 'outline-accent' : 'outline-line'}"
+        onreveal={() => {}}
+        onremove={() => ondeletefree(free.id)}
+        onpin={() => update(key, { pinned: !it.pinned })}
+        onmove={() => (moving = moving === key ? null : key)}
+        onrename={(title) => onrename(free.id, title)}
+      />
+    {:else if a}
+      <WorkspaceCard
+        {a}
+        pinned={it.pinned}
+        spoiler={spoiler(a)}
+        animate={justToggled === a.id}
+        {imagesDir}
+        {canMove}
+        moving={moving === key}
+        moves={movesFor(it)}
+        ontoggle={() => {
+          justToggled = a.id;
+          ontoggle(a);
+        }}
+        onreveal={() => revealed.add(a.id)}
+        onremove={() => {}}
+        onpin={() => update(key, { pinned: !it.pinned })}
+        onmove={() => (moving = moving === key ? null : key)}
+      />
+    {/if}
+    {#if moving != null && moving !== key}
+      <!-- Cible du déplacement : toute la carte -->
+      <button
+        onclick={() => placeBefore(it)}
+        aria-label="Placer ici, avant cette carte"
+        class="move-target absolute inset-0 z-10 flex items-start justify-center rounded-[4px] border-2 border-dashed border-transparent
+          transition hover:border-accent hover:bg-accent/10"
       >
-        {#each lists[g.key] ?? [] as c (c.id)}
-          <div
-            animate:flip={{ duration: dur(FLIP) }}
-            class={isShadow(c) ? "opacity-30" : ""}
-            data-card={c.id}
-            {@attach (el) => arrive(el, c.id)}
-          >
-            {@render card(c.item, false)}
-          </div>
-        {/each}
-      </div>
-      {#if (lists[g.key] ?? []).length === 0}
-        <p class="-mt-10 mb-4 text-center text-sm text-muted">
-          {g.section ? "Section vide : glissez-y des cartes" : "Hors section : glissez des cartes ici si besoin"}
-        </p>
-      {/if}
-    </div>
+        <span class="mt-1 rounded bg-accent px-2 py-0.5 text-xs font-semibold text-on-accent shadow">↑ Placer ici, avant</span>
+      </button>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet cards(list: WorkspaceItem[], g: Group)}
+  {#if list.length}
+    <Columns items={list} key={cardKey}>
+      {#snippet children(it)}{@render card(it)}{/snippet}
+    </Columns>
+  {:else if g.items.length === 0}
+    <p class="px-1 py-2 text-sm text-muted">
+      Section vide : choisissez « Déplacer vers… » dans le menu ⋯ d'une carte, ou ⇅ puis « Mettre à la fin ».
+    </p>
+  {:else}
+    <p class="px-1 py-2 text-sm text-muted">Rien à afficher avec ces filtres.</p>
   {/if}
 {/snippet}
 
-<!-- En-tête d'une section : poignée, repli, titre, bilan, menu -->
+{#snippet endButton(section: number | null)}
+  {#if moving != null}
+    <button
+      onclick={() => toEnd(moving!, section)}
+      class="ml-auto shrink-0 rounded-md bg-accent px-2 py-0.5 text-xs font-semibold text-on-accent hover:brightness-110"
+    >
+      Mettre à la fin {section == null ? "des autres succès" : "de cette section"}
+    </button>
+  {/if}
+{/snippet}
+
+<!-- En-tête d'une section : poignée, repli, couleur, titre, bilan, menu -->
 {#snippet head(g: Group, s: Section, index: number)}
   {@const t = tally(g)}
   <div
     data-section-head
     role="group"
     aria-label={`Section « ${s.title || "sans titre"} »`}
-    ondragover={(e) => headDragOver(e, s)}
-    ondragleave={() => (headHover = null)}
-    ondrop={(e) => headDrop(e, s)}
-    class="section-head flex items-center gap-1.5 px-1.5 py-1 transition
-      {s.collapsed && coloring !== s.id && deleting !== s.id ? 'rounded-b-[5px]' : 'border-b'}
-      {headHover === s.id ? 'is-hover' : ''}"
+    class="section-head flex items-center gap-1.5 px-1.5 py-1
+      {s.collapsed && coloring !== s.id && deleting !== s.id ? 'rounded-b-[5px]' : 'border-b'}"
   >
     <span
       draggable="true"
@@ -513,6 +463,7 @@
       class="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 font-semibold outline-none
         placeholder:font-normal placeholder:text-muted hover:border-line focus:border-accent focus:bg-bg"
     />
+    {@render endButton(s.id)}
     <span class="shrink-0 text-xs text-muted tabular-nums">
       {#if t.total > 0}
         <span class={t.done === t.total ? "font-semibold text-ok" : ""}>{t.done} / {t.total}</span>
@@ -532,7 +483,10 @@
         ...(index > 0 ? [{ label: "Monter", onclick: () => moveSection(s.id, index - 1) }] : []),
         ...(index < sections.length - 1 ? [{ label: "Descendre", onclick: () => moveSection(s.id, index + 2) }] : []),
         { label: "Changer la couleur…", onclick: () => (coloring = s.id) },
-        { label: "Supprimer la section…", onclick: () => askDelete(g) },
+        {
+          label: "Supprimer la section…",
+          onclick: () => (g.items.length === 0 ? ondeletesection(s.id) : (deleting = s.id)),
+        },
       ]}
     />
   </div>
@@ -555,183 +509,150 @@
     </div>
   {/if}
   {#if deleting === s.id}
-    <div class="m-2 rounded border border-danger/40 bg-danger/10 p-3 text-sm">
-      <p class="font-medium">
-        Supprimer la section « {s.title || "sans titre"} » ? Elle contient {g.items.length} carte{g.items.length > 1 ? "s" : ""}.
+    <div class="m-2 flex flex-wrap items-center gap-2 rounded border border-danger/40 bg-danger/10 p-3 text-sm">
+      <p class="min-w-0 flex-1">
+        Supprimer la section « {s.title || "sans titre"} » ? Ses {g.items.length} carte{g.items.length > 1 ? "s" : ""} passeront
+        dans « Autres succès », avec leurs guides.
       </p>
-      <p class="mt-1 text-muted">
-        Que faire de ses cartes ? Les guides des succès sont conservés dans tous les cas : ils reviennent si
-        vous remettez le succès dans l'espace.{#if t.free > 0}{" "}Les cartes libres, elles, seraient supprimées
-          avec leur contenu.{/if}
-      </p>
-      <div class="mt-2 flex flex-wrap justify-end gap-2">
-        <button onclick={() => (deleting = null)} class="rounded-md px-2 py-0.5 hover:bg-raised">Annuler</button>
-        <button
-          onclick={() => {
-            deleting = null;
-            ondeletesection(s.id, false);
-          }}
-          class="rounded-md border border-line px-2 py-0.5 hover:bg-raised"
-          title="Les cartes restent dans l'espace, au-dessus des sections">Garder les cartes</button
-        >
-        <button
-          onclick={() => {
-            deleting = null;
-            ondeletesection(s.id, true);
-          }}
-          class="rounded-md bg-danger px-2 py-0.5 font-medium text-white">Retirer aussi les cartes</button
-        >
-      </div>
+      <button onclick={() => (deleting = null)} class="rounded-md px-2 py-0.5 hover:bg-raised">Annuler</button>
+      <button
+        onclick={() => {
+          deleting = null;
+          ondeletesection(s.id);
+        }}
+        class="rounded-md bg-danger px-2 py-0.5 font-medium text-white">Supprimer la section</button
+      >
     </div>
   {/if}
 {/snippet}
 
 <div class="flex min-h-full flex-col {sectionDrag != null ? 'section-dragging' : ''}">
-  <!-- Barre de l'espace -->
-  <div class="flex flex-wrap items-center gap-3 px-6 pt-4 pb-3">
-    <h2 class="text-sm font-semibold tracking-wide text-muted uppercase">
-      Espace de travail
-      <span class="font-normal normal-case">
-        · {achievementCount} succès{#if freeCount > 0}&nbsp;· {freeCount} carte{freeCount > 1 ? "s" : ""} libre{freeCount > 1 ? "s" : ""}{/if}
-      </span>
-    </h2>
-    <button
-      onclick={onaddfree}
-      class="rounded-md border border-line px-2 py-0.5 text-xs text-muted transition hover:bg-raised hover:text-fg"
-      title="Carte rattachée au jeu, pas à un succès : route générale, objets à ne pas rater, compteur commun…"
-    >
-      + Carte libre
-    </button>
-    <button
-      onclick={onaddsection}
-      class="rounded-md border border-line px-2 py-0.5 text-xs text-muted transition hover:bg-raised hover:text-fg"
-      title="Groupe de cartes nommé et repliable : une phase du 100 %, les collectibles, le grind…"
-    >
-      + Section
-    </button>
-    {#if hasSections}
-      <button onclick={() => setAllSections(true)} class="text-xs text-muted underline hover:text-fg">replier les sections</button>
-      <button onclick={() => setAllSections(false)} class="text-xs text-muted underline hover:text-fg">déplier les sections</button>
-    {/if}
-    {#if items.length > 0 && settings.workspaceView === "list"}
-      <button onclick={() => setAllCollapsed(true)} class="text-xs text-muted underline hover:text-fg">tout replier</button>
-      <button onclick={() => setAllCollapsed(false)} class="text-xs text-muted underline hover:text-fg">tout déplier</button>
-    {/if}
-    {#if items.length > 0 && settings.workspaceView === "board"}
-      <span class="text-xs text-muted">Glissez une carte par son titre, tirez ses bords pour la redimensionner.</span>
+  <!-- Barre d'outils : recherche, filtres, tri, ajouts -->
+  <div class="sticky top-0 z-20 border-b border-line bg-bg/95 px-6 py-2.5 backdrop-blur">
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      <div class="relative">
+        <input
+          bind:value={filters.text}
+          type="search"
+          placeholder="Rechercher un succès…"
+          aria-label="Rechercher un succès"
+          class="w-56 rounded-lg border border-line bg-bg py-1 pr-3 pl-7 outline-none focus:border-accent"
+        />
+        <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted" aria-hidden="true">⌕</span>
+      </div>
+      <div class="inline-flex rounded-lg border border-line bg-panel p-0.5" role="group" aria-label="Filtrer par état">
+        {#each stateTabs as t (t.value)}
+          <button
+            onclick={() => setState(t.value)}
+            aria-pressed={filters.state === t.value}
+            class="rounded-md px-2.5 py-0.5 transition
+              {filters.state === t.value ? 'bg-raised font-medium text-fg' : 'text-muted hover:text-fg'}"
+          >
+            {t.label} <span class="text-xs text-muted">{t.count()}</span>
+          </button>
+        {/each}
+      </div>
+      <select bind:value={filters.sort} aria-label="Trier" class="rounded-lg border border-line bg-panel px-2 py-1 outline-none focus:border-accent">
+        {#each sortOptions as s (s.value)}<option value={s.value}>{s.label}</option>{/each}
+      </select>
+      <select bind:value={filters.rarity} aria-label="Filtrer par rareté" class="rounded-lg border border-line bg-panel px-2 py-1 outline-none focus:border-accent">
+        {#each rarityTiers as t (t.value)}<option value={t.value}>{t.label}</option>{/each}
+      </select>
+      <select bind:value={filters.tag} aria-label="Filtrer par étiquette" class="rounded-lg border border-line bg-panel px-2 py-1 outline-none focus:border-accent">
+        <option value="all">Toutes les étiquettes</option>
+        <option value="none">Sans étiquette</option>
+        {#each tags.list as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+      </select>
+      <label class="flex items-center gap-1.5 text-muted" title="Seulement les succès qui ont au moins un bloc de guide">
+        <input type="checkbox" bind:checked={guidedOnly} class="accent-accent" /> Avec guide
+      </label>
       <button
-        onclick={() => Object.values(boards).forEach((b) => b?.packAll())}
-        class="text-xs text-muted underline hover:text-fg"
-        title="Remonte chaque carte au plus haut dans sa colonne, pour combler les trous">tout remonter</button
+        onclick={() => setAntiSpoiler(!settings.antiSpoiler)}
+        aria-pressed={settings.antiSpoiler}
+        title="Mode anti-spoiler : floute les succès cachés non obtenus"
+        class="rounded-lg border px-2 py-0.5 text-xs transition
+          {settings.antiSpoiler ? 'border-accent/60 bg-accent/15 text-fg' : 'border-line text-muted hover:text-fg'}"
       >
-    {/if}
-    <div class="ml-auto inline-flex rounded-lg border border-line bg-panel p-0.5" role="group" aria-label="Vue de l'espace de travail">
-      {#each [{ v: "board", l: "Tableau" }, { v: "list", l: "Liste" }] as const as o (o.v)}
-        <button
-          onclick={() => setWorkspaceView(o.v)}
-          aria-pressed={settings.workspaceView === o.v}
-          class="rounded-md px-3 py-1 text-sm transition
-            {settings.workspaceView === o.v ? 'bg-raised font-medium text-fg' : 'text-muted hover:text-fg'}"
-        >
-          {o.l}
-        </button>
-      {/each}
+        Anti-spoiler {settings.antiSpoiler ? "activé" : "désactivé"}
+      </button>
     </div>
+    <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+      <span>{shownCount} affiché{shownCount > 1 ? "s" : ""}</span>
+      {#if filtered}<button onclick={resetFilters} class="underline hover:text-fg">réinitialiser les filtres</button>{/if}
+      <button
+        onclick={onaddfree}
+        class="rounded-md border border-line px-2 py-0.5 transition hover:bg-raised hover:text-fg"
+        title="Carte rattachée au jeu, pas à un succès : route générale, objets à ne pas rater, compteur commun…"
+      >
+        + Carte libre
+      </button>
+      <button
+        onclick={onaddsection}
+        class="rounded-md border border-line px-2 py-0.5 transition hover:bg-raised hover:text-fg"
+        title="Groupe nommé et repliable : un chapitre, les collectibles, le grind…"
+      >
+        + Section
+      </button>
+      {#if hasSections}
+        <button onclick={() => setAllSections(true)} class="underline hover:text-fg">replier les sections</button>
+        <button onclick={() => setAllSections(false)} class="underline hover:text-fg">déplier les sections</button>
+      {/if}
+      {#if !canMove}<span>Pour déplacer des cartes, choisissez le tri « Mon ordre ».</span>{/if}
+    </div>
+    {#if moving != null}
+      <div class="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-accent/60 bg-raised px-3 py-2 text-sm shadow-lg">
+        <span class="min-w-0 flex-1">
+          Déplacement de <strong>« {movingLabel} »</strong> : cliquez sur la carte devant laquelle la placer, ou sur
+          « Mettre à la fin » dans l'en-tête d'une section.
+        </span>
+        <button onclick={() => (moving = null)} class="rounded-md border border-line px-2 py-0.5 hover:bg-panel">Annuler (Échap)</button>
+      </div>
+    {/if}
   </div>
 
-  {#if items.length === 0 && !hasSections}
-    <div
-      class="flex-1 px-6 pb-6"
-      role="region"
-      aria-label="Espace de travail vide"
-      ondragover={(e) => listDragOver(e, "top")}
-      ondragleave={() => (listHover = null)}
-      ondrop={(e) => listDrop(e, null)}
-    >
-      <div
-        class="grid min-h-60 place-items-center rounded-xl border-2 border-dashed p-8 text-center text-sm transition
-          {ui.draggingFromPanel || listHover ? 'border-accent bg-accent/5 text-fg' : 'border-line text-muted'}"
-      >
-        <div class="max-w-sm space-y-2">
-          <p class="text-base font-medium text-fg">Choisissez les succès à travailler</p>
-          <p>
-            Glissez-les ici depuis la liste de droite, ou cochez leurs cases puis « Ajouter à l'espace ».
-            Chacun deviendra une carte où ranger vos guides. Pour des notes qui concernent tout le jeu,
-            créez une « carte libre » ; pour regrouper vos cartes (phases, collectibles…), créez des sections.
-          </p>
-        </div>
-      </div>
-    </div>
-  {:else}
-    <div class="flex flex-1 flex-col pb-6 {settings.workspaceView === 'board' ? 'px-4' : 'px-6'}">
-      <!-- Zone du haut : cartes hors section (encadrée seulement quand il y a des sections) -->
-      {#if hasSections}
-        <div
-          data-zone="top"
-          role="group"
-          aria-label="Cartes hors section"
-          ondragover={(e) => zoneDragOver(e, "top")}
-          class="zone-frame mb-3 {dropZone === 'top' ? 'is-target' : ''}"
-          style:--zone-color="var(--color-muted)"
-        >
-          <div class="px-3 pt-1.5 text-xs font-medium tracking-wide text-muted uppercase">Hors section</div>
-          <div class={settings.workspaceView === "board" ? "p-1.5" : "p-2.5"}>{@render zone(groups[0])}</div>
-        </div>
-      {:else}
-        <div class="flex flex-1 flex-col">{@render zone(groups[0])}</div>
-      {/if}
-
-      <!-- Sections, dans l'ordre -->
-      {#each groups.slice(1) as g, i (g.key)}
-        {@const s = g.section!}
+  <div class="flex flex-1 flex-col gap-3 px-6 pt-3 pb-6">
+    {#each shown as { g, list }, i (g.key)}
+      {#if g.section}
+        {@const s = g.section}
         <section
           aria-label={s.title || "Section sans titre"}
-          data-zone={g.key}
-          ondragover={(e) => {
-            sectionDragOver(e, i);
-            zoneDragOver(e, g.key);
-          }}
+          ondragover={(e) => sectionDragOver(e, i)}
           ondrop={sectionDrop}
-          class="zone-frame relative mb-3 {sectionDrag === s.id ? 'opacity-50' : ''} {dropZone === g.key ? 'is-target' : ''}"
+          class="zone-frame relative {sectionDrag === s.id ? 'opacity-50' : ''}"
           style:--zone-color={sectionColor(s.color)}
         >
-          {#if dropIndex === i && sectionDrag != null}
-            <div class="drop-line -top-2"></div>
-          {/if}
+          {#if dropIndex === i && sectionDrag != null}<div class="drop-line -top-2"></div>{/if}
           {@render head(g, s, i)}
-          {#if !s.collapsed}
-            <div class={settings.workspaceView === "board" ? "p-1.5" : "p-2.5"}>{@render zone(g)}</div>
-          {/if}
-          {#if dropIndex === i + 1 && i === sections.length - 1 && sectionDrag != null}
-            <div class="drop-line -bottom-2"></div>
-          {/if}
+          {#if !s.collapsed}<div class="p-2.5">{@render cards(list, g)}</div>{/if}
+          {#if dropIndex === i + 1 && i === sections.length - 1 && sectionDrag != null}<div class="drop-line -bottom-2"></div>{/if}
         </section>
-      {/each}
-    </div>
-  {/if}
+      {:else if hasSections}
+        {@const t = tally(g)}
+        <section aria-label="Autres succès" class="zone-frame" style:--zone-color="var(--color-muted)">
+          <div class="section-head flex items-center gap-2 border-b px-3 py-1.5 text-sm">
+            <span class="font-semibold">Autres succès</span>
+            {@render endButton(null)}
+            <span class="text-xs text-muted tabular-nums">{t.done} / {t.total}</span>
+          </div>
+          <div class="p-2.5">{@render cards(list, g)}</div>
+        </section>
+      {:else}
+        {@render cards(list, g)}
+      {/if}
+    {/each}
+  </div>
 </div>
 
 <style>
   /* Pendant qu'une section est glissée, les cartes (et leurs vidéos) ne captent pas le glisser */
-  .section-dragging :global(.grid-stack-item),
   .section-dragging :global([data-card]) {
     pointer-events: none;
   }
-  /* Cadre d'une zone (section, ou « hors section ») dans la couleur de la section */
+  /* Cadre d'une section dans sa couleur */
   .zone-frame {
     border: 1px solid color-mix(in srgb, var(--zone-color) 70%, transparent);
     background: color-mix(in srgb, var(--zone-color) 7%, var(--color-bg));
     border-radius: 6px;
-    transition:
-      border-color 0.15s,
-      background-color 0.15s;
-  }
-  /* Zone où arrivera la carte en cours de glisser */
-  .zone-frame.is-target {
-    border-style: dashed;
-    border-color: var(--zone-color);
-    outline: 1px dashed var(--zone-color);
-    background: color-mix(in srgb, var(--zone-color) 12%, var(--color-bg));
   }
   .section-head,
   .section-band {
@@ -741,9 +662,6 @@
   .section-head {
     border-radius: 5px 5px 0 0;
   }
-  .section-head.is-hover {
-    background: color-mix(in srgb, var(--zone-color) 38%, var(--color-panel));
-  }
   .drop-line {
     position: absolute;
     left: 0;
@@ -752,5 +670,24 @@
     border-radius: 2px;
     background: var(--color-accent);
     pointer-events: none;
+  }
+  /* Cible de déplacement : le libellé n'apparaît qu'au survol */
+  .move-target:not(:hover):not(:focus-visible) span {
+    visibility: hidden;
+  }
+  /* Carte qui vient d'être déplacée */
+  .landed :global(.ws-card) {
+    animation: landed 1.3s ease-out;
+  }
+  @keyframes landed {
+    0% {
+      box-shadow: 0 0 0 3px var(--color-accent);
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+  :global([data-reduced-motion]) .landed :global(.ws-card) {
+    animation: none;
   }
 </style>

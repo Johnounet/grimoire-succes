@@ -101,8 +101,6 @@ export const api = {
   recentUnlocks: (limit: number) => invoke<RecentUnlock[]>("home_recent_unlocks", { limit }),
   workspaceList: (appid: number) => invoke<WorkspaceItem[]>("workspace_list", { appid }),
   workspaceSave: (appid: number, items: WorkspaceItem[]) => invoke<void>("workspace_save", { appid, items }),
-  workspaceCardSizes: (appid: number) =>
-    invoke<{ achievement_id: number; w: number; h: number }[]>("workspace_card_sizes", { appid }),
   /** Exporte le guide (fenêtre « Enregistrer sous » de Windows). Chemin du fichier, ou null si annulé. */
   guideExport: (appid: number, keepState: boolean) => invoke<string | null>("guide_export", { appid, keepState }),
   /** Importe un guide (fenêtre « Ouvrir » de Windows). Bilan, ou null si annulé. */
@@ -151,6 +149,7 @@ export type SettingKey =
   | "profile_url"
   | "workspace_view"
   | "panel_open"
+  | "state_filter"
   | "sidebar_open"
   | "shortcuts"
   | "shortcut_sound"
@@ -253,34 +252,19 @@ export interface CardOwner {
 export type CardKey = number;
 
 export const cardKey = (o: CardOwner): CardKey => (o.card_id != null ? -o.card_id : (o.achievement_id ?? 0));
-export const isFreeKey = (key: CardKey) => key < 0;
 /** Clé → forme attendue par le cœur Rust. */
 export const ownerOf = (key: CardKey): CardOwner =>
   key < 0 ? { achievement_id: null, card_id: -key } : { achievement_id: key, card_id: null };
 
 export interface WorkspaceItem extends CardOwner {
   collapsed: boolean;
-  /** null : pas encore placée dans le tableau (une place libre lui sera trouvée). */
+  /** Place dans l'ancien Tableau (grille libre retirée le 2026-11-15) : gardée telle quelle, plus utilisée. */
   grid: GridPos | null;
   /** Affichée dans le mode compact. */
   pinned: boolean;
-  /** Section de la carte ; absente ou null : zone du haut, hors section. `grid` est relatif à la section. */
+  /** Section de la carte ; absente ou null : hors section (« Autres succès »). */
   section?: number | null;
-  /** Interface seulement : taille voulue quand `grid` est null (taille mémorisée d'une carte remise). */
-  size?: { w: number; h: number };
-  /** Interface seulement : carte qui vient d'être ajoutée (le tableau l'agrandit à son contenu). */
-  fresh?: boolean;
 }
-
-/** Dernière taille connue des cartes de succès du jeu ouvert dans le tableau, y compris celles retirées
- *  de l'espace de travail (table `card_sizes`), par id du succès. Tenu à jour par la vue du jeu. */
-export const cardSizes = new Map<number, { w: number; h: number }>();
-
-/** Événement DOM (qui remonte) émis par un bloc dont le contenu vient de grandir : dans le Tableau,
- *  la carte qui le contient s'agrandit pour tout montrer si elle est trop petite. */
-export const FIT_CARD_EVENT = "fit-card";
-
-export const DRAG_MIME = "application/x-grimoire-ids";
 
 /** URL affichable d'une image enregistrée dans le dossier de données. */
 export function localImage(imagesDir: string, rel: string | null): string | null {

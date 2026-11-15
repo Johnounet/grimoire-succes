@@ -30,8 +30,8 @@ export const rarityTiers: { value: RarityFilter; label: string }[] = [
 ];
 
 export const sortOptions: { value: SortKey; label: string }[] = [
+  { value: "personal", label: "Mon ordre" },
   { value: "steam", label: "Ordre Steam" },
-  { value: "personal", label: "Ordre personnel" },
   { value: "name", label: "Nom" },
   { value: "rarest", label: "Plus rares d'abord" },
   { value: "commonest", label: "Plus communs d'abord" },
