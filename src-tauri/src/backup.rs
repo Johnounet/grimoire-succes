@@ -539,9 +539,9 @@ mod tests {
         let name: String = copy.query_row("SELECT name FROM games WHERE appid = 620", [], |r| r.get(0)).unwrap();
         assert_eq!(name, "Portal 2 (séance courte)");
         drop(copy);
-        // Rien de changé depuis la dernière automatique : pas de copie en plus
+        // L'erreur diffère de la dernière automatique : nouvelle copie ; puis plus rien de changé : aucune
         assert!(auto_if_changed(&conn, &data, &images).unwrap().is_some(), "l'erreur diffère de la dernière automatique");
-        assert!(auto_if_changed(&conn, &data, &images).unwrap().is_none());
+        assert!(auto_if_changed(&conn, &data, &images).unwrap().is_none(), "rien de changé depuis");
 
         // Automatiques élaguées (toutes du même jour : les 10 plus récentes) ; autres sortes intactes
         for _ in 0..12 {
