@@ -32,6 +32,8 @@
   } = $props();
   let open = $state(false);
   let button: HTMLButtonElement | undefined = $state();
+  /** Hauteur du menu ouvert, mesurée pour le placer du côté où il tient (popover.ts). */
+  let menuHeight = $state(0);
 </script>
 
 <div
@@ -61,7 +63,11 @@
       onkeydown={(e) => {
         if (e.key === "Escape") open = false;
       }}
-      style={popoverStyle(button, 256, "right")}
+      style={popoverStyle(button, 256, "right", menuHeight)}
+      {@attach (el) => {
+        menuHeight = el.scrollHeight;
+        return () => (menuHeight = 0);
+      }}
       class="z-50 rounded-lg border border-line bg-raised p-1 shadow-xl"
     >
       {#each items as it, i (i)}
