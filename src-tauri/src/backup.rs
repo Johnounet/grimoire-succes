@@ -261,14 +261,17 @@ pub fn before_migration(conn: &Connection, data_dir: &Path, images_dir: &Path) -
     Ok(Some(info))
 }
 
-/// Sauvegarde automatique si les données ont changé depuis la dernière sauvegarde, de toute sorte (une
-/// copie de fermeture ou manuelle identique suffit).
+/// Sauvegarde automatique si les données ont changé depuis la dernière sauvegarde **automatique**.
+/// Pas depuis la copie de fermeture : remplacée à chaque fermeture, elle ne garde pas ce qu'elle
+/// contient (une séance sans sauvegarde horaire serait perdue à la fermeture suivante) ; ni depuis
+/// une manuelle, que le joueur peut supprimer. Coût : après une séance avec des changements, la
+/// première automatique du démarrage suivant reprend le contenu de la copie de fermeture.
 pub fn auto_if_changed(conn: &Connection, data_dir: &Path, images_dir: &Path) -> Result<Option<BackupInfo>, String> {
     // Rien à protéger tant que la bibliothèque est vide (premier lancement)
     if db::library_appids(conn).map_err(err)?.is_empty() {
         return Ok(None);
     }
-    let previous = list(data_dir).into_iter().next();
+    let previous = list(data_dir).into_iter().find(|b| b.kind == Kind::Auto);
     let info = create(conn, data_dir, images_dir, Kind::Auto)?;
     let root = backups_dir(data_dir);
     if previous.is_some_and(|p| same_database(&root.join(&p.id).join(DB_FILE), &root.join(&info.id).join(DB_FILE))) {
@@ -289,7 +292,10 @@ pub fn on_close(conn: &Connection, data_dir: &Path, images_dir: &Path) -> Result
         return Err(format!("base abîmée, sauvegarde de fermeture non écrite : {problem}"));
     }
     let info = create(conn, data_dir, images_dir, Kind::Fermeture)?;
-    prune(data_dir, Kind::Fermeture, 1);
+    // Toutes les autres, même écrites dans la même seconde (l'ordre des noms ne suffirait pas)
+    for old in list(data_dir).into_iter().filter(|b| b.kind == Kind::Fermeture && b.id != info.id) {
+        let _ = std::fs::remove_dir_all(backups_dir(data_dir).join(&old.id));
+    }
     Ok(Some(info))
 }
 
@@ -518,7 +524,23 @@ mod tests {
         assert_eq!(all[0].id, close2.id);
         assert_eq!(all.iter().filter(|b| b.kind == Kind::Fermeture).count(), 1);
         assert!(all.iter().all(|b| b.id != close1.id));
-        // Fermeture identique aux données : pas de sauvegarde automatique en plus
+        // Séance fermée sans sauvegarde horaire, puis relance : l'automatique garde ce travail
+        // (la copie de fermeture, elle, sera remplacée à la prochaine fermeture)
+        conn.execute("UPDATE games SET name = 'Portal 2 (séance courte)'", []).unwrap();
+        let close3 = on_close(&conn, &data, &images).unwrap().unwrap();
+        let kept = auto_if_changed(&conn, &data, &images).unwrap().expect("travail de la séance gardé");
+        // Erreur à la séance suivante : la copie de fermeture est remplacée, l'automatique reste
+        db::delete_game(&conn, 620).unwrap();
+        conn.execute_batch("INSERT INTO games (appid, name, source, language, imported_at, refreshed_at) VALUES (400, 'X', 'local_cache', 'french', 0, 0);").unwrap();
+        on_close(&conn, &data, &images).unwrap().unwrap();
+        let all = list(&data);
+        assert!(all.iter().all(|b| b.id != close3.id));
+        let copy = Connection::open_with_flags(backups_dir(&data).join(&kept.id).join(DB_FILE), OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let name: String = copy.query_row("SELECT name FROM games WHERE appid = 620", [], |r| r.get(0)).unwrap();
+        assert_eq!(name, "Portal 2 (séance courte)");
+        drop(copy);
+        // Rien de changé depuis la dernière automatique : pas de copie en plus
+        assert!(auto_if_changed(&conn, &data, &images).unwrap().is_some(), "l'erreur diffère de la dernière automatique");
         assert!(auto_if_changed(&conn, &data, &images).unwrap().is_none());
 
         // Automatiques élaguées (toutes du même jour : les 10 plus récentes) ; autres sortes intactes
