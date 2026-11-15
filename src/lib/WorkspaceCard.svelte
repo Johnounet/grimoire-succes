@@ -8,7 +8,8 @@
   // Succès rattachés (`nested`) : lignes affichées sous la description ; la carte est alors complète.
   import type { Snippet } from "svelte";
   import BlockList from "./blocks/BlockList.svelte";
-  import { blocksOf, createBlock, imageFrom, saveBlock, uploadImage } from "./blocks/store.svelte";
+  import { blocksOf, createBlock, imageFrom, saveBlock, showToast, uploadImage } from "./blocks/store.svelte";
+  import { parseYouTube } from "./youtube";
   import HelpSearch from "./HelpSearch.svelte";
   import MoreMenu, { type MenuItem } from "./MoreMenu.svelte";
   import { openRelock } from "./settings.svelte";
@@ -91,6 +92,16 @@
   async function paste(e: ClipboardEvent) {
     const target = e.target as HTMLElement;
     if (target.closest("input, textarea, [contenteditable]")) return;
+    // Lien YouTube collé (demande de l'utilisateur, 2026-11-15) : nouveau bloc vidéo, sauf si la carte l'a déjà
+    const text = e.clipboardData?.getData("text/plain").trim() ?? "";
+    const ref = text && !/\s/.test(text) ? parseYouTube(text) : null;
+    if (ref) {
+      e.preventDefault();
+      const same = blocksOf(key).some((b) => b.kind === "video" && parseYouTube((b.data as { url: string }).url)?.id === ref.id);
+      if (same) return showToast("Cette vidéo est déjà sur la carte");
+      await createBlock(key, "video", { url: text, markers: [] });
+      return;
+    }
     const file = imageFrom(e.clipboardData);
     if (!file) return;
     e.preventDefault();
@@ -220,10 +231,11 @@
 {#if compact && a}
   <!-- Ligne compacte : succès sans guide -->
   <article
-    class="ws-card group relative flex items-center gap-2 rounded-[4px] border border-l-[3px] bg-panel py-1.5 pr-2 pl-2
+    class="ws-card group relative flex items-center gap-2 outline-none rounded-[4px] border border-l-[3px] bg-panel py-1.5 pr-2 pl-2
       {a.removed ? 'opacity-60' : ''} {moving ? 'ring-2 ring-accent' : ''} {checked ? 'unlocked-glow' : ''}"
     style:border-left-color={checked ? "var(--color-ok)" : undefined}
     aria-label={label}
+    tabindex="-1"
     onpaste={paste}
   >
     {@render checkbox("h-5 w-5")}
@@ -255,9 +267,10 @@
   </article>
 {:else}
   <article
-    class="ws-card group rounded-[4px] border border-l-[3px] bg-panel transition-colors {moving ? 'ring-2 ring-accent' : ''}"
+    class="ws-card group rounded-[4px] outline-none border border-l-[3px] bg-panel transition-colors {moving ? 'ring-2 ring-accent' : ''}"
     style:border-left-color={checked ? "var(--color-ok)" : undefined}
     aria-label={label}
+    tabindex="-1"
     onpaste={paste}
   >
     <header class="relative flex shrink-0 items-center gap-2 rounded-t-[3px] p-2 {checked ? 'unlocked-glow' : ''}">
