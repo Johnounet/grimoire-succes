@@ -61,7 +61,7 @@
   const estimate = (s: Succes) => (s.blocks.length ? 160 + 120 * s.blocks.length : 52);
 
   /** « suite » : l'ordre se lit colonne par colonne (comme un journal) ; « court » : colonne la plus courte. */
-  let packing = $state<"suite" | "court">("suite");
+  let packing = $state<"suite" | "court">("court");
 
   function columns(list: Succes[]): Succes[][] {
     if (packing === "suite") return inSequence(list);
