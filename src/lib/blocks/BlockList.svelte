@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Blocs d'une carte (succès ou carte libre) : affichage, réordonnancement, ajout, duplication, suppression.
+  // Blocs d'une carte (succès ou carte libre) : affichage, réordonnancement, ajout, suppression.
+  // (Bouton « Dupliquer » retiré le 2026-11-15 à la demande de l'utilisateur : il ne lui servait pas.)
   //
   // Réordonnancement par glisser HTML natif (poignée ⠿) et boutons ↑ ↓ au clavier.
   // Pas svelte-dnd-action ici : ses poignées partagent un état global, et une poignée de bloc
@@ -9,7 +10,7 @@
   import CounterBlock from "./CounterBlock.svelte";
   import ImageBlock from "./ImageBlock.svelte";
   import ListBlock from "./ListBlock.svelte";
-  import { blocksOf, createBlock, deleteBlock, duplicateBlock, reorderBlocks, saveBlock } from "./store.svelte";
+  import { blocksOf, createBlock, deleteBlock, reorderBlocks, saveBlock } from "./store.svelte";
   import TextBlock from "./TextBlock.svelte";
   import TimerBlock from "./TimerBlock.svelte";
   import type { CardKey } from "../library";
@@ -252,12 +253,6 @@
                 class="rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg disabled:opacity-30"
                 title="Descendre"
                 aria-label={`Descendre le bloc ${info.label}`}>↓</button
-              >
-              <button
-                onclick={() => duplicateBlock(b)}
-                class="rounded px-1.5 py-0.5 hover:bg-raised hover:text-fg"
-                title="Dupliquer"
-                aria-label={`Dupliquer le bloc ${info.label}`}>⧉</button
               >
               <button
                 onclick={() => deleteBlock(b)}

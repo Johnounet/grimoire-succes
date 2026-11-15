@@ -147,16 +147,6 @@ export async function deleteBlock(block: Block) {
   );
 }
 
-export function duplicateBlock(block: Block) {
-  const key = cardKey(block);
-  const list = blocks.byCard[key] ?? [];
-  const index = list.findIndex((b) => b.id === block.id);
-  const data = $state.snapshot(block.data);
-  // Un chronomètre dupliqué repart à l'arrêt
-  if (block.kind === "timer") Object.assign(data, { running_since: null });
-  return createBlock(key, block.kind, data, index + 1);
-}
-
 /** Nouvel ordre après un glisser-déposer. */
 export function reorderBlocks(key: CardKey, ordered: Block[]) {
   blocks.byCard[key] = ordered;

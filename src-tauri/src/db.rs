@@ -1643,7 +1643,7 @@ mod tests {
 
         let t = create_block(&mut conn, Owner::Achievement(ids[0]), "text", &json!({"markdown": "**coffre**"}), None).unwrap();
         let c = create_block(&mut conn, Owner::Achievement(ids[0]), "counter", &json!({"value": 3, "goal": 50, "step": 1}), None).unwrap();
-        // Duplication / annulation : insertion au milieu
+        // Annulation d'une suppression : insertion au milieu
         let i = create_block(&mut conn, Owner::Achievement(ids[0]), "image", &json!({"file": "blocks/x.png"}), Some(1)).unwrap();
         assert!(create_block(&mut conn, Owner::Achievement(ids[0]), "pas-un-type", &json!({}), None).is_err());
 
