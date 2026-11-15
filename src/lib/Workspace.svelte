@@ -207,6 +207,8 @@
     return [...free, ...rows.map((a) => byAch.get(a.id)!)];
   }
   const shown = $derived(groups.map((g) => ({ g, list: shownOf(g) })));
+  /** Rang de chaque carte affichée dans son groupe (1, 2, 3…), montré pendant un déplacement. */
+  const rank = $derived(new Map(shown.flatMap(({ list }) => list.map((it, i) => [cardKey(it), i + 1] as const))));
   const shownCount = $derived(shown.reduce((s, x) => s + x.list.length, 0));
 
   /** Bilan d'un groupe : succès obtenus / succès (hors retirés de Steam), et cartes libres. */
@@ -511,6 +513,14 @@
       >
         <span class="mt-1 rounded bg-accent px-2 py-0.5 text-xs font-semibold text-on-accent shadow">↳ Rattacher dans ce succès</span>
       </button>
+    {/if}
+    {#if moving != null}
+      <!-- Rang de la carte dans sa section : l'ordre réel, visible avant de choisir où poser la carte -->
+      <span
+        class="pointer-events-none absolute -top-1.5 -left-1.5 z-20 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px]
+          font-bold tabular-nums shadow {moving === key ? 'bg-accent text-on-accent' : 'border border-line bg-raised text-fg'}"
+        aria-hidden="true">{rank.get(key)}</span
+      >
     {/if}
     {#if moving != null && moving !== key}
       <!-- Cible du déplacement : toute la carte -->
